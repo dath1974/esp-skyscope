@@ -99,4 +99,5 @@ receiver's range, are missing, and positions may be late.
 
 ## License
 
-AGPL-3.0, see LICENSE and NOTICE.
+MIT, see LICENSE. A firmware image built from it includes ESPHome's GPL-3.0 runtime, so a compiled firmware you
+give to others comes under the GPL-3.0 (see NOTICE).
