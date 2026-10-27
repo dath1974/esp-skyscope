@@ -1,0 +1,17 @@
+esp-skyscope
+Copyright (c) 2026 the esp-skyscope contributors.
+
+esp-skyscope is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General
+Public License as published by the Free Software Foundation, version 3 of the License or (at your option) any later
+version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the full text.
+
+Libraries the firmware is built with (fetched at build time, not copied here):
+  ESPHome (https://esphome.io): C++ GPLv3, Python MIT.
+  LVGL (https://lvgl.io): MIT.
+  ArduinoJson (https://arduinojson.org): MIT.
+  pngle (https://github.com/kikuchan/pngle): MIT.
+  JPEGDEC (https://github.com/bitbank2/JPEGDEC): Apache-2.0.
+  Roboto and Roboto Condensed (Google Fonts): SIL Open Font License 1.1.
+
+Data the screen downloads at run time belongs to its providers and comes under their terms (README.md, "Data sources").

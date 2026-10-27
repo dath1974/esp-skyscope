@@ -1,0 +1,45 @@
+# Skyscope on a Waveshare ESP32-S3-Touch-AMOLED-2.41. Flash it once over USB (esphome run skyscope.yaml, or the
+# prebuilt firmware with ESPHome Web); after that it updates over Wi-Fi.
+#
+# First start: the screen opens a Wi-Fi network named after it ("Skyscope ...") and shows how to join it. Join it with
+# a phone, choose your own network on the page that opens, and the screen joins that network. Then open the address it
+# shows in a browser and set the place to watch. Everything after that is set on that page.
+substitutions:
+  name: skyscope
+  friendly_name: Skyscope
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # Each screen gets its own name (skyscope-1a2b3c), so two on one network do not clash.
+  name_add_mac_suffix: true
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+packages:
+  board: !include boards/waveshare-amoled-241.yaml
+
+logger:
+  level: INFO
+
+# No network is written in here: the screen is told one over its own Wi-Fi network (captive portal) or over USB
+# (Improv, from ESPHome Web), and keeps it.
+wifi:
+  ap:
+    ssid: "Skyscope Setup"
+    # With a network that cannot be reached, the setup network opens again after this long.
+    ap_timeout: 1min
+
+captive_portal:
+
+improv_serial:
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+
+skyscope:
+  setup_network: "Skyscope Setup"

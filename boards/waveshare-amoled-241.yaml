@@ -1,0 +1,128 @@
+# Waveshare ESP32-S3-Touch-AMOLED-2.41: a 2.41-inch 450 x 600 AMOLED panel (RM690B0 over QSPI) with FT6336 capacitive
+# touch, an ESP32-S3 with 16 MB of flash and 8 MB of octal PSRAM. A TCA9554 I2C expander (Rev 2.0 of the board) drives
+# the reset lines of the display (EXIO0) and the touch panel (EXIO1). An AMOLED has no backlight: the panel's own
+# brightness (DCS 0x51) stands in for it.
+#
+# The board's hardware and sizes only; what the screen does is components/skyscope.
+
+substitutions:
+  # 750 diagonal pixels over 2.41 inches.
+  DISPLAY_DPI: "311.2"
+  # LVGL's angle for lying down (600 x 450). 0 stands it up (450 x 600).
+  ROTATION: "90"
+  # Map tiles at twice their pixels: at 311 dpi a tile's words are too small to read at 1:1.
+  TILE_SCALE: "2"
+  FONT_SMALL_PX: "20"
+  FONT_LABEL_PX: "24"
+  FONT_TITLE_PX: "32"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    version: recommended
+    advanced:
+      assertion_level: SILENT
+      loop_task_stack_size: 16384
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+spi:
+  id: lcd
+  type: quad
+  clk_pin: GPIO10
+  data_pins: [GPIO11, GPIO12, GPIO13, GPIO14]
+
+i2c:
+  id: touch_bus
+  sda: GPIO47
+  scl: GPIO48
+  scan: false
+
+# TCA9554 GPIO expander, address 0x20; pca9554 is ESPHome's compatible component for it.
+pca9554:
+  id: io_expander
+  address: 0x20
+  i2c_id: touch_bus
+
+# The panel's brightness in the place of a backlight's PWM. The panel shows nothing below about 20 of 255, so a lit
+# screen starts there and 0 stays dark.
+output:
+  - platform: template
+    id: panel_brightness
+    type: float
+    write_action:
+      - lambda: 'id(panel)->set_brightness(state <= 0.0f ? 0 : 20 + (int) (state * 235.0f));'
+
+touchscreen:
+  - platform: ft63x6
+    id: touch
+    i2c_id: touch_bus
+    address: 0x38
+    interrupt_pin: GPIO3
+    update_interval: 20ms
+    reset_pin:
+      pca9554: io_expander
+      number: 1
+      mode: OUTPUT
+    display: panel
+
+display:
+  # The panel does not turn the picture (transform: disabled): turned in the panel (MADCTL), a frame lying down is
+  # written down the columns of its memory across the rows it scans and tears. LVGL turns each frame instead and sends
+  # native rows, started on the panel's tearing signal (panel_te_pin below).
+  - platform: mipi_spi
+    model: RM690B0
+    bus_mode: quad
+    id: panel
+    spi_id: lcd
+    # The RM690B0 has 480 columns and the glass shows 450 of them from column 16.
+    dimensions: {width: 450, height: 600, offset_width: 16}
+    # The RM690B0 takes windows that start and end on even pixels.
+    draw_rounding: 2
+    transform: disabled
+    cs_pin: GPIO9
+    # Waveshare's own demos drive the RM690B0 at 40 MHz; these pins reach the SPI peripheral through the GPIO matrix,
+    # so 80 MHz is out of reach.
+    data_rate: 40MHz
+    reset_pin:
+      pca9554: io_expander
+      number: 0
+      mode: OUTPUT
+    update_interval: never
+    auto_clear_enabled: false
+
+lvgl:
+  displays: [panel]
+  touchscreens:
+    - touchscreen_id: touch
+  # All of the screen, in PSRAM: the panel stands up and the screen lies down, so a strip of a smaller buffer would be a
+  # column of the panel's memory, and a diagonal (the radar's beam) would show one step per strip.
+  buffer_size: 100%
+  rotation: ${ROTATION}
+  log_level: WARN
+  default_font: font_label
+  # One empty page: the screen builds what it shows in C++ (components/skyscope).
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+
+font:
+  - {file: "gfonts://Roboto Condensed@500", id: font_small, size: "${FONT_SMALL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto Condensed@500", id: font_label, size: "${FONT_LABEL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto@500", id: font_title, size: "${FONT_TITLE_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+
+skyscope:
+  dpi: ${DISPLAY_DPI}
+  tile_scale: ${TILE_SCALE}
+  font_small: font_small
+  font_label: font_label
+  font_title: font_title
+  brightness_output: panel_brightness
+  # The RM690B0's tearing signal (OLED_TE): GPIO21 on Rev 2.0 of the board.
+  panel_te_pin: 21

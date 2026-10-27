@@ -1,0 +1,234 @@
+// The parts of Skyscope that need no screen or network, on a PC: settings, the feed's JSON, the tile plan, which planes
+// a frame shows and where, and the label placement. tests/run.sh builds and runs it; a reply saved from a feed can be
+// given as an argument to read it too.
+#include <ArduinoJson.h>
+
+#include <cassert>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
+
+#include "../components/skyscope/feed.h"
+#include "../components/skyscope/geo.h"
+#include "../components/skyscope/overlay.h"
+#include "../components/skyscope/plan.h"
+#include "../components/skyscope/settings.h"
+#include "../components/skyscope/tiles.h"
+
+using namespace sky;
+
+static int failures = 0;
+#define CHECK(cond)                                                     \
+  do {                                                                  \
+    if (!(cond)) {                                                      \
+      std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);       \
+      ++failures;                                                       \
+    }                                                                   \
+  } while (0)
+
+static bool near(double a, double b, double within) { return std::fabs(a - b) <= within; }
+
+static void test_geo() {
+  // Tile 0/0/0's middle is lat 0, lon 0.
+  const geo::Pixel p = geo::world(0, 0, 0);
+  CHECK(near(p.x, 128, 1e-9) && near(p.y, 128, 1e-9));
+  // The well-known tile of Heathrow at zoom 10: x 511, y 340.
+  const geo::Pixel lhr = geo::world(51.47, -0.4543, 10);
+  CHECK((int) (lhr.x / 256) == 510 && (int) (lhr.y / 256) == 340);
+  const geo::View v(40.64, -73.78, 10, 600, 450);
+  const geo::Pixel mid = v.point(40.64, -73.78);
+  CHECK(near(mid.x, 300, 1e-6) && near(mid.y, 225, 1e-6));
+  // A radius fills the short side.
+  const double z = geo::zoom_for_radius(40.64, 20 * geo::NM, 450);
+  const geo::View r(40.64, -73.78, z, 600, 450);
+  CHECK(near(20 * geo::NM / r.metres_per_px(), 225, 0.5));
+  CHECK(near(geo::metres_between(51.47, -0.4543, 40.64, -73.78) / 1000, 5540, 15));
+}
+
+static void test_settings() {
+  Settings s;
+  JsonDocument in;
+  deserializeJson(in, R"({"lat":51.47,"lon":-0.45,"range_nm":30,"map":"sectional","watch":[{"id":"g-ezab","colour":"blue"},{"id":"GEZAB"}]})");
+  std::string error;
+  CHECK(apply(in.as<JsonObjectConst>(), s, error));
+  CHECK(s.located && s.range_nm == 30 && s.map == SECTIONAL);
+  CHECK(s.watch.size() == 1 && s.watch[0].id == "GEZAB" && s.watch[0].colour == 4);
+  // A wrong key changes nothing and is named.
+  JsonDocument bad;
+  deserializeJson(bad, R"({"range_nm":10,"map":"nowhere"})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "map" && s.range_nm == 30);
+  deserializeJson(bad, R"({"alt_min":20000,"alt_max":10000})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "alt_min");
+  deserializeJson(bad, R"({"custom_url":"ftp://x/{z}"})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "custom_url");
+  // Round trip.
+  JsonDocument out;
+  to_json(s, out.to<JsonObject>());
+  Settings back;
+  CHECK(apply(out.as<JsonObjectConst>(), back, error));
+  CHECK(back.lat == s.lat && back.map == s.map && back.watch.size() == 1 && back.tint == s.tint);
+  // The stored JSON fits its slot (skyscope.cpp Stored) even with every watched plane.
+  for (int i = 0; i < 12; ++i) s.watch.push_back({"N" + std::to_string(10000 + i), i % 6});
+  s.custom_url = std::string("https://") + std::string(180, 'a') + "/{z}/{x}/{y}.png";
+  JsonDocument full;
+  to_json(s, full.to<JsonObject>());
+  CHECK(measureJson(full) < 1800);
+}
+
+static const char *REPLY = R"({"ac":[
+ {"hex":"A1B2C3","flight":"TEST12  ","r":"N12345","t":"B738","alt_baro":35000,"gs":450.5,"track":90,"baro_rate":-1500,"squawk":"1234","lat":40.70,"lon":-73.70,"seen_pos":0.4},
+ {"hex":"abc001","flight":"GND1","alt_baro":"ground","gs":12,"track":180,"lat":40.64,"lon":-73.78},
+ {"hex":"abc002","flight":"NOPOS","alt_baro":5000},
+ {"hex":"abc003","flight":"STALE","alt_baro":5000,"lat":40.6,"lon":-73.8,"seen_pos":300},
+ {"hex":"abc004","alt_baro":2500,"lat":40.66,"lon":-73.79,"squawk":"7700"}
+],"msg":"No error","now":1}
+)";
+
+static void test_feed() {
+  JsonDocument doc;
+  std::vector<feed::Flight> flights;
+  std::string error;
+  CHECK(feed::parse(REPLY, std::strlen(REPLY), doc, flights, error));
+  CHECK(flights.size() == 3);
+  const feed::Flight &a = flights[0];
+  CHECK(a.hex == "a1b2c3" && a.callsign == "TEST12" && a.has_altitude && a.altitude == 35000 && a.has_heading && a.climb == -1500);
+  CHECK(flights[1].on_ground && !flights[1].has_altitude);
+  CHECK(flights[2].emergency);
+  // adsb.fi's list is `aircraft`.
+  std::string fi = REPLY;
+  fi.replace(fi.find("\"ac\""), 4, "\"aircraft\"");
+  CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error) && flights.size() == 3);
+  CHECK(!feed::parse("{\"msg\":\"bad\"}", 13, doc, flights, error) && error == "bad");
+  CHECK(!feed::parse("<html>", 6, doc, flights, error));
+  CHECK(feed::url(ADSB_LOL, 40.64, -73.78, 400) == "https://api.adsb.lol/v2/point/40.6400/-73.7800/250");
+  CHECK(feed::url(ADSB_FI, 1, 2, 5) == "https://opendata.adsb.fi/api/v2/lat/1.0000/lon/2.0000/dist/5");
+}
+
+static void test_tiles() {
+  Settings s;
+  s.lat = 40.64;
+  s.lon = -73.78;
+  s.located = true;
+  s.range_nm = 20;
+  s.map = CARTO_DARK;
+  tiles::Plan p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.view.zoom == std::floor(p.view.zoom));
+  CHECK(p.tile_z == (int) p.view.zoom - 1);
+  CHECK(!p.keys.empty() && p.keys.size() <= 9);
+  // Every pixel of the frame is under one of the tiles.
+  for (int y = 0; y < 450; y += 449)
+    for (int x = 0; x < 600; x += 599) {
+      bool covered = false;
+      for (const auto &k : p.keys) {
+        const geo::TileOrigin o = geo::tile_origin(p.view, k.z, k.x, k.y);
+        covered |= x >= o.x && x < o.x + 256 * o.scale && y >= o.y && y < o.y + 256 * o.scale;
+      }
+      CHECK(covered);
+    }
+  // The middle's tile first.
+  const geo::TileOrigin first = geo::tile_origin(p.view, p.keys[0].z, p.keys[0].x, p.keys[0].y);
+  CHECK(300 >= first.x && 300 < first.x + 256 * first.scale);
+  CHECK(tiles::url(s, p.keys[0]).rfind("https://basemaps.cartocdn.com/dark_all/", 0) == 0);
+  // A chart is drawn from its sharpest zoom, enlarged, and not at all far out.
+  s.map = SECTIONAL;
+  s.range_nm = 3;
+  p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.tile_z == 11);
+  s.range_nm = 250;
+  p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.tile_z == -1 && p.keys.empty());
+  // The radar is drawn from nothing, at the exact range.
+  s.map = RADAR;
+  s.range_nm = 20;
+  p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.keys.empty() && near(20 * geo::NM / p.view.metres_per_px(), 225, 0.5));
+  s.map = CUSTOM;
+  s.custom_url = "https://t.example/{z}/{x}/{y}.png";
+  CHECK(tiles::url(s, {CUSTOM, 3, 1, 2}) == "https://t.example/3/1/2.png");
+  const uint8_t png[] = {0x89, 'P', 'N', 'G', 13, 10, 26, 10}, jpg[] = {0xFF, 0xD8, 0xFF};
+  CHECK(tiles::format_of(png, 8) == tiles::PNG && tiles::format_of(jpg, 3) == tiles::JPEG);
+  CHECK(tiles::rgb565(255, 255, 255) == 0xFFFF && tiles::rgb565(255, 0, 0) == 0xF800);
+  // Inverted, white paper goes black and black ink white.
+  const tiles::Filter night{FILTER_INVERT, 256};
+  CHECK(tiles::paint(night, 255, 255, 255) == 0 && tiles::paint(night, 0, 0, 0) == 0xFFFF);
+}
+
+static void test_overlay() {
+  JsonDocument doc;
+  std::vector<feed::Flight> flights;
+  std::string error;
+  feed::parse(REPLY, std::strlen(REPLY), doc, flights, error);
+  Settings s;
+  s.lat = 40.64;
+  s.lon = -73.78;
+  s.range_nm = 20;
+  s.map = RADAR;
+  tiles::Plan p = tiles::plan(s, 600, 450, 1);
+  overlay::Tracks tracks;
+  tracks.update(flights, 1000);
+  // Ground traffic is hidden unless asked for.
+  plan::Overlay o = overlay::build(flights, s, p.view, tracks, 1000, 12.25f, true);
+  CHECK(o.planes.size() == 2);
+  s.ground = true;
+  o = overlay::build(flights, s, p.view, tracks, 1000, 12.25f, true);
+  CHECK(o.planes.size() == 3);
+  // The closest to the middle first; the one on the airport is in the middle.
+  CHECK(o.planes[0].id == "abc001" && std::abs(o.planes[0].x - 300) <= 1 && std::abs(o.planes[0].y - 225) <= 1);
+  // East at 450 kt: about 7.5 NM a minute, to the right.
+  const auto &east = *std::find_if(o.planes.begin(), o.planes.end(), [](const plan::Plane &q) { return q.id == "a1b2c3"; });
+  CHECK(east.vx > 0 && std::abs(east.vy) <= 1);
+  CHECK(near(east.vx / (225.0 / 20), 7.5, 0.3));
+  CHECK(east.band == 4);
+  // Watched planes come last and always show.
+  s.watch = {{"N12345", 2}};
+  s.alt_max = 10000;
+  o = overlay::build(flights, s, p.view, tracks, 1000, 12.25f, true);
+  CHECK(o.planes.back().id == "a1b2c3" && o.planes.back().watch == 3);
+  // A track is the places it was.
+  flights[0].lat += 0.01;
+  tracks.update(flights, 11000);
+  s.track_s = 60;
+  o = overlay::build(flights, s, p.view, tracks, 11000, 12.25f, true);
+  CHECK(o.planes.back().track.size() == 4);
+  CHECK(overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\nFL350 451 kt" ||
+        overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\nFL350 450 kt");
+  CHECK(overlay::label_of(flights[2], LABEL_CALLSIGN, false) == "ABC004");
+  CHECK(overlay::altitude_text(flights[2], false) == "2500 ft" && overlay::altitude_text(flights[2], true) == "760 m");
+  // Gone from the feed for two minutes: forgotten.
+  tracks.update({}, 11000 + overlay::FORGET_MS + 1);
+  CHECK(tracks.size() == 0);
+}
+
+static void test_labels() {
+  std::vector<plan::Label> labels(3);
+  labels[0] = {{100, 100}, 6, 60, 20, false};
+  labels[1] = {{104, 100}, 6, 60, 20, false};
+  labels[2] = {{590, 100}, 6, 60, 20, true};
+  const auto placed = plan::place_labels(labels, 600, 450, 4, 20);
+  CHECK(placed[0].shown && placed[1].shown && placed[2].shown);
+  CHECK(!plan::overlaps(placed[0].box, placed[1].box));
+  CHECK(placed[2].box.x + placed[2].box.w <= 600);
+}
+
+int main(int argc, char **argv) {
+  test_geo();
+  test_settings();
+  test_feed();
+  test_tiles();
+  test_overlay();
+  test_labels();
+  for (int i = 1; i < argc; ++i) {
+    std::ifstream file(argv[i]);
+    std::stringstream text;
+    text << file.rdbuf();
+    const std::string reply = text.str();
+    JsonDocument doc;
+    std::vector<feed::Flight> flights;
+    std::string error;
+    const bool ok = feed::parse(reply.c_str(), reply.size(), doc, flights, error);
+    std::printf("%s: %s, %zu aircraft with a position\n", argv[i], ok ? "read" : error.c_str(), flights.size());
+    CHECK(ok && !flights.empty());
+  }
+  std::printf(failures ? "%d FAILED\n" : "All passed\n", failures);
+  return failures ? 1 : 0;
+}
