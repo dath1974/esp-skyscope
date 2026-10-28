@@ -647,8 +647,7 @@ void Skyscope::update_status_(uint32_t now) {
     status = "Finding aircraft...";
   } else {
     status = std::to_string(shown_count_) + " aircraft";
-    // From another exchange while the preferred one waits: which, and how long it still waits.
-    if (source != preferred) status += std::string(" via ") + feed::credit(source);
+    // While the preferred exchange waits, how long it still waits. Where the planes come from is in the credits.
     if (first.blocked && providers::before(now, first.until))
       status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);
     if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) {
