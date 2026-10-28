@@ -161,6 +161,15 @@ void Skyscope::save_settings_() {
 }
 
 void Skyscope::use_settings_(const Settings &s) {
+  // Another way up takes new buffers and a new layout of everything on the glass: saved, and the screen starts again
+  // that way up.
+  if (s.rotation != settings_.rotation && ui_built_) {
+    settings_ = s;
+    save_settings_();
+    ESP_LOGI(TAG, "Rotation %d: restarting", s.rotation);
+    this->set_timeout(400, []() { App.safe_reboot(); });
+    return;
+  }
   const bool frame_changed = s.lat != settings_.lat || s.lon != settings_.lon || s.range_nm != settings_.range_nm ||
                              s.map != settings_.map || s.custom_url != settings_.custom_url ||
                              s.filter != settings_.filter || s.dim != settings_.dim || s.tile_scale != settings_.tile_scale ||
@@ -280,6 +289,14 @@ void Skyscope::loop() {
 
 void Skyscope::build_ui_() {
   lv_display_t *display = lv_display_get_default();
+  {
+    const int w = lv_display_get_horizontal_resolution(display), h = lv_display_get_vertical_resolution(display);
+    const bool turned = lvgl_ && (lvgl_->get_rotation() == display::DISPLAY_ROTATION_90_DEGREES ||
+                                  lvgl_->get_rotation() == display::DISPLAY_ROTATION_270_DEGREES);
+    native_width_ = turned ? h : w;
+    native_height_ = turned ? w : h;
+  }
+  if (lvgl_ && settings_.rotation >= 0) lvgl_->set_rotation(settings_.rotation);
   width_ = lv_display_get_horizontal_resolution(display);
   height_ = lv_display_get_vertical_resolution(display);
   const size_t pixels = (size_t) width_ * height_;

@@ -13,6 +13,7 @@
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/settings.h"
+#include "../components/skyscope/sprites.h"
 #include "../components/skyscope/tiles.h"
 
 using namespace sky;
@@ -59,6 +60,10 @@ static void test_settings() {
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "map" && s.range_nm == 30);
   deserializeJson(bad, R"({"alt_min":20000,"alt_max":10000})");
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "alt_min");
+  deserializeJson(bad, R"({"rotation":45})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "rotation");
+  deserializeJson(bad, R"({"rotation":270})");
+  CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.rotation == 270);
   deserializeJson(bad, R"({"custom_url":"ftp://x/{z}"})");
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "custom_url");
   // Round trip.
@@ -199,6 +204,24 @@ static void test_overlay() {
   CHECK(tracks.size() == 0);
 }
 
+static void test_sprites() {
+  // A plane pointing north: its nose at the top, solid in the middle, nothing in the corners.
+  const sprites::Mask m = sprites::render(30, 0);
+  CHECK(m.size == 33 && m.alpha.size() == 33u * 33u);
+  auto at = [&](int x, int y) { return m.alpha[(size_t) y * m.size + x]; };
+  CHECK(at(16, 16) == 255 && at(0, 0) == 0 && at(32, 32) == 0);
+  CHECK(at(16, 3) > 0 && at(16, 30) > 0);  // nose and tail
+  // Turned east, the nose is on the right.
+  const sprites::Mask e = sprites::render(30, 90 / sprites::HEADING_STEP);
+  CHECK(e.alpha[16 * e.size + 30] > 0 && e.alpha[3 * e.size + 16] == 0);
+  CHECK(sprites::heading_step(359) == 0 && sprites::heading_step(2) == 1 && sprites::heading_step(-1) == 0);
+  sprites::Cache<int> cache;
+  cache.get(30, 90);
+  cache.get(30, 91);
+  cache.get(31, 90);
+  CHECK(cache.size() == 2);
+}
+
 static void test_labels() {
   std::vector<plan::Label> labels(3);
   labels[0] = {{100, 100}, 6, 60, 20, false};
@@ -217,6 +240,7 @@ int main(int argc, char **argv) {
   test_tiles();
   test_overlay();
   test_labels();
+  test_sprites();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

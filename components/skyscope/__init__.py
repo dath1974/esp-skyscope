@@ -25,6 +25,10 @@ CONF_PANEL_TE_PIN = "panel_te_pin"
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
 
+lvgl_ns = cg.esphome_ns.namespace("lvgl")
+LvglComponent = lvgl_ns.class_("LvglComponent")
+CONF_LVGL_ID = "lvgl_id"
+
 web_server_base_ns = cg.esphome_ns.namespace("web_server_base")
 WebServerBase = web_server_base_ns.class_("WebServerBase")
 
@@ -32,6 +36,8 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(Skyscope),
         cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(WebServerBase),
+        # The LVGL component whose rotation the settings page sets.
+        cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
         # The glass's density: every size on the screen is worked out from it.
         cv.Optional(CONF_DPI, default=200.0): cv.float_range(min=80, max=600),
         # How many pixels of the glass one map tile pixel takes by default: 2 on a dense glass, so a map's words can be read.
@@ -70,6 +76,7 @@ async def to_code(config):
     await cg.register_component(var, config)
     base = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     cg.add(var.set_web_server_base(base))
+    cg.add(var.set_lvgl(await cg.get_variable(config[CONF_LVGL_ID])))
     small = await cg.get_variable(config[CONF_FONT_SMALL])
     label = await cg.get_variable(config[CONF_FONT_LABEL])
     title = await cg.get_variable(config[CONF_FONT_TITLE])

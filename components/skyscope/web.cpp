@@ -106,6 +106,9 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     out["psram_free"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     out["glass"] = std::to_string(width_) + "x" + std::to_string(height_);
+    // The panel's own way up (rotation 0, nothing turned) and the rotation now.
+    out["glass_native"] = std::to_string(native_width_) + "x" + std::to_string(native_height_);
+    out["rotation"] = lvgl_ ? (int) lvgl_->get_rotation() : 0;
     // Frames of the last five seconds: how many a second, and how long one took on average and at most.
     out["frames_per_s"] = std::round(ui::frame_stats.per_second * 10) / 10;
     out["frame_ms_avg"] = std::round(ui::frame_stats.average_ms * 10) / 10;

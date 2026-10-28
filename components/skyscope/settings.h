@@ -76,6 +76,7 @@ struct Settings {
   int track_s = 60;
   std::vector<Watch> watch;
   // The screen.
+  int rotation = -1;  // degrees: 0, 90, 180 or 270, or -1 for the board's own (its YAML's lvgl: rotation)
   bool metric = false;
   int brightness = 80;
 };
@@ -120,6 +121,7 @@ inline void to_json(const Settings &s, JsonObject o) {
     e["id"] = item.id;
     e["colour"] = WATCH_COLOURS[item.colour];
   }
+  o["rotation"] = s.rotation;
   o["metric"] = s.metric;
   o["brightness"] = s.brightness;
 }
@@ -203,6 +205,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
         n.watch.push_back({id, colour});
     }
   }
+  if (!number("rotation", n.rotation, -1, 270) || (n.rotation >= 0 && n.rotation % 90)) return fail("rotation");
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");
   s = std::move(n);

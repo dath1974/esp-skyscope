@@ -68,12 +68,15 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <section><h2>Screen</h2>
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
 <div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Metres, km/h</option></select></div></div>
+<label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="-1">The board's default</option>
+<option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
+<p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
 </section>
 <div class="bar"><button type="submit">Save</button><button type="button" class="plain" id="reboot">Restart</button><span id="msg"></span></div>
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','dim','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness'];
+const NUM=['lat','lon','range_nm','dim','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
 const BOOL=['rings','sweep','by_altitude','glide','ground'];
 const TXT=['map','custom_url','filter','tint','feed','marker','label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
@@ -110,7 +113,12 @@ async function find(){const q=$('q').value.trim();if(!q)return;$('found').textCo
  catch(e){$('used').textContent='The search needs internet access in this browser'}}
 $('find').onclick=find;
 $('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};
-async function status(){try{const s=await(await fetch('api/status')).json();
+// Each rotation named portrait or landscape for this panel, from its own way up; 0 marked as the least expensive.
+let named=false;
+function name_rotations(native){if(named||!native)return;named=true;const [w,h]=native.split('x').map(Number);
+ for(const o of $('rotation').options){const a=+o.value;if(a<0)continue;const wide=(a%180===0)?w>h:h>w;
+  o.textContent=a+'\u00b0, '+(wide?'landscape':'portrait')+(a===0?' (least expensive)':a===180?' (cheap)':'')}}
+async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
  let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error;
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}

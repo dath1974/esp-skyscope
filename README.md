@@ -50,6 +50,10 @@ Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen'
 
 Every setting lives on that page and is kept by the screen across restarts and updates.
 
+**Rotation** is set on that page too (the screen restarts to turn). 0° is the panel's own way up and the least
+expensive: every other angle turns each frame in software, and 90° and 270° cost the most (on the AMOLED 2.41, 0° is
+portrait and 90° landscape).
+
 ## The web page and API
 
 The screen serves its settings page at `/` and a small JSON API beside it:
@@ -58,7 +62,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, frame timing, rotation |
 | `GET /api/aircraft` | the planes of the last report |
 | `POST /api/reboot` | restarts the screen |
 

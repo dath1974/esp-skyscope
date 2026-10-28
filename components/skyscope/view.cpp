@@ -2,11 +2,15 @@
 // planes with their tracks and labels cost one object and one redraw.
 #include "view.h"
 #include "colours.h"
+#include "sprites.h"
 #include "ui.h"
+
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <map>
 #include <cmath>
+#include <cstring>
 
 namespace sky::view {
 namespace ap = plan;
@@ -112,14 +116,41 @@ static void dot(lv_layer_t *layer, ap::Point c, int d, lv_color_t fill, int bord
   lv_area_t box{x, y, x + d - 1, y + d - 1};
   lv_draw_rect(layer, &dsc, &box);
 }
+// A plane symbol, stamped from its mask (sprites.h) in `colour`: the mask in PSRAM, drawn by LVGL as an A8 image, one
+// blend over its pixels.
+struct Image {
+  uint8_t *data = nullptr;
+  lv_image_dsc_t dsc{};
+};
+static sprites::Cache<Image> symbols;
 static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, lv_color_t colour, lv_opa_t opa) {
-  for (const auto &t : ap::plane_shape(c, size, heading)) {
-    lv_draw_triangle_dsc_t dsc;
-    lv_draw_triangle_dsc_init(&dsc);
-    dsc.color = colour; dsc.opa = opa;
-    for (int n = 0; n < 3; ++n) dsc.p[n] = precise(t.p[n]);
-    lv_draw_triangle(layer, &dsc);
+  auto &entry = symbols.get((int) std::lround(size), heading);
+  Image &image = entry.extra;
+  if (!image.data) {
+    const sprites::Mask &m = entry.mask;
+    image.data = static_cast<uint8_t *>(heap_caps_malloc(m.alpha.size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!image.data) return;
+    std::memcpy(image.data, m.alpha.data(), m.alpha.size());
+    image.dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    image.dsc.header.cf = LV_COLOR_FORMAT_A8;
+    image.dsc.header.w = m.size;
+    image.dsc.header.h = m.size;
+    image.dsc.header.stride = m.size;
+    image.dsc.data_size = m.alpha.size();
+    image.dsc.data = image.data;
+    // Its pixels live in PSRAM now, not in the internal heap.
+    entry.mask.alpha = {};
   }
+  const int n = image.dsc.header.w;
+  const int x = (int) std::lround(c.x - n / 2.0f), y = (int) std::lround(c.y - n / 2.0f);
+  lv_draw_image_dsc_t d;
+  lv_draw_image_dsc_init(&d);
+  d.src = &image.dsc;
+  d.recolor = colour;
+  d.recolor_opa = LV_OPA_COVER;
+  d.opa = opa;
+  lv_area_t area{x, y, x + n - 1, y + n - 1};
+  lv_draw_image(layer, &d, &area);
 }
 
 // The middle of a scope on the glass, and how far its beam reaches: to its rose, else the farthest corner.

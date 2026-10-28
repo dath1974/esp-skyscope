@@ -11,6 +11,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/font/font.h"
+#include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/output/float_output.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 
@@ -38,6 +39,7 @@ std::string own_address();
 class Skyscope : public Component, public AsyncWebHandler {
  public:
   void set_web_server_base(web_server_base::WebServerBase *base) { base_ = base; }
+  void set_lvgl(lvgl::LvglComponent *lvgl) { lvgl_ = lvgl; }
   void set_fonts(font::Font *small, font::Font *label, font::Font *title) {
     font_small_ = small;
     font_label_ = label;
@@ -102,6 +104,8 @@ class Skyscope : public Component, public AsyncWebHandler {
   void replan_();
 
   web_server_base::WebServerBase *base_{nullptr};
+  lvgl::LvglComponent *lvgl_{nullptr};
+  int native_width_{0}, native_height_{0};  // the panel's own way up, rotation 0
   font::Font *font_small_{nullptr}, *font_label_{nullptr}, *font_title_{nullptr};
   output::FloatOutput *brightness_{nullptr};
   float dpi_{200};
