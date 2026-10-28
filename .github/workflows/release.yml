@@ -25,7 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # the tag's message
+          fetch-depth: 0
+
+      # The tag itself: checkout leaves a lightweight copy of it, whose message would be the commit's.
+      - name: The tag's message
+        run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
 
       - name: The tag and skyscope.yaml name the same version
         id: version
