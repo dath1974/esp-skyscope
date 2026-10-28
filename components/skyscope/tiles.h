@@ -20,6 +20,10 @@ struct Source {
   const char *credit;  // what the screen credits, as the server's terms ask
   const char *labels = nullptr;  // a layer of place names over it (transparent PNG, same squares), where it has one
   const char *labels_credit = nullptr;  // what that layer credits, where it is not the map's own
+  // A scan of a printed chart (the FAA's): its words are part of the chart, at the chart's scale, so its tiles are drawn
+  // at their own pixels from the level nearest the view (the server's own resampling of the scan is smooth), never one
+  // level out and enlarged as a drawn map's are to make its words readable.
+  bool scanned = false;
 };
 #define SKYSCOPE_ESRI "https://server.arcgisonline.com/ArcGIS/rest/services/"
 
@@ -41,9 +45,9 @@ inline constexpr Source SOURCES[] = {
                      SKYSCOPE_ESRI "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
                      "HERE, Garmin, \xC2\xA9 OpenStreetMap"},
     /* TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS"},
-    /* SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA"},
-    /* IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA"},
-    /* IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA"},
+    /* SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA", nullptr, nullptr, true},
+    /* IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA", nullptr, nullptr, true},
+    /* IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA", nullptr, nullptr, true},
     /* CUSTOM */ {"", 0, 19, ""},
 };
 #undef SKYSCOPE_FAA
@@ -91,7 +95,8 @@ inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   const int zoom = (int) std::floor(wanted + 0.5);
   out.view = geo::View(s.lat, s.lon, zoom, w, h);
   const Source &src = source(s.map);
-  const int up = tile_scale >= 2 ? 1 : 0;
+  // A drawn map one level out, enlarged twice, on a dense glass (its words readable); a scanned chart at its own pixels.
+  const int up = tile_scale >= 2 && !src.scanned ? 1 : 0;
   int tz = std::max(src.min_z, std::min(src.max_z, zoom - up));
   const int shift = (int) out.view.zoom - tz;
   if (shift > MOST_UP || shift < -MOST_DOWN) return out;

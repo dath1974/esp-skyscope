@@ -183,6 +183,16 @@ static void test_tiles() {
   s.range_nm = 3;
   p = tiles::plan(s, 600, 450, 2);
   CHECK(p.tile_z == 11);
+  // At 6 NM the view is zoom 11: the sectional's own level 11 at its pixels, not level 10 enlarged (a scan's words are
+  // the chart's, and the server's resampling is smooth).
+  s.range_nm = 6;
+  p = tiles::plan(s, 450, 600, 2);
+  CHECK(p.view.zoom == 11 && p.tile_z == 11);
+  // A drawn map at the same view still takes a level out, enlarged, so its words can be read.
+  s.map = TOPO;
+  p = tiles::plan(s, 450, 600, 2);
+  CHECK(p.tile_z == 10);
+  s.map = SECTIONAL;
   s.range_nm = 250;
   p = tiles::plan(s, 600, 450, 2);
   CHECK(p.tile_z == -1 && p.keys.empty());

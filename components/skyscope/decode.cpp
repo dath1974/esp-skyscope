@@ -1,5 +1,8 @@
-// A map tile's PNG or JPEG painted straight into the frame: each tile pixel lands where tiles::plan put its tile,
-// enlarged (or made smaller) by a power of two, through the map's filter. No tile is ever held decoded.
+// A map tile's PNG or JPEG painted into the frame: decoded whole into a tile of its own (its colours through the map's
+// filter, and how opaque each pixel is), then laid where tiles::plan put it: at its own pixels, enlarged smoothly
+// (each pixel of the frame a blend of the four tile pixels nearest it, so a chart's words and lines keep their shape
+// rather than turning into steps), or made smaller. A pixel only partly opaque (a place name's edge, a chart's border)
+// is blended over what is already there.
 #include "decode.h"
 
 #include <JPEGDEC.h>
@@ -7,23 +10,34 @@
 
 #include <esp_heap_caps.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
 namespace sky::decode {
 namespace {
-struct Target {
-  uint16_t *frame;
-  int width, height;
-  int ox, oy;     // where the tile's first pixel lands
-  int up;         // > 0: each tile pixel is 1 << up pixels across
-  int down;       // > 0: one of every 1 << down tile pixels is kept
+constexpr int TILE = 256;
+
+// The tile as decoded: RGB565 and opacity (0 to 255), in PSRAM, kept for the worker's whole life (it alone decodes).
+struct Scratch {
+  uint16_t *colour = nullptr;
+  uint8_t *alpha = nullptr;
+  bool ready() {
+    if (!colour) colour = static_cast<uint16_t *>(heap_caps_malloc(TILE * TILE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!alpha) alpha = static_cast<uint8_t *>(heap_caps_malloc(TILE * TILE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return colour && alpha;
+  }
+};
+Scratch scratch;
+
+struct Decoding {
   tiles::Filter filter;
+  int width = 0, height = 0;  // what the image says it is, at most TILE a side
 };
 
-// `colour` over the frame's pixel, `alpha` of it (255: all of it): a place name's soft edges over the map under it.
-inline uint16_t over(uint16_t under, uint16_t colour, uint32_t alpha) {
+inline uint16_t blend(uint16_t under, uint16_t colour, uint32_t alpha) {
   if (alpha >= 255) return colour;
+  if (alpha == 0) return under;
   const uint32_t a = alpha + (alpha >> 7);  // 0 to 256
   const uint32_t r = ((under >> 11) * (256 - a) + (colour >> 11) * a) >> 8;
   const uint32_t g = ((under >> 5 & 0x3F) * (256 - a) + (colour >> 5 & 0x3F) * a) >> 8;
@@ -31,85 +45,136 @@ inline uint16_t over(uint16_t under, uint16_t colour, uint32_t alpha) {
   return (uint16_t) (r << 11 | g << 5 | b);
 }
 
-inline void put(const Target &t, int x, int y, uint16_t colour, uint32_t alpha = 255) {
-  if (t.down) {
-    const int mask = (1 << t.down) - 1;
-    if ((x & mask) || (y & mask)) return;
-    x >>= t.down;
-    y >>= t.down;
-    const int fx = t.ox + x, fy = t.oy + y;
-    if (fx >= 0 && fy >= 0 && fx < t.width && fy < t.height) {
-      uint16_t &px = t.frame[fy * t.width + fx];
-      px = over(px, colour, alpha);
+void png_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
+  const Decoding &d = *static_cast<const Decoding *>(pngle_get_user_data(pngle));
+  const uint16_t colour = tiles::paint(d.filter, rgba[0], rgba[1], rgba[2]);
+  for (uint32_t dy = 0; dy < h; ++dy)
+    for (uint32_t dx = 0; dx < w; ++dx) {
+      const uint32_t px = x + dx, py = y + dy;
+      if (px >= TILE || py >= TILE) continue;
+      scratch.colour[py * TILE + px] = colour;
+      scratch.alpha[py * TILE + px] = rgba[3];
+    }
+}
+
+int jpeg_draw(JPEGDRAW *j) {
+  const Decoding &d = *static_cast<const Decoding *>(j->pUser);
+  for (int y = 0; y < j->iHeight; ++y) {
+    const int py = j->y + y;
+    if (py < 0 || py >= TILE) continue;
+    for (int x = 0; x < j->iWidth; ++x) {
+      const int px = j->x + x;
+      if (px < 0 || px >= TILE) continue;
+      const uint16_t c = j->pPixels[y * j->iWidth + x];
+      scratch.colour[py * TILE + px] =
+          d.filter.kind == FILTER_NONE
+              ? c
+              : tiles::paint(d.filter, (c >> 8 & 0xF8) | c >> 13, (c >> 3 & 0xFC) | (c >> 9 & 0x3), (c << 3 & 0xF8) | (c >> 2 & 0x7));
+      scratch.alpha[py * TILE + px] = 255;
+    }
+  }
+  return 1;
+}
+
+// Four RGB565 pixels mixed by weights summing to 256.
+inline uint16_t mix4(uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint32_t wa, uint32_t wb, uint32_t wc, uint32_t wd) {
+  const uint32_t r = ((a >> 11) * wa + (b >> 11) * wb + (c >> 11) * wc + (d >> 11) * wd) >> 8;
+  const uint32_t g = ((a >> 5 & 0x3F) * wa + (b >> 5 & 0x3F) * wb + (c >> 5 & 0x3F) * wc + (d >> 5 & 0x3F) * wd) >> 8;
+  const uint32_t bl = ((a & 0x1F) * wa + (b & 0x1F) * wb + (c & 0x1F) * wc + (d & 0x1F) * wd) >> 8;
+  return (uint16_t) (r << 11 | g << 5 | bl);
+}
+
+// The decoded tile into the frame at (ox, oy), `scale` frame pixels a tile pixel.
+void lay(uint16_t *frame, int width, int height, int ox, int oy, double scale, int tw, int th) {
+  const int fw = (int) std::lround(tw * scale), fh = (int) std::lround(th * scale);
+  const int x0 = std::max(0, ox), x1 = std::min(width, ox + fw);
+  const int y0 = std::max(0, oy), y1 = std::min(height, oy + fh);
+  if (x0 >= x1 || y0 >= y1) return;
+  if (scale == 1.0) {
+    for (int y = y0; y < y1; ++y) {
+      uint16_t *out = frame + y * width;
+      const uint16_t *c = scratch.colour + (y - oy) * TILE;
+      const uint8_t *a = scratch.alpha + (y - oy) * TILE;
+      for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
     }
     return;
   }
-  const int n = 1 << t.up;
-  const int fx0 = t.ox + x * n, fy0 = t.oy + y * n;
-  if (fx0 >= t.width || fy0 >= t.height || fx0 + n <= 0 || fy0 + n <= 0) return;
-  for (int dy = 0; dy < n; ++dy) {
-    const int fy = fy0 + dy;
-    if (fy < 0 || fy >= t.height) continue;
-    uint16_t *row = t.frame + fy * t.width;
-    for (int dx = 0; dx < n; ++dx) {
-      const int fx = fx0 + dx;
-      if (fx >= 0 && fx < t.width) row[fx] = over(row[fx], colour, alpha);
+  if (scale < 1.0) {
+    // Smaller: the tile pixel under each frame pixel's middle.
+    const double step = 1.0 / scale;
+    for (int y = y0; y < y1; ++y) {
+      const int ty = std::min(th - 1, (int) ((y - oy + 0.5) * step));
+      uint16_t *out = frame + y * width;
+      for (int x = x0; x < x1; ++x) {
+        const int tx = std::min(tw - 1, (int) ((x - ox + 0.5) * step));
+        out[x] = blend(out[x], scratch.colour[ty * TILE + tx], scratch.alpha[ty * TILE + tx]);
+      }
+    }
+    return;
+  }
+  // Larger: bilinear, in 1/256ths of a tile pixel. Past the tile's edge the edge pixel stands in for its neighbour's.
+  const int32_t step = (int32_t) std::lround(256.0 / scale);
+  for (int y = y0; y < y1; ++y) {
+    const int32_t sy = (int32_t) std::lround(((y - oy) + 0.5) * 256.0 / scale) - 128;
+    const int ya = std::max(0, std::min(th - 1, (int) (sy >> 8))), yb = std::max(0, std::min(th - 1, (int) (sy >> 8) + 1));
+    const uint32_t fy = sy < 0 ? 0 : (uint32_t) (sy & 0xFF);
+    uint16_t *out = frame + y * width;
+    int32_t sx = (int32_t) std::lround(((x0 - ox) + 0.5) * 256.0 / scale) - 128;
+    for (int x = x0; x < x1; ++x, sx += step) {
+      const int xa = std::max(0, std::min(tw - 1, (int) (sx >> 8))), xb = std::max(0, std::min(tw - 1, (int) (sx >> 8) + 1));
+      const uint32_t fx = sx < 0 ? 0 : (uint32_t) (sx & 0xFF);
+      const uint32_t wa = (256 - fx) * (256 - fy) >> 8, wb = fx * (256 - fy) >> 8, wc = (256 - fx) * fy >> 8;
+      const uint32_t wd = 256 - wa - wb - wc;
+      const int ia = ya * TILE + xa, ib = ya * TILE + xb, ic = yb * TILE + xa, id = yb * TILE + xb;
+      const uint32_t alpha =
+          (scratch.alpha[ia] * wa + scratch.alpha[ib] * wb + scratch.alpha[ic] * wc + scratch.alpha[id] * wd) >> 8;
+      if (!alpha) continue;
+      const uint16_t c = mix4(scratch.colour[ia], scratch.colour[ib], scratch.colour[ic], scratch.colour[id], wa, wb, wc, wd);
+      out[x] = blend(out[x], c, alpha);
     }
   }
-}
-
-void png_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
-  const Target &t = *static_cast<const Target *>(pngle_get_user_data(pngle));
-  // A transparent pixel (a chart's edge, a layer of names between them) leaves what is under it; a partly transparent
-  // one (the soft edge of a name) is blended with it.
-  if (rgba[3] == 0) return;
-  const uint16_t colour = tiles::paint(t.filter, rgba[0], rgba[1], rgba[2]);
-  for (uint32_t dy = 0; dy < h; ++dy)
-    for (uint32_t dx = 0; dx < w; ++dx) put(t, (int) (x + dx), (int) (y + dy), colour, rgba[3]);
-}
-
-int jpeg_draw(JPEGDRAW *d) {
-  const Target &t = *static_cast<const Target *>(d->pUser);
-  const uint16_t *px = d->pPixels;
-  for (int y = 0; y < d->iHeight; ++y)
-    for (int x = 0; x < d->iWidth; ++x) {
-      const uint16_t c = px[y * d->iWidth + x];
-      const uint16_t colour = t.filter.kind == FILTER_NONE
-                                  ? c
-                                  : tiles::paint(t.filter, (c >> 8 & 0xF8) | c >> 13, (c >> 3 & 0xFC) | (c >> 9 & 0x3),
-                                                 (c << 3 & 0xF8) | (c >> 2 & 0x7));
-      put(t, d->x + x, d->y + y, colour);
-    }
-  return 1;
 }
 }  // namespace
 
 bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int height, const geo::TileOrigin &at,
           const tiles::Filter &filter, std::string &error) {
-  Target t{frame, width, height, (int) std::lround(at.x), (int) std::lround(at.y), 0, 0, filter};
-  const int power = (int) std::lround(std::log2(at.scale));
-  if (power >= 0) t.up = power; else t.down = -power;
+  if (!scratch.ready()) {
+    error = "no memory for a tile";
+    return false;
+  }
+  // Nothing is drawn where the image has no pixel.
+  std::memset(scratch.alpha, 0, TILE * TILE);
+  Decoding d{filter, TILE, TILE};
+  bool ok = false;
   switch (tiles::format_of(data, size)) {
     case tiles::PNG: {
       auto *pngle = static_cast<pngle_t *>(heap_caps_calloc(1, PNGLE_T_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
       if (!pngle) { error = "no memory for PNG"; return false; }
       pngle_reset(pngle);
-      pngle_set_user_data(pngle, &t);
+      pngle_set_user_data(pngle, &d);
       pngle_set_draw_callback(pngle, png_draw);
       const int fed = pngle_feed(pngle, data, size);
-      if (fed < 0) error = std::string("PNG: ") + pngle_error(pngle);
+      if (fed < 0) {
+        error = std::string("PNG: ") + pngle_error(pngle);
+      } else {
+        d.width = std::min<int>(TILE, (int) pngle_get_width(pngle));
+        d.height = std::min<int>(TILE, (int) pngle_get_height(pngle));
+      }
       pngle_reset(pngle);
       heap_caps_free(pngle);
-      return fed >= 0;
+      ok = fed >= 0;
+      break;
     }
     case tiles::JPEG: {
       // JPEGDEC keeps its whole state in the object, some 18 KB: on the heap (PSRAM), not on the worker's stack.
       auto *jpeg = new JPEGDEC();
-      bool ok = jpeg->openRAM(const_cast<uint8_t *>(data), (int) size, jpeg_draw);
+      ok = jpeg->openRAM(const_cast<uint8_t *>(data), (int) size, jpeg_draw);
       if (ok && jpeg->getJPEGType() == JPEG_MODE_PROGRESSIVE) { ok = false; error = "progressive JPEG"; }
       if (ok) {
-        jpeg->setUserPointer(&t);
+        jpeg->setUserPointer(&d);
         jpeg->setPixelType(RGB565_LITTLE_ENDIAN);
+        d.width = std::min(TILE, jpeg->getWidth());
+        d.height = std::min(TILE, jpeg->getHeight());
         ok = jpeg->decode(0, 0, 0);
         if (!ok) error = "JPEG error " + std::to_string(jpeg->getLastError());
       } else if (error.empty()) {
@@ -117,11 +182,14 @@ bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int heig
       }
       jpeg->close();
       delete jpeg;
-      return ok;
+      break;
     }
     default:
       error = "not a PNG or JPEG";
       return false;
   }
+  if (!ok) return false;
+  lay(frame, width, height, (int) std::lround(at.x), (int) std::lround(at.y), at.scale, d.width, d.height);
+  return true;
 }
 }  // namespace sky::decode
