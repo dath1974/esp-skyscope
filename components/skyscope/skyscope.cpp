@@ -47,14 +47,26 @@ int64_t window_send_us = 0, window_wait_from_us = 0;
 uint64_t window_pixels = 0;
 uint32_t window_frames = 0;
 float window_ms = 0, window_longest_ms = 0;
+uint8_t frame_phase = ui::IDLE;
+bool frame_after_report = false;
+uint64_t frame_pixels_from = 0;
+uint32_t frame_flushes = 0;
 void frame_start(lv_event_t *) {
   ++ui::frame;
   frame_started_us = esp_timer_get_time();
+  frame_pixels_from = window_pixels;
+  frame_flushes = 0;
+  for (auto &us : ui::part_us) us = 0;
+  ui::draw_calls = 0;
+  frame_phase = ui::worker_phase;
+  frame_after_report = ui::report_taken;
+  ui::report_taken = false;
 }
 // Registered after panel_sync's own, so its wait for the pulse is not counted as sending.
 void flush_start(lv_event_t *e) {
   flush_started_us = esp_timer_get_time();
   if (auto *area = static_cast<lv_area_t *>(lv_event_get_param(e))) window_pixels += lv_area_get_size(area);
+  ++frame_flushes;
 }
 void flush_finish(lv_event_t *) {
   if (flush_started_us) window_send_us += esp_timer_get_time() - flush_started_us;
@@ -65,6 +77,17 @@ void frame_ready(lv_event_t *) {
   if (!frame_started_us) return;
   const float ms = (now - frame_started_us) / 1000.0f;
   frame_started_us = 0;
+  if (ms > ui::SLOW_MS) {
+    // Put down to what the worker was doing as it started or is doing now, whichever is busier.
+    const uint8_t now_phase = ui::worker_phase, phase = std::max(frame_phase, now_phase);
+    ++ui::slow_frames[phase < ui::PHASES ? phase : 0];
+    if (frame_after_report) ++ui::slow_with_report;
+    ESP_LOGI(TAG, "Slow frame: %.0f ms, %u px in %u flushes, worker %s%s; planes drawn %u times: tracks %.1f, "
+             "markers %.1f, layout %.1f, labels %.1f ms", ms,
+             (unsigned) (window_pixels - frame_pixels_from), (unsigned) frame_flushes, ui::PHASE_NAMES[phase],
+             frame_after_report ? ", after a report" : "", (unsigned) ui::draw_calls, ui::part_us[ui::TRACKS] / 1000.0f,
+             ui::part_us[ui::MARKERS] / 1000.0f, ui::part_us[ui::LAYOUT] / 1000.0f, ui::part_us[ui::LABELS] / 1000.0f);
+  }
   ++window_frames;
   window_ms += ms;
   window_longest_ms = std::max(window_longest_ms, ms);
@@ -476,6 +499,7 @@ void Skyscope::update_frame_() {
 }
 
 void Skyscope::update_planes_(uint32_t now) {
+  const int64_t started_us = esp_timer_get_time();
   uint32_t rev;
   {
     std::lock_guard<std::mutex> guard(lock_);
@@ -503,6 +527,11 @@ void Skyscope::update_planes_(uint32_t now) {
   view::show(view_, planes_, o);
   view::set_picked(view_, picked_);
   update_card_();
+  if (new_report) {
+    ui::report_taken = true;
+    report_ms_ = (esp_timer_get_time() - started_us) / 1000.0f;
+    report_ms_max_ = std::max(report_ms_max_, report_ms_);
+  }
 }
 
 void Skyscope::update_card_() {

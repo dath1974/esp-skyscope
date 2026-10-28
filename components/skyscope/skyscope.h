@@ -80,6 +80,8 @@ class Skyscope : public Component, public AsyncWebHandler {
     uint32_t frame_rev = 0, frame_plan_rev = 0;  // the base frame changed, for that plan
     int tiles_done = 0, tiles_total = 0;
     std::string tile_error;
+    // How long the last report took: its download, reading its JSON (both on the worker), and its bytes.
+    uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
   };
 
   // worker.cpp
@@ -126,6 +128,8 @@ class Skyscope : public Component, public AsyncWebHandler {
   overlay::Tracks tracks_;
   std::string picked_;
   size_t shown_count_{0};
+  // How long the loop took over the last report (placing its planes, the plane layer's update), and the longest yet.
+  float report_ms_{0}, report_ms_max_{0};
   uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool ui_built_{false};

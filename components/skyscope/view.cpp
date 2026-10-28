@@ -6,10 +6,15 @@
 #include "ui.h"
 
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
+// lvgl.h leaves out the image cache, which a label image is dropped from when it goes.
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace sky::view {
@@ -41,12 +46,18 @@ struct View {
   // The labels as laid out for one frame of the glass (ui::frame): LVGL draws a frame in several areas, and each asks
   // for the planes again; the layout, which measures every label and keeps them apart, is worked out once.
   uint32_t layout_frame = UINT32_MAX;
-  std::vector<std::vector<std::string>> rows;
   std::vector<ap::Label> labels;
   std::vector<ap::Placed> placed;
   std::vector<int> kept;
   std::vector<ap::Point> laid_at;  // where each plane was when laid out, on the glass
   std::vector<ap::Box> boxes;      // what each plane took then, marker, track and label: what a glide draws again
+  // Each label drawn once into an image (render_labels), by label_key: its text, its style and its plane.
+  struct LabelImage {
+    uint8_t *data = nullptr;
+    size_t bytes = 0;
+    lv_image_dsc_t dsc{};
+  };
+  std::map<std::string, LabelImage> label_images;
 };
 
 // What the layer shows: a sweeping scope's planes as painted, else the report's.
@@ -124,7 +135,10 @@ struct Image {
 };
 static sprites::Cache<Image> symbols;
 static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, lv_color_t colour, lv_opa_t opa) {
-  auto &entry = symbols.get((int) std::lround(size), heading);
+  // At most two masks made a frame (sprites.h): a plane that turned onto a new step takes the nearest one meanwhile.
+  auto *found = symbols.get((int) std::lround(size), heading, ui::frame, 2);
+  if (!found) return;
+  auto &entry = *found;
   Image &image = entry.extra;
   if (!image.data) {
     const sprites::Mask &m = entry.mask;
@@ -184,6 +198,97 @@ static int glow_step(const View *view, ap::Point c, ap::Point plane, float beam)
   return (int) std::lround(ap::afterglow(ap::behind(beam, ap::bearing(c, plane))) * GLOW_STEPS);
 }
 
+// ---- Labels, each drawn once into an image and stamped: drawn as text, every label the glass drew again was its
+// glyphs unpacked from the font and blended one by one, a third of a radar frame. A label is drawn again only when its
+// text or style changes, and never while LVGL draws the glass (show and the sweep call render_labels).
+static std::string style_of(const ap::Overlay &o, const ap::Plane &p) {
+  const bool radar = o.radar.on;
+  const lv_color_t first = radar ? colour_of(o, p) : lv_color_hex(cl::INK);
+  const lv_color_t rest = radar ? phosphor(o, 0.65f) : lv_color_hex(cl::MUTED);
+  const lv_color_t ground = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::CARD);
+  char out[48];
+  std::snprintf(out, sizeof(out), "%06x%06x%06x%c%c", (unsigned) lv_color_to_u32(first) & 0xFFFFFF,
+                (unsigned) lv_color_to_u32(rest) & 0xFFFFFF, (unsigned) lv_color_to_u32(ground) & 0xFFFFFF,
+                p.watch ? 'w' : '-', radar ? 'r' : '-');
+  return out;
+}
+static std::string label_key(const ap::Overlay &o, const ap::Plane &p, size_t i) {
+  return (p.id.empty() ? "#" + std::to_string(i) : p.id) + '\x1f' + p.label + '\x1f' + style_of(o, p);
+}
+static void render_labels(View *view) {
+  const lv_font_t *font = ui::fonts.label ? ui::fonts.label : ui::fonts.small;
+  if (!font || !view->layer) return;
+  static lv_obj_t *canvas = nullptr;
+  if (!canvas) {
+    canvas = lv_canvas_create(lv_layer_top());
+    lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+  }
+  const ap::Overlay &style = view->overlay;
+  const Sizes s = sizes(style);
+  const bool radar = style.radar.on;
+  const int line_h = lv_font_get_line_height(font);
+  std::set<std::string> live;
+  auto render = [&](const ap::Plane &p, size_t i) {
+    const std::vector<std::string> rows = ap::lines(p.label);
+    if (rows.empty()) return;
+    const std::string key = label_key(style, p, i);
+    live.insert(key);
+    View::LabelImage &image = view->label_images[key];
+    if (image.data) return;
+    int w = 0;
+    for (const auto &row : rows) w = std::max(w, ui::text_width(row, font));
+    w += 2 * s.pad;
+    const int h = (int) rows.size() * line_h + s.pad;
+    image.bytes = (size_t) w * h * 4;
+    image.data = static_cast<uint8_t *>(heap_caps_malloc(image.bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!image.data) return;
+    lv_canvas_set_buffer(canvas, image.data, w, h, LV_COLOR_FORMAT_ARGB8888);
+    lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    lv_draw_rect_dsc_t bg;
+    lv_draw_rect_dsc_init(&bg);
+    // On a scope a data block: square, the tube showing through, its text in the plane's own phosphor.
+    bg.radius = radar ? 0 : s.radius;
+    bg.bg_color = radar ? lv_color_hex(tint_of(style).ground) : lv_color_hex(cl::CARD);
+    bg.bg_opa = radar ? LV_OPA_60 : LV_OPA_80;
+    // A watched plane's label is edged in its colour.
+    if (p.watch) { bg.border_width = s.line; bg.border_color = colour_of(style, p); bg.border_opa = LV_OPA_COVER; }
+    lv_area_t all{0, 0, w - 1, h - 1};
+    lv_draw_rect(&layer, &bg, &all);
+    for (size_t n = 0; n < rows.size(); ++n) {
+      lv_draw_label_dsc_t dsc;
+      lv_draw_label_dsc_init(&dsc);
+      dsc.font = font;
+      dsc.text = rows[n].c_str();
+      dsc.color = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p)) : lv_color_hex(n ? cl::MUTED : cl::INK);
+      dsc.text_local = 1;
+      const int y = s.pad / 2 + (int) n * line_h;
+      lv_area_t text{s.pad, y, w - 1 - s.pad, y + line_h - 1};
+      lv_draw_label(&layer, &dsc, &text);
+    }
+    lv_canvas_finish_layer(canvas, &layer);
+    image.dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    image.dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+    image.dsc.header.w = w;
+    image.dsc.header.h = h;
+    image.dsc.header.stride = w * 4;
+    image.dsc.data_size = image.bytes;
+    image.dsc.data = image.data;
+  };
+  for (size_t i = 0; i < view->overlay.planes.size(); ++i) render(view->overlay.planes[i], i);
+  if (latches(view->overlay))
+    for (size_t i = 0; i < view->painted.planes.size(); ++i) render(view->painted.planes[i], i);
+  for (auto it = view->label_images.begin(); it != view->label_images.end();) {
+    if (live.count(it->first)) { ++it; continue; }
+    if (it->second.data) {
+      lv_image_cache_drop(&it->second.dsc);
+      heap_caps_free(it->second.data);
+    }
+    it = view->label_images.erase(it);
+  }
+}
+
 static void draw(lv_event_t *e) {
   auto *view = static_cast<View *>(lv_event_get_user_data(e));
   if (!view || view->hidden) return;
@@ -213,6 +318,13 @@ static void draw(lv_event_t *e) {
   const ap::Box clip_box{clip.x1, clip.y1, clip.x2 - clip.x1 + 1, clip.y2 - clip.y1 + 1};
   std::vector<uint8_t> reaches(o.planes.size());
   for (size_t i = 0; i < o.planes.size(); ++i) reaches[i] = ap::overlaps(plane_box(view, o.planes[i], places[i]), clip_box);
+  ++ui::draw_calls;
+  int64_t mark = esp_timer_get_time();
+  auto lap = [&](ui::Part part) {
+    const int64_t now_us = esp_timer_get_time();
+    ui::part_us[part] += now_us - mark;
+    mark = now_us;
+  };
   // The tracks first, under every marker: from the oldest place to where the plane is now. On a scope its history,
   // a dot at each place it was, the older ones fainter, as a radar keeps a plane's last returns.
   for (size_t i = 0; i < o.planes.size(); ++i) {
@@ -241,6 +353,7 @@ static void draw(lv_event_t *e) {
       line(layer, from, to, colour, s.line, LV_OPA_70, n == 0, n + 2 == points);
     }
   }
+  lap(ui::TRACKS);
   // The watched planes come last, so they lie over the others.
   for (size_t i = 0; i < o.planes.size(); ++i) {
     if (!reaches[i]) continue;
@@ -284,6 +397,7 @@ static void draw(lv_event_t *e) {
     }
     dot(layer, c, d, colour, radar ? 0 : s.halo, halo);
   }
+  lap(ui::MARKERS);
   // The labels last, over everything: a soft pill of the card's colour with the plane's lines in ink, kept apart from each
   // other and from the markers, with a leader line to a label moved off its plane (aircraft_plan.h place_labels).
   const lv_font_t *font = ui::fonts.label ? ui::fonts.label : ui::fonts.small;
@@ -292,9 +406,7 @@ static void draw(lv_event_t *e) {
   const int frame_w = lv_area_get_width(&a), frame_h = lv_area_get_height(&a);
   if (view->layout_frame != ui::frame || view->placed.size() != o.planes.size()) {
     view->layout_frame = ui::frame;
-    auto &rows = view->rows;
     auto &labels = view->labels;
-    rows.assign(o.planes.size(), {});
     labels.assign(o.planes.size(), {});
     for (size_t i = 0; i < o.planes.size(); ++i) {
       const bool watched = o.planes[i].watch != 0;
@@ -303,12 +415,10 @@ static void draw(lv_event_t *e) {
       l.reach = (int) std::lround((o.marker == ap::PLANE ? s.plane : s.dot) * (watched ? ap::WATCH_SCALE : 1.0f) / 2) +
                 (watched ? 2 * s.halo + s.line : 0);
       l.watched = watched;
-      rows[i] = ap::lines(o.planes[i].label);
-      if (rows[i].empty()) continue;
-      int w = 0;
-      for (const auto &row : rows[i]) w = std::max(w, ui::text_width(row, font));
-      l.w = w + 2 * s.pad;
-      l.h = (int) rows[i].size() * line_h + s.pad;
+      const auto image = view->label_images.find(label_key(o, o.planes[i], i));
+      if (image == view->label_images.end() || !image->second.data) continue;
+      l.w = image->second.dsc.header.w;
+      l.h = image->second.dsc.header.h;
     }
     auto &kept = view->kept;
     kept.assign(o.planes.size(), ap::NO_SPOT);
@@ -334,9 +444,9 @@ static void draw(lv_event_t *e) {
         view->again.push_back(i < before.size() && before[i].w > 0 ? ap::join(before[i], box) : box);
     }
   }
-  const auto &rows = view->rows;
   const auto &labels = view->labels;
   const auto &placed = view->placed;
+  lap(ui::LAYOUT);
   // Where each plane of a sweeping scope stands whole, kept from a draw that held all of it: what the glass shows.
   if (latches(view->overlay)) {
     for (size_t i = 0; i < o.planes.size(); ++i) {
@@ -357,25 +467,15 @@ static void draw(lv_event_t *e) {
     if (!placed[i].shown) continue;
     const ap::Box &box = placed[i].box;
     if (!ap::overlaps({a.x1 + box.x, a.y1 + box.y, box.w, box.h}, clip_box)) continue;
-    lv_draw_rect_dsc_t bg;
-    lv_draw_rect_dsc_init(&bg);
-    // On a scope a data block: square, the tube showing through, its text in the plane's own phosphor.
-    bg.radius = radar ? 0 : s.radius; bg.bg_color = halo; bg.bg_opa = radar ? LV_OPA_60 : LV_OPA_80;
-    // A watched plane's label is edged in its colour.
-    if (labels[i].watched) { bg.border_width = s.line; bg.border_color = colour_of(o, o.planes[i]); bg.border_opa = LV_OPA_COVER; }
+    const auto image = view->label_images.find(label_key(o, o.planes[i], i));
+    if (image == view->label_images.end() || !image->second.data) continue;
+    lv_draw_image_dsc_t d;
+    lv_draw_image_dsc_init(&d);
+    d.src = &image->second.dsc;
     lv_area_t area{a.x1 + box.x, a.y1 + box.y, a.x1 + box.x + box.w - 1, a.y1 + box.y + box.h - 1};
-    lv_draw_rect(layer, &bg, &area);
-    for (size_t n = 0; n < rows[i].size(); ++n) {
-      lv_draw_label_dsc_t dsc;
-      lv_draw_label_dsc_init(&dsc);
-      dsc.font = font; dsc.text = rows[i][n].c_str();
-      dsc.color = radar ? (n ? phosphor(o, 0.65f) : colour_of(o, o.planes[i])) : lv_color_hex(n ? cl::MUTED : cl::INK);
-      dsc.text_local = 1;
-      const int y = area.y1 + s.pad / 2 + (int) n * line_h;
-      lv_area_t text{area.x1 + s.pad, y, area.x2 - s.pad, y + line_h - 1};
-      lv_draw_label(layer, &dsc, &text);
-    }
+    lv_draw_image(layer, &d, &area);
   }
+  lap(ui::LABELS);
 }
 
 // A scope's beam turning: what it swept since the last frame is drawn again, each plane it crossed is painted where it
@@ -387,7 +487,7 @@ static ap::Box guess_box(const View *view, const ap::Plane &p, ap::Point c) {
 }
 static void sweep(lv_timer_t *timer) {
   auto *view = static_cast<View *>(lv_timer_get_user_data(timer));
-  if (!view || !view->layer || view->hidden || lv_obj_has_flag(view->layer, LV_OBJ_FLAG_HIDDEN)) return;
+  if (!view || !view->layer) return;
   lv_area_t a;
   lv_obj_get_coords(view->layer, &a);
   const ap::Overlay &o = view->overlay;
@@ -395,14 +495,18 @@ static void sweep(lv_timer_t *timer) {
   const ap::Point c = scope_middle(view, a);
   const uint32_t now = lv_tick_get();
   const float was = view->beam_drawn < 0 ? ap::beam(now) : view->beam_drawn, beam = ap::beam(now);
+  // A hidden layer draws nothing again: its parent, which lies over the same glass, does.
+  lv_obj_t *target = view->hidden ? lv_obj_get_parent(view->layer) : view->layer;
   auto invalidate = [&](const ap::Box &box) {
     lv_area_t area{box.x, box.y, box.x + box.w - 1, box.y + box.h - 1};
-    lv_obj_invalidate_area(view->layer, &area);
+    lv_obj_invalidate_area(target, &area);
   };
   const ap::Box swept = ap::wedge_box(c, scope_reach(view, c, a), was - ap::SWEEP_TRAIL - 2, beam + 2);
   if (view->painter) view->painter(was, beam, swept);
   invalidate(swept);
   view->beam_drawn = beam;
+  // Hidden (a measurement without the planes, /api/debug): the beam goes on over the map alone.
+  if (view->hidden) return;
   for (const auto &box : view->again) invalidate(box);
   view->again.clear();
   auto on_glass = [&](const ap::Plane &p) { return ap::Point{a.x1 + p.x * view->sx, a.y1 + p.y * view->sy}; };
@@ -439,7 +543,10 @@ static void sweep(lv_timer_t *timer) {
     changed = true;
   }
   // The watched planes last, so they lie over the others, as the app sends them.
-  if (changed) std::stable_partition(painted.planes.begin(), painted.planes.end(), [](const ap::Plane &p) { return p.watch == 0; });
+  if (changed) {
+    std::stable_partition(painted.planes.begin(), painted.planes.end(), [](const ap::Plane &p) { return p.watch == 0; });
+    render_labels(view);
+  }
   const int reach = sizes(o).plane * 2;
   for (const auto &p : painted.planes) {
     const ap::Point at = on_glass(p);
@@ -504,6 +611,7 @@ void show(View *&view, lv_obj_t *parent, const ap::Overlay &o) {
     view->latched = false;
     view->painted = {};
   }
+  render_labels(view);
   if (o.radar.on && o.radar.sweep && !view->sweeping) view->sweeping = lv_timer_create(sweep, ap::SWEEP_FRAME_MS, view);
   else if (!(o.radar.on && o.radar.sweep)) stop_sweep(view);
   if (!sweeps(view) || fresh) lv_obj_invalidate(view->layer);

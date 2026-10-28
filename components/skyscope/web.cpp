@@ -121,7 +121,16 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       out["wifi_rssi"] = wifi::global_wifi_component->wifi_rssi();
       out["ip"] = own_address();
     }
+    // A report's cost: on the loop (it draws the glass), and on the worker.
+    out["report_ms"] = std::round(report_ms_ * 10) / 10;
+    out["report_ms_max"] = std::round(report_ms_max_ * 10) / 10;
+    JsonObject slow = out["slow_frames"].to<JsonObject>();
+    for (int p = 0; p < ui::PHASES; ++p) slow[ui::PHASE_NAMES[p]] = ui::slow_frames[p];
+    slow["after_report"] = ui::slow_with_report;
     std::lock_guard<std::mutex> guard(lock_);
+    out["feed_fetch_ms"] = shared_.fetch_ms;
+    out["feed_parse_ms"] = shared_.parse_ms;
+    out["feed_bytes"] = shared_.reply_bytes;
     out["aircraft"] = shared_.flights.size();
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
     out["feed_error"] = shared_.feed_error;
@@ -152,6 +161,20 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       if (!f.squawk.empty()) a["squawk"] = f.squawk;
     }
     send_json(request, 200, out);
+    return;
+  }
+  if (url == "/api/debug" && post) {
+    // Measurement only, never stored: {"planes": false} hides the plane layer while the map and the beam go on.
+    JsonDocument in;
+    const std::string text = std::move(body_);
+    body_.clear();
+    if (deserializeJson(in, text) || !in["planes"].is<bool>()) {
+      request->send(400, "application/json", "{\"error\":\"planes\"}");
+      return;
+    }
+    const bool shown = in["planes"].as<bool>();
+    this->defer([this, shown]() { view::set_hidden(view_, !shown); });
+    request->send(200, "application/json", shown ? "{\"planes\":true}" : "{\"planes\":false}");
     return;
   }
   if (url == "/api/reboot" && post) {

@@ -4,6 +4,7 @@
 
 #include "decode.h"
 #include "http.h"
+#include "ui.h"
 
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
@@ -116,7 +117,11 @@ void Skyscope::worker_() {
     if (url != feed_key) feed_due = now;
     if ((int32_t) (now - feed_due) >= 0) {
       feed_key = url;
+      const uint32_t asked = millis();
+      ui::worker_phase = ui::FEED_FETCH;
       const http::Result r = http::get(url, body, MOST_FEED_BYTES, agent_, "application/json");
+      const uint32_t fetched = millis();
+      ui::worker_phase = ui::FEED_PARSE;
       std::vector<feed::Flight> flights;
       std::string error = r.error;
       bool ok = r.status == 200;
@@ -125,8 +130,12 @@ void Skyscope::worker_() {
         ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
       }
       const uint32_t done = millis();
+      ui::worker_phase = ui::IDLE;
       {
         std::lock_guard<std::mutex> guard(lock_);
+        shared_.fetch_ms = fetched - asked;
+        shared_.parse_ms = done - fetched;
+        shared_.reply_bytes = body.size;
         if (ok) {
           shared_.flights = std::move(flights);
           shared_.flights_rev++;
@@ -166,7 +175,9 @@ void Skyscope::worker_() {
       Cached *tile = cache.find(key, millis());
       std::string error;
       if (!tile) {
+        ui::worker_phase = ui::TILE_FETCH;
         const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
+        ui::worker_phase = ui::IDLE;
         if (r.status == 200) tile = cache.keep(key, body.data, body.size, millis());
         // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
         else if (r.status == 404 || r.status == 204) tile = cache.keep(key, nullptr, 0, millis());
@@ -177,7 +188,9 @@ void Skyscope::worker_() {
       if (tile && tile->size) {
         const geo::TileOrigin at = geo::tile_origin(plan.view, key.z, key.x, key.y);
         std::lock_guard<std::mutex> frame(frame_lock_);
+        ui::worker_phase = ui::TILE_DECODE;
         failed = !decode::draw(tile->data, tile->size, base_frame_, width, height, at, tiles::filter_of(settings), error);
+        ui::worker_phase = ui::IDLE;
       }
       if (failed && !error.empty()) ESP_LOGW(TAG, "Tile %u/%u/%u: %s", key.z, (unsigned) key.x, (unsigned) key.y, error.c_str());
       if (failed && !tile) {

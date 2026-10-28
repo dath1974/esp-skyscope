@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <map>
 
 namespace sky::http {
 Body::~Body() { heap_caps_free(data); }
@@ -25,9 +26,60 @@ bool Body::reserve(size_t bytes) {
   return true;
 }
 
-Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept) {
-  Result r;
-  body.clear();
+namespace {
+// One client a server, kept open between requests: a new TLS connection costs some 4 seconds of the worker's core on an
+// ESP32-S3 (its handshake), where a request on an open one costs a few hundred milliseconds. The feed is asked every few
+// seconds and a map's tiles come one after another from one server, so nearly every request finds its connection open.
+struct Fill {
+  Body *body;
+  size_t most;
+  bool too_large = false, no_memory = false;
+};
+esp_err_t on_event(esp_http_client_event_t *e) {
+  auto *fill = static_cast<Fill *>(e->user_data);
+  if (!fill || !fill->body || e->event_id != HTTP_EVENT_ON_DATA || e->data_len <= 0) return ESP_OK;
+  Body &b = *fill->body;
+  if (b.size + e->data_len > fill->most) {
+    fill->too_large = true;
+    return ESP_OK;
+  }
+  if (b.size + e->data_len + 1 > b.room &&
+      !b.reserve(std::min(fill->most + 1, std::max(b.room * 2, b.size + e->data_len + 1)))) {
+    fill->no_memory = true;
+    return ESP_OK;
+  }
+  std::memcpy(b.data + b.size, e->data, e->data_len);
+  b.size += e->data_len;
+  return ESP_OK;
+}
+
+std::string server_of(const std::string &url) {
+  const size_t start = url.find("://");
+  const size_t end = start == std::string::npos ? std::string::npos : url.find('/', start + 3);
+  return url.substr(0, end);
+}
+
+struct Client {
+  esp_http_client_handle_t handle = nullptr;
+  Fill fill{nullptr, 0};
+};
+std::map<std::string, Client> clients;
+constexpr size_t MOST_CLIENTS = 3;
+
+void drop(const std::string &server) {
+  auto found = clients.find(server);
+  if (found == clients.end()) return;
+  esp_http_client_cleanup(found->second.handle);
+  clients.erase(found);
+}
+
+Client *client_for(const std::string &url, const std::string &agent) {
+  const std::string server = server_of(url);
+  auto found = clients.find(server);
+  if (found != clients.end()) return &found->second;
+  // Room for the feed's server, a map's and one more; past that one goes.
+  if (clients.size() >= MOST_CLIENTS) drop(clients.begin()->first);
+  Client &c = clients[server];
   esp_http_client_config_t config{};
   config.url = url.c_str();
   config.method = HTTP_METHOD_GET;
@@ -36,59 +88,53 @@ Result get(const std::string &url, Body &body, size_t most, const std::string &a
   config.crt_bundle_attach = esp_crt_bundle_attach;
   config.buffer_size = 4096;
   config.buffer_size_tx = 1024;
-  config.disable_auto_redirect = false;
   config.max_redirection_count = 3;
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (!client) {
-    r.error = "no HTTP client";
-    return r;
+  config.keep_alive_enable = true;
+  config.event_handler = on_event;
+  config.user_data = &c.fill;
+  c.handle = esp_http_client_init(&config);
+  if (!c.handle) {
+    clients.erase(server);
+    return nullptr;
   }
-  if (accept) esp_http_client_set_header(client, "Accept", accept);
-  esp_err_t err = esp_http_client_open(client, 0);
-  if (err != ESP_OK) {
-    r.error = esp_err_to_name(err);
-    esp_http_client_cleanup(client);
-    return r;
-  }
-  const int64_t length = esp_http_client_fetch_headers(client);
-  r.status = esp_http_client_get_status_code(client);
-  if (length > (int64_t) most) {
-    r.error = "too large";
-    r.status = 0;
-  } else if (body.reserve(length > 0 ? (size_t) length + 1 : 32 * 1024)) {
-    while (true) {
-      if (body.size + 4096 + 1 > body.room && !body.reserve(std::min(most + 1, body.room * 2))) {
-        r.error = "no memory";
-        r.status = 0;
-        break;
-      }
-      const size_t room = std::min<size_t>(body.room - body.size - 1, 4096);
-      if (room == 0) {
-        r.error = "too large";
-        r.status = 0;
-        break;
-      }
-      const int got = esp_http_client_read(client, reinterpret_cast<char *>(body.data + body.size), room);
-      if (got < 0) {
-        r.error = "read failed";
-        r.status = 0;
-        break;
-      }
-      if (got == 0) {
-        if (esp_http_client_is_complete_data_received(client)) break;
-        // A chunked body that stalled: what came is all there is.
-        break;
-      }
-      body.size += got;
+  return &c;
+}
+}  // namespace
+
+Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept) {
+  Result r;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    body.clear();
+    Client *c = client_for(url, agent);
+    if (!c) {
+      r.error = "no HTTP client";
+      return r;
     }
-    if (body.data) body.data[body.size] = 0;
-  } else {
-    r.error = "no memory";
-    r.status = 0;
+    c->fill = Fill{&body, most};
+    esp_http_client_set_url(c->handle, url.c_str());
+    esp_http_client_set_header(c->handle, "Accept", accept ? accept : "*/*");
+    const esp_err_t err = esp_http_client_perform(c->handle);
+    c->fill.body = nullptr;
+    if (err != ESP_OK) {
+      // The server may have closed the connection while it sat idle: once more, on a new one.
+      r.error = esp_err_to_name(err);
+      r.status = 0;
+      drop(server_of(url));
+      continue;
+    }
+    r.status = esp_http_client_get_status_code(c->handle);
+    r.error.clear();
+    if (c->fill.too_large) r.error = "too large";
+    if (c->fill.no_memory) r.error = "no memory";
+    if (!r.error.empty()) {
+      r.status = 0;
+      // What is left of a reply cut short would be read as the next one.
+      drop(server_of(url));
+    }
+    break;
   }
+  if (body.reserve(body.size + 1)) body.data[body.size] = 0;
   if (r.status != 200 && r.error.empty()) r.error = "HTTP " + std::to_string(r.status);
-  esp_http_client_close(client);
-  esp_http_client_cleanup(client);
   return r;
 }
 }  // namespace sky::http

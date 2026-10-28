@@ -220,6 +220,11 @@ static void test_sprites() {
   cache.get(30, 91);
   cache.get(31, 90);
   CHECK(cache.size() == 2);
+  // Past a frame's budget, a heading not made yet borrows the nearest made one of its length.
+  CHECK(cache.get(30, 180, 7, 1) != nullptr && cache.size() == 3);
+  auto *borrowed = cache.get(30, 270, 7, 1);
+  CHECK(cache.size() == 3 && borrowed == cache.get(30, 180, 7, 1));
+  CHECK(cache.get(30, 270, 8, 1) != borrowed && cache.size() == 4);  // the next frame makes it
 }
 
 static void test_labels() {
