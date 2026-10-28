@@ -15,7 +15,8 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
   while without a touch, and at a bedtime every night, on again at a time or a tap (while it is off no planes or
-  tiles are fetched). A long press on the map opens a settings menu. Tap a plane for its card
+  tiles are fetched). A long press on the map opens a settings menu, which also shows the firmware and installs a new
+  release. Tap a plane for its card
   (type, registration, altitude, climb, speed, heading, operator, squawk);
   tap the map to see the screen's address and range in the status line. The range and everything else is set on the
   web page: the screen has no zoom or pan keys, which are too slow on a small embedded display.
@@ -127,10 +128,21 @@ receiver's range, are missing, and positions may be late.
 ## Development
 
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
-  share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`)
-  are plain C++.
-- `tests/run.sh`: builds and runs the host tests of those parts (needs a C++20 compiler and fetches ArduinoJson's one
-  header). Pass a saved feed reply to read it too: `tests/run.sh reply.json`.
+  share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
+  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`) are plain C++.
+- `make test` runs everything that needs no screen, as CI does on every push and before every release:
+  - `make host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers; needs
+    a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
+  - `make python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads.
+  - `make page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
+    firmware section's words, and that the whole script parses.
+- With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is
+  put back, and it prints nothing of the screen's place):
+  - `make device DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
+    aircraft, the update check against the published release.
+  - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, and a restart that keeps
+    the settings.
+  - `make soak DEVICE=<address> SOAK=60`: memory sampled for an hour, failing if it keeps falling.
 
 ## License
 

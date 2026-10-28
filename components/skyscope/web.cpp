@@ -275,39 +275,29 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
 
 // On the loop: what the update entity knows, for the page. While firmware is flashing the loop stands still, but the
 // entity still reports its progress here, and the web server (its own task) still answers.
+#ifdef USE_UPDATE
+static_assert((int) firmware::INSTALLING == (int) update::UPDATE_STATE_INSTALLING &&
+                  (int) firmware::AVAILABLE == (int) update::UPDATE_STATE_AVAILABLE,
+              "firmware.h's states are ESPHome's");
+#endif
+
 void Skyscope::firmware_changed_() {
 #ifdef USE_UPDATE
   if (!firmware_) return;
-  const update::UpdateState state = firmware_->state;
+  const firmware::State state = (firmware::State) firmware_->state;
   const update::UpdateInfo &info = firmware_->update_info;
-  const bool installing = state == update::UPDATE_STATE_INSTALLING;
-  std::string error;
-  if (installing) firmware_flashing_ = true;
-  if (updating_ && firmware_flashing_ && !installing) {
-    // Not restarted, so the install failed: the screen keeps the firmware it has, and goes on as before.
-    updating_ = false;
-    firmware_flashing_ = false;
-    ESP_LOGW(TAG, "The firmware update failed");
-    error = "The install failed; the screen keeps the firmware it has.";
-  } else if (firmware_->status_has_error()) {
-    error = "The update server could not be read.";
-  }
+  if (install_.seen(state, firmware_->status_has_error())) ESP_LOGW(TAG, "The firmware update failed");
   std::lock_guard<std::mutex> guard(lock_);
   Shared::Firmware &f = shared_.firmware;
   f.known = !info.latest_version.empty();
   f.latest = info.latest_version;
-  f.available = state == update::UPDATE_STATE_AVAILABLE;
-  f.installing = installing;
+  f.available = state == firmware::AVAILABLE;
+  f.installing = state == firmware::INSTALLING;
   f.progress = info.has_progress ? info.progress : 0;
   f.summary = info.summary;
   f.release_url = info.release_url;
-  // A failed install's word stays until the next one starts.
-  if (!error.empty()) {
-    f.error = error;
-  } else if (f.error.rfind("The install", 0) != 0) {
-    f.error.clear();
-  }
-  shared_.updating = updating_;
+  f.error = install_.error;
+  shared_.updating = install_.updating;
 #endif
 }
 
@@ -316,9 +306,9 @@ void Skyscope::firmware_changed_() {
 // over the running firmware, so a broken download leaves it as it is.
 void Skyscope::install_firmware_() {
 #ifdef USE_UPDATE
-  if (!firmware_ || updating_ || firmware_->state != update::UPDATE_STATE_AVAILABLE) return;
+  if (!firmware_ || !install_.start((firmware::State) firmware_->state)) return;
   ESP_LOGI(TAG, "Installing firmware %s", firmware_->update_info.latest_version.c_str());
-  updating_ = true;
+  close_menu_();  // the screen says it is updating, over the map
   {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.updating = true;

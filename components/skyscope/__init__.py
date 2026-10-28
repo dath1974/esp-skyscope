@@ -73,7 +73,7 @@ def _final_validate(config):
     # while validating, before LVGL writes its configuration.
     from esphome.components.lvgl import defines as lvgl_defines
 
-    lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj")
+    lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj", "line")
     for key in (CONF_FONT_SMALL, CONF_FONT_LABEL, CONF_FONT_TITLE):
         lvgl_defines.get_esphome_fonts_used().add(config[key])
     return config

@@ -10,9 +10,11 @@
 
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/feed.h"
+#include "../components/skyscope/firmware.h"
 #include "../components/skyscope/geo.h"
 #include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/overlay.h"
+#include "../components/skyscope/pixels.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
 #include "../components/skyscope/schedule.h"
@@ -443,6 +445,15 @@ static void test_menu() {
   st.rings = true;
   CHECK(menu::stepped(row("rings"), st, 1) && !st.rings && menu::shown(row("rings"), st) == "Off");
   CHECK(menu::shown(row("metric"), st) == "ft, kt");
+  // Every group starts at a row there is, in the rows' order, the first row starting the first group.
+  {
+    size_t at = 0, found = 0;
+    CHECK(menu::group_starting(menu::rows()[0]) != nullptr);
+    for (const auto &g : menu::groups())
+      for (size_t i = at; i < menu::rows().size(); ++i)
+        if (std::string(menu::rows()[i].key) == g.first_key) { at = i; ++found; break; }
+    CHECK(found == menu::groups().size());
+  }
   // Rows follow the map: the phosphor on the radar only, place names on streets and imagery.
   st.map = RADAR;
   CHECK(menu::applies(row("tint"), st) && !menu::applies(row("place_names"), st) && !menu::applies(row("theme"), st));
@@ -498,6 +509,101 @@ static void test_labels() {
   CHECK(placed[2].box.x + placed[2].box.w <= 600);
 }
 
+static void test_pixels() {
+  using namespace pixels;
+  static constexpr uint16_t WHITE = 0xFFFF, BLACK = 0, RED = 0xF800, BLUE = 0x001F;
+  // Opaque replaces, clear keeps, half and half is half.
+  CHECK(blend(BLACK, RED, 255) == RED && blend(BLUE, RED, 0) == BLUE);
+  const uint16_t grey = blend(BLACK, WHITE, 128);
+  CHECK((grey >> 11) >= 15 && (grey >> 11) <= 16 && (grey >> 5 & 0x3F) >= 31 && (grey >> 5 & 0x3F) <= 32);
+  CHECK(mix4(RED, BLUE, BLUE, BLUE, 256, 0, 0, 0) == RED);
+  const uint16_t mixed = mix4(WHITE, BLACK, WHITE, BLACK, 64, 64, 64, 64);
+  CHECK((mixed >> 11) == 15 && (mixed & 0x1F) == 15);
+
+  // A 4 x 4 tile (in a row of 6) of red, its last column clear.
+  uint16_t colour[6 * 4];
+  uint8_t alpha[6 * 4];
+  for (int i = 0; i < 6 * 4; ++i) {
+    colour[i] = RED;
+    alpha[i] = (i % 6) == 3 ? 0 : 255;
+  }
+  const Tile tile{colour, alpha, 4, 4, 6};
+  auto fresh = [](uint16_t *f, int n) { std::fill(f, f + n, BLUE); };
+  // At its own pixels at (2, 2) on an 8 x 8 frame: the tile where it lies, its clear column and the rest untouched.
+  uint16_t frame[8 * 8];
+  fresh(frame, 64);
+  lay(frame, 8, 8, 2, 2, 1.0, tile);
+  CHECK(frame[2 * 8 + 2] == RED && frame[5 * 8 + 4] == RED);
+  CHECK(frame[2 * 8 + 5] == BLUE && frame[1 * 8 + 2] == BLUE && frame[6 * 8 + 2] == BLUE);
+  // Partly off the frame (above and left): clipped, nothing written outside it (the sanitizer watches).
+  fresh(frame, 64);
+  lay(frame, 8, 8, -2, -3, 1.0, tile);
+  CHECK(frame[0] == RED && frame[1] == BLUE && frame[1 * 8 + 0] == BLUE);
+  // Wholly off the frame: nothing.
+  fresh(frame, 64);
+  lay(frame, 8, 8, 20, 20, 1.0, tile);
+  lay(frame, 8, 8, -10, 0, 2.0, tile);
+  CHECK(std::all_of(frame, frame + 64, [](uint16_t p) { return p == BLUE; }));
+  // Half size: the 4 x 4 tile in 2 x 2, its clear column falling under the right-hand pixels' middles.
+  fresh(frame, 64);
+  lay(frame, 8, 8, 0, 0, 0.5, tile);
+  CHECK(frame[0] == RED && frame[8] == RED && frame[1] == BLUE && frame[2] == BLUE);
+  // Twice the size: a 2 x 2 tile, left red and right white, in 4 x 4. The outer columns are their own colour, the
+  // inner ones between the two, nearer their own side's.
+  uint16_t two[4] = {RED, WHITE, RED, WHITE};
+  uint8_t solid[4] = {255, 255, 255, 255};
+  fresh(frame, 64);
+  lay(frame, 8, 8, 0, 0, 2.0, Tile{two, solid, 2, 2, 2});
+  CHECK(frame[0] == RED && frame[3] == WHITE);
+  CHECK(frame[1] != RED && frame[1] != WHITE && (frame[1] & 0x1F) < (frame[2] & 0x1F));
+  CHECK(frame[8 * 3 + 0] == RED && frame[4] == BLUE);  // its fourth row, and nothing past its width
+  // A colour enlarged is the same colour.
+  uint16_t one[4] = {RED, RED, RED, RED};
+  fresh(frame, 64);
+  lay(frame, 8, 8, 1, 1, 3.0, Tile{one, solid, 2, 2, 2});
+  CHECK(frame[0] == BLUE && std::all_of(frame + 9, frame + 15, [](uint16_t p) { return p == RED; }));
+}
+
+static void test_firmware() {
+  using namespace firmware;
+  // Nothing to install: no start, nothing said.
+  Tracker t;
+  CHECK(!t.start(NO_UPDATE) && !t.updating);
+  CHECK(!t.seen(NO_UPDATE, false) && t.error.empty());
+  // A check that fails is said, and unsaid by one that works.
+  t.seen(UNKNOWN, true);
+  CHECK(t.error == SERVER_FAILED);
+  t.seen(AVAILABLE, false);
+  CHECK(t.error.empty());
+  // Asked to install: updating, and the entity still saying AVAILABLE before it flashes is no failure.
+  CHECK(t.start(AVAILABLE) && t.updating);
+  CHECK(!t.start(AVAILABLE));  // one at a time
+  CHECK(!t.seen(AVAILABLE, false) && t.updating && t.error.empty());
+  CHECK(!t.seen(INSTALLING, false) && t.updating);
+  // Flashing, then AVAILABLE again with the entity's error: the install failed, and the page says so, not "server".
+  CHECK(t.seen(AVAILABLE, true) && !t.updating);
+  CHECK(t.error == INSTALL_FAILED);
+  // The word stays through later checks, failed or not, until the next install starts.
+  CHECK(!t.seen(AVAILABLE, true) && t.error == INSTALL_FAILED);
+  CHECK(!t.seen(AVAILABLE, false) && t.error == INSTALL_FAILED);
+  CHECK(t.start(AVAILABLE) && t.error.empty());
+  // A second failure is a failure too.
+  t.seen(INSTALLING, false);
+  CHECK(t.seen(NO_UPDATE, false) && t.error == INSTALL_FAILED);
+  // The menu's line: installing over everything, then a check under way, an error, a release, the latest.
+  CHECK(menu_line(true, true, true, true, "1.0", "x").text == "Installing 1.0...");
+  CHECK(menu_line(true, true, true, false, "1.0", "x").text == "Checking...");
+  CHECK(menu_line(false, false, false, false, "", SERVER_FAILED).tone == BAD_NEWS);
+  CHECK(menu_line(false, true, true, false, "1.0", "").text == "1.0 is available");
+  CHECK(menu_line(false, true, true, false, "1.0", "").tone == GOOD_NEWS);
+  CHECK(menu_line(false, true, false, false, "1.0", "").text == "This is the latest release");
+  CHECK(menu_line(false, false, false, false, "", "").text == "Not checked yet");
+  // A start a check failed before: the server's word goes with it.
+  Tracker u;
+  u.seen(AVAILABLE, true);
+  CHECK(u.start(AVAILABLE) && u.error.empty());
+}
+
 int main(int argc, char **argv) {
   test_geo();
   test_settings();
@@ -510,6 +616,8 @@ int main(int argc, char **argv) {
   test_providers();
   test_menu();
   test_schedule();
+  test_firmware();
+  test_pixels();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

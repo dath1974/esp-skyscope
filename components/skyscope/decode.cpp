@@ -4,6 +4,7 @@
 // rather than turning into steps), or made smaller. A pixel only partly opaque (a place name's edge, a chart's border)
 // is blended over what is already there.
 #include "decode.h"
+#include "pixels.h"
 
 #include <JPEGDEC.h>
 #include <pngle.h>
@@ -34,16 +35,6 @@ struct Decoding {
   tiles::Filter filter;
   int width = 0, height = 0;  // what the image says it is, at most TILE a side
 };
-
-inline uint16_t blend(uint16_t under, uint16_t colour, uint32_t alpha) {
-  if (alpha >= 255) return colour;
-  if (alpha == 0) return under;
-  const uint32_t a = alpha + (alpha >> 7);  // 0 to 256
-  const uint32_t r = ((under >> 11) * (256 - a) + (colour >> 11) * a) >> 8;
-  const uint32_t g = ((under >> 5 & 0x3F) * (256 - a) + (colour >> 5 & 0x3F) * a) >> 8;
-  const uint32_t b = ((under & 0x1F) * (256 - a) + (colour & 0x1F) * a) >> 8;
-  return (uint16_t) (r << 11 | g << 5 | b);
-}
 
 void png_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
   const Decoding &d = *static_cast<const Decoding *>(pngle_get_user_data(pngle));
@@ -76,64 +67,6 @@ int jpeg_draw(JPEGDRAW *j) {
   return 1;
 }
 
-// Four RGB565 pixels mixed by weights summing to 256.
-inline uint16_t mix4(uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint32_t wa, uint32_t wb, uint32_t wc, uint32_t wd) {
-  const uint32_t r = ((a >> 11) * wa + (b >> 11) * wb + (c >> 11) * wc + (d >> 11) * wd) >> 8;
-  const uint32_t g = ((a >> 5 & 0x3F) * wa + (b >> 5 & 0x3F) * wb + (c >> 5 & 0x3F) * wc + (d >> 5 & 0x3F) * wd) >> 8;
-  const uint32_t bl = ((a & 0x1F) * wa + (b & 0x1F) * wb + (c & 0x1F) * wc + (d & 0x1F) * wd) >> 8;
-  return (uint16_t) (r << 11 | g << 5 | bl);
-}
-
-// The decoded tile into the frame at (ox, oy), `scale` frame pixels a tile pixel.
-void lay(uint16_t *frame, int width, int height, int ox, int oy, double scale, int tw, int th) {
-  const int fw = (int) std::lround(tw * scale), fh = (int) std::lround(th * scale);
-  const int x0 = std::max(0, ox), x1 = std::min(width, ox + fw);
-  const int y0 = std::max(0, oy), y1 = std::min(height, oy + fh);
-  if (x0 >= x1 || y0 >= y1) return;
-  if (scale == 1.0) {
-    for (int y = y0; y < y1; ++y) {
-      uint16_t *out = frame + y * width;
-      const uint16_t *c = scratch.colour + (y - oy) * TILE;
-      const uint8_t *a = scratch.alpha + (y - oy) * TILE;
-      for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
-    }
-    return;
-  }
-  if (scale < 1.0) {
-    // Smaller: the tile pixel under each frame pixel's middle.
-    const double step = 1.0 / scale;
-    for (int y = y0; y < y1; ++y) {
-      const int ty = std::min(th - 1, (int) ((y - oy + 0.5) * step));
-      uint16_t *out = frame + y * width;
-      for (int x = x0; x < x1; ++x) {
-        const int tx = std::min(tw - 1, (int) ((x - ox + 0.5) * step));
-        out[x] = blend(out[x], scratch.colour[ty * TILE + tx], scratch.alpha[ty * TILE + tx]);
-      }
-    }
-    return;
-  }
-  // Larger: bilinear, in 1/256ths of a tile pixel. Past the tile's edge the edge pixel stands in for its neighbour's.
-  const int32_t step = (int32_t) std::lround(256.0 / scale);
-  for (int y = y0; y < y1; ++y) {
-    const int32_t sy = (int32_t) std::lround(((y - oy) + 0.5) * 256.0 / scale) - 128;
-    const int ya = std::max(0, std::min(th - 1, (int) (sy >> 8))), yb = std::max(0, std::min(th - 1, (int) (sy >> 8) + 1));
-    const uint32_t fy = sy < 0 ? 0 : (uint32_t) (sy & 0xFF);
-    uint16_t *out = frame + y * width;
-    int32_t sx = (int32_t) std::lround(((x0 - ox) + 0.5) * 256.0 / scale) - 128;
-    for (int x = x0; x < x1; ++x, sx += step) {
-      const int xa = std::max(0, std::min(tw - 1, (int) (sx >> 8))), xb = std::max(0, std::min(tw - 1, (int) (sx >> 8) + 1));
-      const uint32_t fx = sx < 0 ? 0 : (uint32_t) (sx & 0xFF);
-      const uint32_t wa = (256 - fx) * (256 - fy) >> 8, wb = fx * (256 - fy) >> 8, wc = (256 - fx) * fy >> 8;
-      const uint32_t wd = 256 - wa - wb - wc;
-      const int ia = ya * TILE + xa, ib = ya * TILE + xb, ic = yb * TILE + xa, id = yb * TILE + xb;
-      const uint32_t alpha =
-          (scratch.alpha[ia] * wa + scratch.alpha[ib] * wb + scratch.alpha[ic] * wc + scratch.alpha[id] * wd) >> 8;
-      if (!alpha) continue;
-      const uint16_t c = mix4(scratch.colour[ia], scratch.colour[ib], scratch.colour[ic], scratch.colour[id], wa, wb, wc, wd);
-      out[x] = blend(out[x], c, alpha);
-    }
-  }
-}
 }  // namespace
 
 bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int height, const geo::TileOrigin &at,
@@ -189,7 +122,8 @@ bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int heig
       return false;
   }
   if (!ok) return false;
-  lay(frame, width, height, (int) std::lround(at.x), (int) std::lround(at.y), at.scale, d.width, d.height);
+  pixels::lay(frame, width, height, (int) std::lround(at.x), (int) std::lround(at.y), at.scale,
+              {scratch.colour, scratch.alpha, d.width, d.height, TILE});
   return true;
 }
 }  // namespace sky::decode

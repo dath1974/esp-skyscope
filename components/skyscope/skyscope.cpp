@@ -233,10 +233,10 @@ Skyscope::Chrome Skyscope::chrome_() const { return chrome_for_(settings_); }
 Skyscope::Chrome Skyscope::chrome_for_(const Settings &s) {
   if (s.map != RADAR) {
     const colours::Palette &p = colours::palette(s.theme == LIGHT);
-    return {p.ink, p.muted, p.card};
+    return {p.ink, p.muted, p.card, s.theme == LIGHT ? colours::LIGHT_ACCENT : colours::ACCENT};
   }
   const colours::Tint &t = colours::tint(s.tint);
-  return {t.glow, colours::glow_share(t, 0.6f), t.ground};
+  return {t.glow, colours::glow_share(t, 0.6f), t.ground, t.hot};
 }
 
 void Skyscope::set_status_colour_(uint32_t colour) {
@@ -321,7 +321,10 @@ void Skyscope::setup() {
     base_->add_handler(this);
   }
 #ifdef USE_UPDATE
-  if (firmware_) firmware_->add_on_state_callback([this]() { this->firmware_changed_(); });
+  if (firmware_) firmware_->add_on_state_callback([this]() {
+    ++firmware_reports_;
+    this->firmware_changed_();
+  });
 #endif
 }
 
@@ -388,6 +391,7 @@ void Skyscope::loop() {
     update_status_(now);
     // A failed check publishes nothing: looked at here too.
     firmware_changed_();
+    refresh_menu_firmware_();
   }
 }
 
@@ -822,7 +826,7 @@ void Skyscope::update_status_(uint32_t now) {
 #ifdef USE_CAPTIVE_PORTAL
   portal = captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
 #endif
-  if (updating_) {
+  if (install_.updating) {
     title = "Updating";
     body = "New firmware is being installed. The screen restarts by itself when it is done.";
   } else if (portal) {

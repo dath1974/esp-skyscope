@@ -138,15 +138,17 @@ f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
+// An airport's identifier from what the search gave: the FAA's, or OpenStreetMap's tags (ICAO first), '' for none.
+function ident_of(p){const t=p.extratags||{};return(p.ident||t.icao||t.faa||t.iata||'').toUpperCase()}
 let picking=0;
 function place(p){$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);$('place').value=p.short;$('q').value=p.short;
  $('used').textContent='Using '+p.display_name+' ('+p.source+'). Press Save to keep it.';
  // An airport found by its name: its identifier offered as the place's name (the screen shows it), from the FAA's
  // data (by name, or the airport at that spot) or OpenStreetMap's own tags.
  const n=++picking,airport=p.ident||p.type==='aerodrome'||p.class==='aeroway';if(!airport)return;
- (async()=>{let id=p.ident;const t=p.extratags||{};if(!id)id=t.icao||t.faa||t.iata||'';
-  if(!id)try{id=await faa_near(p.lat,p.lon)}catch(e){}
-  if(!id||n!==picking||id.toUpperCase()===p.short.toUpperCase())return;id=id.toUpperCase();
+ (async()=>{let id=ident_of(p);
+  if(!id)try{id=(await faa_near(p.lat,p.lon)).toUpperCase()}catch(e){}
+  if(!id||n!==picking||id===p.short.toUpperCase())return;
   const b=document.createElement('button');b.type='button';b.className='plain';b.style.marginLeft='8px';b.textContent='Call it '+id;
   b.onclick=()=>{$('place').value=id;$('q').value=id;$('used').textContent='Using '+p.display_name+' as '+id+' ('+p.source+'). Press Save to keep it.'};
   $('used').appendChild(b)})()}
@@ -164,10 +166,12 @@ async function faa_near(lat,lon){const r=await fetch(FAA+'?f=json&outFields=IDEN
 // writes some words short: Boeing Fld/King County Intl) or its town.
 const FAA_SHORT={FIELD:'FLD',INTERNATIONAL:'INTL',REGIONAL:'RGNL',MUNICIPAL:'MUNI',MEMORIAL:'MEML',COUNTY:'CO'};
 const AIRPORT_WORDS=/\b(airport|airfield|aerodrome|airpark|airstrip|field|international|intl|regional|municipal)\b/i;
-async function faa_named(q){if(!AIRPORT_WORDS.test(q))return[];
+// The FAA query for a search that names an airport, '' for one that does not. Only letters, digits and spaces reach it.
+function faa_where(q){if(!AIRPORT_WORDS.test(q))return'';
  const words=q.toUpperCase().replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w&&!/^(AIRPORT|AIRFIELD|AERODROME|AIRSTRIP)$/.test(w));
- if(!words.length)return[];
- const where="TYPE_CODE='AD' AND "+words.map(w=>"(UPPER(NAME) LIKE '%"+w+"%'"+(FAA_SHORT[w]?" OR UPPER(NAME) LIKE '%"+FAA_SHORT[w]+"%'":'')+" OR UPPER(SERVCITY) LIKE '%"+w+"%')").join(' AND ');
+ if(!words.length)return'';
+ return"TYPE_CODE='AD' AND "+words.map(w=>"(UPPER(NAME) LIKE '%"+w+"%'"+(FAA_SHORT[w]?" OR UPPER(NAME) LIKE '%"+FAA_SHORT[w]+"%'":'')+" OR UPPER(SERVCITY) LIKE '%"+w+"%')").join(' AND ')}
+async function faa_named(q){const where=faa_where(q);if(!where)return[];
  const r=await fetch(FAA+'?f=json&outSR=4326&resultRecordCount=6&orderByFields=PRIVATEUSE&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where='+encodeURIComponent(where));
  return((await r.json()).features||[]).filter(f=>f.geometry).map(f=>{const a=f.attributes,id=a.ICAO_ID||a.IDENT;
   return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',ident:id,short:a.NAME.slice(0,40),display_name:a.NAME+' ('+id+'), '+a.SERVCITY+', '+a.STATE}})}
@@ -210,20 +214,25 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
  if(s.time)$('clock').textContent=s.time;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
 // Firmware: the running version, the newest release, and its install (the screen restarts into it).
+// The words for what /api/firmware says, and whether to offer the install.
+function fw_words(s){let t='Running '+s.version+'.';
+ if(s.installing)t+=' Installing '+s.latest+(s.progress!==undefined?': '+s.progress+'%':'')+'...';
+ else if(s.available)t+=' '+s.latest+' is available.';else if(s.known)t+=' This is the latest release.';
+ else if(!s.error)t+=' The update server has not been asked yet.';
+ return{text:t,install:!!(s.available&&!s.installing)}}
 let fw_was='',fw_now='',fw_timer=0;
 async function firmware(body){clearTimeout(fw_timer);let next=5000;
  try{const r=await fetch('api/firmware',body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
   const s=await r.json();if(!s.updates)return;$('fw').style.display='';fw_now=s.version;
   if(fw_was&&s.version!==fw_was&&!s.installing){fw_was='';say('Now running '+s.version)}
-  let t='Running '+s.version+'.';
-  if(s.installing){t+=' Installing '+s.latest+(s.progress!==undefined?': '+s.progress+'%':'')+'...';fw_was=s.version;next=1000}
-  else if(s.available)t+=' '+s.latest+' is available.';else if(s.known)t+=' This is the latest release.';
-  else if(!s.error)t+=' The update server has not been asked yet.';
-  $('fw_text').textContent=t;
+  const w=fw_words(s);if(s.installing){fw_was=s.version;next=1000}
+  // A failed install: the screen did not restart, and a later silence is no restart either.
+  else if(s.error)fw_was='';
+  $('fw_text').textContent=w.text;
   if(s.summary&&s.available){const p=document.createElement('span');p.className='hint';p.textContent=' '+s.summary;$('fw_text').appendChild(p)}
   if(s.release_url&&(s.available||s.installing)){const a=document.createElement('a');a.href=s.release_url;a.target='_blank';a.rel='noopener';a.textContent=' Release notes';$('fw_text').appendChild(a)}
   if(s.error){const e=document.createElement('div');e.className='bad';e.textContent=s.error;$('fw_text').appendChild(e)}
-  $('fw_install').style.display=s.available&&!s.installing?'':'none';$('fw_install').textContent='Install '+(s.latest||'');
+  $('fw_install').style.display=w.install?'':'none';$('fw_install').textContent='Install '+(s.latest||'');
   $('fw_check').disabled=s.installing}
  catch(e){if(fw_was){$('fw_text').textContent='Restarting with the new firmware...';next=2000}}
  fw_timer=setTimeout(firmware,next)}

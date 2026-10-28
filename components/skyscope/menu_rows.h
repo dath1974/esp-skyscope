@@ -77,6 +77,22 @@ inline const std::vector<Row> &rows() {
   return table;
 }
 
+// The menu's groups, each from the row of its first key to the next group's: a heading over its rows.
+struct Group {
+  const char *first_key, *name;
+};
+inline const std::vector<Group> &groups() {
+  static const std::vector<Group> table = {
+      {"map", "Map"}, {"marker", "Aircraft"}, {"feed", "Source"}, {"metric", "Screen"}};
+  return table;
+}
+// The group a row is the first of, or nullptr.
+inline const Group *group_starting(const Row &row) {
+  for (const auto &g : groups())
+    if (std::string(g.first_key) == row.key) return &g;
+  return nullptr;
+}
+
 inline bool applies(const Row &row, const Settings &s) { return row.maps & bit(s.map); }
 
 // What a row shows for `s`: its choice's label, "On" or "Off", or for a number not among its choices the number.

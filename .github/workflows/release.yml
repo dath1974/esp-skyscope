@@ -1,6 +1,7 @@
 # A release: push a tag v<version> whose version is the one in skyscope.yaml (substitutions: version). This builds the
 # firmware, makes a GitHub release with it, and publishes it on GitHub Pages, where the screens look for it
-# (skyscope.yaml: update:). The tag's message (git tag -a) is the release's summary on the screens' page.
+# (skyscope.yaml: update:), once the tests pass (tests.yml). The tag's message (git tag -a) is the release's summary on
+# the screens' page.
 name: Release
 
 on:
@@ -17,7 +18,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   release:
+    needs: tests
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

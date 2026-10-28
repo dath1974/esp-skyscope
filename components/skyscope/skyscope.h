@@ -31,6 +31,7 @@
 #include "lvgl.h"
 #include "beam.h"
 #include "feed.h"
+#include "firmware.h"
 #include "overlay.h"
 #include "providers.h"
 #include "settings.h"
@@ -136,11 +137,15 @@ class Skyscope : public Component, public AsyncWebHandler {
   void refresh_menu_();
   void menu_step_(int index, int step);
   void menu_action_(int action);
-  // A key of the menu: a row's step back or on (row >= 0), or one of its actions (row < 0, MENU_* in menu.cpp).
-  lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height);
+  void refresh_menu_firmware_();  // the menu's firmware part, from what the update entity last said
+  // A key of the menu: a row's step back or on (row >= 0), or one of its actions (row < 0, MENU_* in menu.cpp). Its
+  // face is `label`, or an arrow drawn (`arrow` one of menu.cpp's ARROW_*) where `label` is nullptr. A primary key is
+  // filled with the accent.
+  lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height, int arrow = -1,
+                 bool primary = false);
   void set_brightness_now_(int percent);
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
-  struct Chrome { uint32_t ink, muted, card; };
+  struct Chrome { uint32_t ink, muted, card, accent; };
   Chrome chrome_() const;
   static Chrome chrome_for_(const Settings &s);
   void restyle_();
@@ -193,10 +198,10 @@ class Skyscope : public Component, public AsyncWebHandler {
   uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool asleep_{false};
-  bool updating_{false};  // the screen says so, and the worker rests, until the screen restarts or the install fails
+  // An install: the screen says so, and the worker rests, until the screen restarts or the install fails.
+  firmware::Tracker install_;
 #ifdef USE_UPDATE
   http_request::HttpRequestUpdate *firmware_{nullptr};
-  bool firmware_flashing_{false};  // the entity has said it is installing
 #endif
   uint32_t taps_from_{0};  // taps before this (the one that woke the screen) do nothing
   // A drag on the brightness strip: where it started, the brightness then, whether it moved, and the level shown.
@@ -212,6 +217,11 @@ class Skyscope : public Component, public AsyncWebHandler {
   lv_obj_t *menu_{nullptr}, *menu_list_{nullptr};
   Settings menu_settings_;  // the menu's changes, applied all at once by Done
   std::vector<lv_obj_t *> menu_rows_, menu_values_;
+  std::vector<lv_obj_t *> menu_groups_;  // each group's heading and card, by row: the group the row is in
+  lv_obj_t *menu_fw_line_{nullptr}, *menu_fw_install_{nullptr}, *menu_fw_check_{nullptr};
+  uint32_t menu_install_armed_until_{0};  // Install takes a second tap before this
+  uint32_t menu_checking_until_{0}, menu_checking_from_{0};  // a check asked for in the menu, and the reports then
+  uint32_t firmware_reports_{0};  // the update entity's reports so far
   bool long_pressed_{false};  // the click that ends a long press (which opened the menu) is no tap
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};

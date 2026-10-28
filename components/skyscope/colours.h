@@ -9,6 +9,7 @@ constexpr uint32_t CARD = 0x15191E;     // behind labels and panels
 constexpr uint32_t INK = 0xF2F4F7;
 constexpr uint32_t MUTED = 0x9AA3AD;
 constexpr uint32_t ACCENT = 0x33B5FF;
+constexpr uint32_t LIGHT_ACCENT = 0x0A7CC2;  // the accent on the light appearance's paper
 constexpr uint32_t WARNING = 0xFFB000;
 constexpr uint32_t ERROR = 0xFF5A4E;
 constexpr uint32_t EMERGENCY = 0xFF2D2D;
