@@ -10,7 +10,7 @@ substitutions:
   friendly_name: Skyscope
   # The firmware's version: a release sets it to its tag (without the v), and the screen offers a release whose
   # version differs from its own.
-  version: "0.2.0"
+  version: "0.3.0"
   # Where the releases are published (GitHub Pages, by .github/workflows/release.yml). A build that should never be
   # offered them: remove the update: block and the skyscope: block's update_id.
   releases: https://dath1974.github.io/esp-skyscope
