@@ -35,6 +35,16 @@ constexpr uint32_t SAVE_DELAY_MS = 4000;
 constexpr uint32_t ADDRESS_MS = 6000;
 // A finger picks the plane nearest it within this many reference pixels.
 constexpr int PICK_REACH = 36;
+// After the touch that woke the screen, taps do nothing for this long: the finger that woke it is not a tap on a plane.
+constexpr uint32_t WAKE_DEAF_MS = 800;
+// The brightness strip: its width, the lowest brightness a drag gives (0 is the screen off), how far up the glass a
+// drag goes from darkest to brightest (a share of its height), how far a finger moves before it is a drag, and how
+// long the level shows after.
+constexpr float DIMMER_MM = 7;
+constexpr int DIM_LOWEST = 5;
+constexpr float DRAG_SPAN = 0.7f;
+constexpr int DRAG_PX = 6;
+constexpr uint32_t LEVEL_MS = 1500;
 // A part of the map comes at most this often while its tiles arrive; the last one at once.
 constexpr uint32_t FRAME_EVERY_MS = 600;
 // Planes that glide move this often, each in a small part of the glass.
@@ -315,10 +325,16 @@ void Skyscope::loop() {
     shared_.online = online;
   }
   if (save_pending_ && (int32_t) (now - save_at_) >= 0) save_settings_();
-  const float level = settings_.brightness / 100.0f;
-  if (brightness_ && level != applied_brightness_) {
+  sleep_or_wake_(now);
+  // The brightness set, or the one a finger is dragging to; none while the screen is off.
+  const float level = (drag_level_ >= 0 ? drag_level_ : settings_.brightness) / 100.0f;
+  if (brightness_ && !asleep_ && level != applied_brightness_) {
     brightness_->set_level(level);
     applied_brightness_ = level;
+  }
+  if (level_until_ && (int32_t) (now - level_until_) >= 0) {
+    level_until_ = 0;
+    set_shown(level_, false);
   }
   update_frame_();
   update_planes_(now);
@@ -373,6 +389,33 @@ void Skyscope::build_ui_() {
   lv_obj_set_size(planes_, width_, height_);
   lv_obj_remove_flag(planes_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(planes_, LV_OBJ_FLAG_SCROLLABLE);
+
+  // The brightness strip down the right edge: a drag up or down sets the brightness; a tap goes to the map.
+  dimmer_ = lv_obj_create(screen);
+  lv_obj_remove_style_all(dimmer_);
+  lv_obj_set_size(dimmer_, ui::mm(DIMMER_MM), height_);
+  lv_obj_align(dimmer_, LV_ALIGN_TOP_RIGHT, 0, 0);
+  lv_obj_add_flag(dimmer_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(dimmer_, LV_OBJ_FLAG_SCROLLABLE);
+  for (const lv_event_code_t code : {LV_EVENT_PRESSED, LV_EVENT_PRESSING, LV_EVENT_RELEASED})
+    lv_obj_add_event_cb(dimmer_, [](lv_event_t *e) { static_cast<Skyscope *>(lv_event_get_user_data(e))->on_dimmer_(e); },
+                        code, this);
+  // The level while it changes: a bar filled from the bottom, and the percentage.
+  level_ = panel(screen);
+  lv_obj_set_size(level_, ui::mm(6), height_ / 2);
+  lv_obj_align(level_, LV_ALIGN_RIGHT_MID, -ui::mm(DIMMER_MM) - ui::px(4), 0);
+  lv_obj_remove_flag(level_, LV_OBJ_FLAG_CLICKABLE);
+  level_fill_ = lv_obj_create(level_);
+  lv_obj_remove_style_all(level_fill_);
+  lv_obj_set_width(level_fill_, lv_pct(100));
+  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(colours::ACCENT), 0);
+  lv_obj_set_style_bg_opa(level_fill_, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(level_fill_, ui::px(4), 0);
+  lv_obj_align(level_fill_, LV_ALIGN_BOTTOM_MID, 0, 0);
+  level_text_ = label(screen, ui::fonts.label, colours::INK);
+  lv_obj_set_parent(level_text_, level_);
+  lv_obj_align(level_text_, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_add_flag(level_, LV_OBJ_FLAG_HIDDEN);
 
   status_ = label(screen, ui::fonts.small, colours::INK);
   lv_obj_set_style_bg_color(status_, lv_color_hex(colours::CARD), 0);
@@ -448,6 +491,11 @@ void Skyscope::on_tap_(lv_event_t *e) {
   if (!indev) return;
   lv_point_t p;
   lv_indev_get_point(indev, &p);
+  tap_at_(p);
+}
+
+void Skyscope::tap_at_(lv_point_t p) {
+  if ((int32_t) (millis() - taps_from_) < 0) return;
   const std::string id = view::pick(view_, p.x, p.y, ui::px(PICK_REACH));
   if (!id.empty()) {
     picked_ = id == picked_ ? "" : id;
@@ -463,6 +511,81 @@ void Skyscope::on_tap_(lv_event_t *e) {
   }
   address_until_ = address_until_ ? 0 : millis() + ADDRESS_MS;
   last_status_ = 0;  // at once
+}
+
+// ---------------------------------------------------------------- the screen off, and the brightness strip
+
+void Skyscope::sleep_or_wake_(uint32_t now) {
+  if (!lvgl_) return;
+  if (asleep_) {
+    // LVGL woke itself at a touch (lvgl: resume_on_input): the screen is on again, and that touch is no tap.
+    if (lvgl_->is_paused()) return;
+    asleep_ = false;
+    taps_from_ = now + WAKE_DEAF_MS;
+    applied_brightness_ = -1;  // the brightness again, at once
+    seen_flights_rev_ = AGAIN;
+    last_status_ = 0;
+    lv_display_trigger_activity(lv_display_get_default());
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.asleep = false;
+    ESP_LOGI(TAG, "Screen on");
+    return;
+  }
+  if (settings_.sleep_min <= 0) return;
+  if (lv_display_get_inactive_time(lv_display_get_default()) < (uint32_t) settings_.sleep_min * 60000) return;
+  // Dark, and nothing drawn: an AMOLED shows black as off. The worker asks for no planes or tiles meanwhile.
+  asleep_ = true;
+  if (brightness_) brightness_->set_level(0);
+  applied_brightness_ = 0;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.asleep = true;
+  }
+  lvgl_->set_paused(true, false);
+  ESP_LOGI(TAG, "Screen off after %d min without a touch", settings_.sleep_min);
+}
+
+void Skyscope::show_level_(int percent) {
+  lv_obj_set_height(level_fill_, std::max(1, (int) (lv_obj_get_content_height(level_) * percent / 100)));
+  set_text(level_text_, std::to_string(percent) + "%");
+  set_shown(level_, true);
+  level_until_ = millis() + LEVEL_MS;
+}
+
+void Skyscope::on_dimmer_(lv_event_t *e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+  lv_indev_t *indev = lv_indev_active();
+  if (!indev) return;
+  lv_point_t p;
+  lv_indev_get_point(indev, &p);
+  if (code == LV_EVENT_PRESSED) {
+    drag_y_ = p.y;
+    drag_from_ = settings_.brightness;
+    dragged_ = false;
+    return;
+  }
+  if (code == LV_EVENT_PRESSING) {
+    if (!dragged_ && std::abs(p.y - drag_y_) < ui::px(DRAG_PX)) return;
+    if ((int32_t) (millis() - taps_from_) < 0) return;
+    dragged_ = true;
+    // Up is brighter: DRAG_SPAN of the glass's height from darkest to brightest.
+    const float span = std::max(1.0f, height_ * DRAG_SPAN);
+    drag_level_ = std::max(DIM_LOWEST, std::min(100, drag_from_ + (int) std::lround((drag_y_ - p.y) * 100.0f / span)));
+    show_level_(drag_level_);
+    return;
+  }
+  if (code == LV_EVENT_RELEASED) {
+    if (!dragged_) {
+      // Not a drag: a tap on the map under the strip.
+      tap_at_(p);
+      return;
+    }
+    Settings s = settings_;
+    s.brightness = drag_level_;
+    drag_level_ = -1;
+    use_settings_(s);
+    show_level_(s.brightness);
+  }
 }
 
 void Skyscope::update_frame_() {

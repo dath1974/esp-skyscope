@@ -14,7 +14,9 @@ no server, no app on a PC.
   altitude; labels kept apart from each other; tracks of the last seconds; planes glide between reports; a radar beam
   that paints them as it passes. Watched aircraft (by registration, callsign or ICAO address) always show, in a
   colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
-- **On the glass**: tap a plane for its card (type, registration, altitude, climb, speed, heading, operator, squawk);
+- **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
+  while without a touch (a tap wakes it, and while it is off no planes or tiles are fetched). Tap a plane for its card
+  (type, registration, altitude, climb, speed, heading, operator, squawk);
   tap the map to see the screen's address and range in the status line. The range and everything else is set on the
   web page: the screen has no zoom or pan keys, which are too slow on a small embedded display.
 - **Set up like any ESPHome device**: Wi-Fi through the screen's own setup network (captive portal) or over USB with

@@ -62,6 +62,10 @@ static void test_settings() {
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "map" && s.range_nm == 30);
   deserializeJson(bad, R"({"alt_min":20000,"alt_max":10000})");
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "alt_min");
+  deserializeJson(bad, R"({"sleep_min":-1})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "sleep_min");
+  deserializeJson(bad, R"({"sleep_min":15})");
+  CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.sleep_min == 15);
   deserializeJson(bad, R"({"place":"KJFK"})");
   CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.place == "KJFK");
   deserializeJson(bad, R"({"rotation":45})");

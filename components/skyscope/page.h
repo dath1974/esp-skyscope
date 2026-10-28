@@ -73,6 +73,8 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <section><h2>Screen</h2>
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
 <div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Metres, km/h</option></select></div></div>
+<label for="sleep_min">Turn the screen off after (minutes without a touch, 0 for never)</label><input id="sleep_min" name="sleep_min" type="number" min="0" max="1440">
+<p class="hint">A tap turns it on again. While it is off the screen asks for no planes or map tiles. Drag up or down along the screen's right edge to set its brightness.</p>
 <label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="-1">The board's default</option>
 <option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
@@ -81,7 +83,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
+const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
 const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names'];
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}

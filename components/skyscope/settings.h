@@ -86,6 +86,7 @@ struct Settings {
   int rotation = -1;  // degrees: 0, 90, 180 or 270, or -1 for the board's own (its YAML's lvgl: rotation)
   bool metric = false;
   int brightness = 80;
+  int sleep_min = 0;  // the screen goes dark after this many minutes without a touch; 0: never
 };
 
 inline std::string upper_id(const char *s) {
@@ -134,6 +135,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["rotation"] = s.rotation;
   o["metric"] = s.metric;
   o["brightness"] = s.brightness;
+  o["sleep_min"] = s.sleep_min;
 }
 
 // Applies the keys `o` has to `s`, leaving the others as they are. Nothing changes and `error` names the first key that
@@ -236,6 +238,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!number("rotation", n.rotation, -1, 270) || (n.rotation >= 0 && n.rotation % 90)) return fail("rotation");
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");
+  if (!number("sleep_min", n.sleep_min, 0, 1440)) return fail("sleep_min");
   s = std::move(n);
   return true;
 }

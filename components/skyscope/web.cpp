@@ -103,6 +103,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["name"] = App.get_name();
     out["version"] = version_;
     out["uptime_s"] = millis() / 1000;
+    out["asleep"] = asleep_;
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     // The largest piece of it in one block: what the largest allocation from internal RAM can have.
     out["heap_largest"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);

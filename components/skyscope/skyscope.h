@@ -73,6 +73,7 @@ class Skyscope : public Component, public AsyncWebHandler {
     tiles::Plan plan;
     uint32_t plan_rev = 0;
     bool online = false;
+    bool asleep = false;  // the screen is off: no planes or tiles are asked for
     // worker -> loop
     std::vector<feed::Flight> flights;
     uint32_t flights_rev = 0;
@@ -98,6 +99,13 @@ class Skyscope : public Component, public AsyncWebHandler {
   void update_status_(uint32_t now);
   void update_card_();
   void on_tap_(lv_event_t *e);
+  void tap_at_(lv_point_t p);
+  // The screen off after settings_.sleep_min without a touch, and on again at one (skyscope.cpp).
+  void sleep_or_wake_(uint32_t now);
+  // The brightness strip down the right edge.
+  void on_dimmer_(lv_event_t *e);
+  void show_level_(int percent);
+  void set_brightness_now_(int percent);
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card; };
   Chrome chrome_() const;
@@ -143,10 +151,18 @@ class Skyscope : public Component, public AsyncWebHandler {
   int64_t paint_from_{0};
   uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
+  bool asleep_{false};
+  uint32_t taps_from_{0};  // taps before this (the one that woke the screen) do nothing
+  // A drag on the brightness strip: where it started, the brightness then, whether it moved, and the level shown.
+  int32_t drag_y_{0};
+  int drag_from_{0}, drag_level_{-1};  // drag_level_ -1: no drag
+  bool dragged_{false};
+  uint32_t level_until_{0};
   bool ui_built_{false};
   float applied_brightness_{-1};
 
   lv_obj_t *canvas_{nullptr}, *planes_{nullptr}, *status_{nullptr}, *credit_{nullptr};
+  lv_obj_t *dimmer_{nullptr}, *level_{nullptr}, *level_fill_{nullptr}, *level_text_{nullptr};
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
   uint16_t *canvas_buffer_{nullptr};

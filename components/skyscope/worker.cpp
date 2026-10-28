@@ -116,7 +116,8 @@ void Skyscope::worker_() {
     bool online;
     {
       std::lock_guard<std::mutex> guard(lock_);
-      online = shared_.online;
+      // The screen off counts as offline: nobody sees planes or tiles, so none are asked for.
+      online = shared_.online && !shared_.asleep;
       if (shared_.settings_rev != settings_rev) {
         settings = shared_.settings;
         settings_rev = shared_.settings_rev;
