@@ -207,7 +207,7 @@ void Skyscope::use_settings_(const Settings &s) {
   if (frame_changed) replan_();
   restyle_();
   // The planes again, in the new style.
-  seen_flights_rev_ = 0;
+  seen_flights_rev_ = AGAIN;
   save_pending_ = true;
   save_at_ = millis() + SAVE_DELAY_MS;
 }
@@ -509,7 +509,7 @@ void Skyscope::update_frame_() {
   if (new_plan) {
     framed_plan_rev_ = plan_rev_;
     view::new_frame(view_);
-    seen_flights_rev_ = 0;  // the planes again, on the new frame
+    seen_flights_rev_ = AGAIN;  // the planes again, on the new frame
     std::string credit = tiles::source(settings_.map).credit;
     std::lock_guard<std::mutex> guard(lock_);
     if (!shared_.flights.empty() || shared_.feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(settings_.feed);

@@ -82,6 +82,7 @@ class Skyscope : public Component, public AsyncWebHandler {
     std::string tile_error;
     // How long the last report took: its download, reading its JSON (both on the worker), and its bytes.
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
+    uint32_t feed_every_ms = 0;  // how often the feed is asked: refresh_s, or less often when its limits say so
   };
 
   // worker.cpp
@@ -123,7 +124,10 @@ class Skyscope : public Component, public AsyncWebHandler {
   int width_{0}, height_{0};
   tiles::Plan plan_;
   uint32_t plan_rev_{0};
-  uint32_t seen_flights_rev_{0}, tracked_rev_{0}, seen_frame_rev_{0}, framed_plan_rev_{0}, copied_at_{0};
+  // seen_flights_rev_ AGAIN: the planes are drawn again on the next loop, even before any report (a radar sweeps with
+  // none).
+  static constexpr uint32_t AGAIN = UINT32_MAX;
+  uint32_t seen_flights_rev_{AGAIN}, tracked_rev_{0}, seen_frame_rev_{0}, framed_plan_rev_{0}, copied_at_{0};
   std::vector<feed::Flight> flights_;
   overlay::Tracks tracks_;
   std::string picked_;

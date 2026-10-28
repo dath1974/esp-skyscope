@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -62,6 +63,26 @@ inline std::string trimmed(const char *s, size_t most = 24) {
   std::string out(s, std::min(std::strlen(s), most));
   while (!out.empty() && out.back() == ' ') out.pop_back();
   return out;
+}
+
+// The fewest milliseconds between two requests that keep within every window a server announces in its
+// x-ratelimit-limit header, as Envoy writes it ("500, 4;w=1, 60;w=60, 500;w=86400": N requests in W seconds; the
+// first number alone is the default window's, which the list repeats); 0 when it names no window. adsb.lol's 500 a day
+// is one request every 173 seconds.
+inline uint32_t min_interval_ms(const std::string &limit) {
+  uint32_t most = 0;
+  size_t at = 0;
+  while (at < limit.size()) {
+    const size_t end = std::min(limit.find(',', at), limit.size());
+    const std::string part = limit.substr(at, end - at);
+    const size_t w = part.find("w=");
+    if (w != std::string::npos) {
+      const long n = std::atol(part.c_str()), seconds = std::atol(part.c_str() + w + 2);
+      if (n > 0 && seconds > 0) most = std::max<uint32_t>(most, (uint32_t) ((seconds * 1000 + n - 1) / n));
+    }
+    at = end + 1;
+  }
+  return most;
 }
 
 // A plane whose position is older than this is left out: the exchange still lists it for a while after it was heard.

@@ -134,6 +134,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     std::lock_guard<std::mutex> guard(lock_);
     out["feed_fetch_ms"] = shared_.fetch_ms;
     out["feed_parse_ms"] = shared_.parse_ms;
+    out["feed_every_s"] = (shared_.feed_every_ms + 500) / 1000;
     out["feed_bytes"] = shared_.reply_bytes;
     out["aircraft"] = shared_.flights.size();
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;

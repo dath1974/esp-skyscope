@@ -106,6 +106,10 @@ static void test_feed() {
   CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error) && flights.size() == 3);
   CHECK(!feed::parse("{\"msg\":\"bad\"}", 13, doc, flights, error) && error == "bad");
   CHECK(!feed::parse("<html>", 6, doc, flights, error));
+  // adsb.lol's announced limits: 500 a day is the tightest, one request every 172.8 s.
+  CHECK(feed::min_interval_ms("500, 4;w=1, 60;w=60, 500;w=86400") == 172800);
+  CHECK(feed::min_interval_ms("") == 0 && feed::min_interval_ms("100") == 0);
+  CHECK(feed::min_interval_ms("10;w=1") == 100);
   CHECK(feed::url(ADSB_LOL, 40.64, -73.78, 400) == "https://api.adsb.lol/v2/point/40.6400/-73.7800/250");
   CHECK(feed::url(ADSB_FI, 1, 2, 5) == "https://opendata.adsb.fi/api/v2/lat/1.0000/lon/2.0000/dist/5");
 }

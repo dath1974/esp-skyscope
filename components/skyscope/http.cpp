@@ -5,7 +5,9 @@
 #include <esp_http_client.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <strings.h>
 #include <map>
 
 namespace sky::http {
@@ -34,9 +36,24 @@ struct Fill {
   Body *body;
   size_t most;
   bool too_large = false, no_memory = false;
+  int retry_after_s = 0;
+  std::string rate_limit;
+  int rate_reset_s = 0;
 };
 esp_err_t on_event(esp_http_client_event_t *e) {
   auto *fill = static_cast<Fill *>(e->user_data);
+  if (fill && e->event_id == HTTP_EVENT_ON_HEADER && e->header_key && e->header_value &&
+      strcasecmp(e->header_key, "Retry-After") == 0) {
+    // Seconds; a date is taken as a minute.
+    const int seconds = std::atoi(e->header_value);
+    fill->retry_after_s = seconds > 0 ? std::min(seconds, 3600) : 60;
+    return ESP_OK;
+  }
+  if (fill && e->event_id == HTTP_EVENT_ON_HEADER && e->header_key && e->header_value) {
+    if (strcasecmp(e->header_key, "x-ratelimit-limit") == 0) fill->rate_limit = std::string(e->header_value).substr(0, 120);
+    if (strcasecmp(e->header_key, "x-ratelimit-reset") == 0) fill->rate_reset_s = std::max(0, std::atoi(e->header_value));
+    return ESP_OK;
+  }
   if (!fill || !fill->body || e->event_id != HTTP_EVENT_ON_DATA || e->data_len <= 0) return ESP_OK;
   Body &b = *fill->body;
   if (b.size + e->data_len > fill->most) {
@@ -123,6 +140,9 @@ Result get(const std::string &url, Body &body, size_t most, const std::string &a
       continue;
     }
     r.status = esp_http_client_get_status_code(c->handle);
+    r.retry_after_s = c->fill.retry_after_s;
+    r.rate_limit = c->fill.rate_limit;
+    r.rate_reset_s = c->fill.rate_reset_s;
     r.error.clear();
     if (c->fill.too_large) r.error = "too large";
     if (c->fill.no_memory) r.error = "no memory";

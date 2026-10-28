@@ -64,7 +64,8 @@ struct Settings {
   Tint tint = GREEN;
   bool sweep = true;       // the radar's beam turns
   // The aircraft.
-  Feed feed = ADSB_LOL;
+  // adsb.fi: adsb.lol allows 500 requests a day per address, one every three minutes (feed.h min_interval_ms).
+  Feed feed = ADSB_FI;
   int refresh_s = 10;
   int alt_min = 0, alt_max = ALTITUDE_CEILING;
   bool ground = false;

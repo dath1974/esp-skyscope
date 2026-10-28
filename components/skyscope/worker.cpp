@@ -76,7 +76,8 @@ class Cache {
 };
 
 // How long a source that failed is left alone: a feed that says "too many requests" longer.
-constexpr uint32_t FEED_BACKOFF_MS = 30000, FEED_LIMITED_MS = 120000, TILE_BACKOFF_MS = 60000;
+constexpr uint32_t FEED_BACKOFF_MS = 30000, FEED_LIMITED_MS = 120000, FEED_LIMITED_MOST_MS = 600000;
+constexpr uint32_t TILE_BACKOFF_MS = 60000;
 }  // namespace
 
 void Skyscope::worker_main(void *self) { static_cast<Skyscope *>(self)->worker_(); }
@@ -90,6 +91,8 @@ void Skyscope::worker_() {
   size_t next_tile = 0;
   uint32_t feed_due = 0, tiles_quiet_until = 0;
   std::string feed_key;  // what the last feed request asked for: a new place or range asks at once
+  int limited = 0;       // "too many requests" in a row: each waits twice as long as the one before
+  uint32_t paced_ms = 0; // the fewest ms between two requests the feed's own limits allow (x-ratelimit-limit)
   const int width = width_, height = height_;
   while (true) {
     bool online;
@@ -114,7 +117,11 @@ void Skyscope::worker_() {
     // ---- The planes, every refresh_s, or at once for a new place, range or feed.
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
     const std::string url = feed::url(settings.feed, settings.lat, settings.lon, radius_nm);
-    if (url != feed_key) feed_due = now;
+    if (url != feed_key) {
+      // Another feed or place: asked at once. Its limits are its own.
+      if (feed_key.rfind(url.substr(0, url.find('/', 8)), 0) != 0) paced_ms = 0;
+      feed_due = now;
+    }
     if ((int32_t) (now - feed_due) >= 0) {
       feed_key = url;
       const uint32_t asked = millis();
@@ -145,11 +152,42 @@ void Skyscope::worker_() {
           shared_.feed_error = error;
         }
       }
+      auto in_words = [](uint32_t ms) {
+        char out[24];
+        if (ms >= 90 * 60000) std::snprintf(out, sizeof(out), "%u h", (unsigned) ((ms + 1800000) / 3600000));
+        else std::snprintf(out, sizeof(out), "%u min", (unsigned) ((ms + 59999) / 60000));
+        return std::string(out);
+      };
+      if (!r.rate_limit.empty()) paced_ms = feed::min_interval_ms(r.rate_limit);
       if (ok) {
-        feed_due = done + settings.refresh_s * 1000;
+        limited = 0;
+        // As often as asked, but never more often than the feed's own limits allow (adsb.lol: 500 a day).
+        const uint32_t every = std::max<uint32_t>(settings.refresh_s * 1000, paced_ms);
+        feed_due = done + every;
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.feed_every_ms = every;
+      } else if ((r.status == 429 || r.status == 403) && r.rate_reset_s > 0) {
+        // The feed says when its quota comes back: then, and not before.
+        const uint32_t wait = (uint32_t) std::min(r.rate_reset_s, 24 * 3600) * 1000 + 5000;
+        error = "limit reached, again in " + in_words(wait);
+        ESP_LOGW(TAG, "%s: %s (its limits: %s)", feed::credit(settings.feed), error.c_str(), r.rate_limit.c_str());
+        feed_due = done + wait;
+        ++limited;
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.feed_error = error;
       } else {
+        uint32_t wait = FEED_BACKOFF_MS;
+        if (r.status == 429 || r.status == 403) {
+          // The exchange asks for fewer requests: as long as it says (Retry-After), else 2, 4, 8 minutes, at most 10.
+          wait = std::min<uint32_t>(FEED_LIMITED_MOST_MS, FEED_LIMITED_MS << std::min(limited, 3));
+          if (r.retry_after_s > 0) wait = std::max<uint32_t>(wait / 4, r.retry_after_s * 1000);
+          ++limited;
+          error = "too many requests, again in " + in_words(wait);
+        }
         ESP_LOGW(TAG, "%s: %s", feed::credit(settings.feed), error.c_str());
-        feed_due = done + (r.status == 429 || r.status == 403 ? FEED_LIMITED_MS : FEED_BACKOFF_MS);
+        feed_due = done + wait;
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.feed_error = error;
       }
       body.clear();
       if (body.room > 256 * 1024) body.release();  // a large reply's memory goes back

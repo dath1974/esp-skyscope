@@ -50,9 +50,9 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
 </section>
 <section><h2>Aircraft</h2>
-<div class="row"><div><label for="feed">Source</label><select id="feed" name="feed"><option value="adsb_lol">adsb.lol</option><option value="adsb_fi">adsb.fi</option></select></div>
+<div class="row"><div><label for="feed">Source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol (every 3 minutes at most)</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
-<p class="hint">Public ADS-B exchanges ask for no more than one request a second; 10 seconds is kind to them.</p>
+<p class="hint">adsb.fi asks for no more than one request a second, so 10 seconds is kind to it. adsb.lol allows 500 requests a day per address: the screen then asks it at most every 3 minutes, whatever is set here. <span id="every"></span></p>
 <div class="row3"><div><label for="alt_min">Lowest (ft)</label><input id="alt_min" name="alt_min" type="number" min="0" max="60000" step="500"></div>
 <div><label for="alt_max">Highest (ft)</label><input id="alt_max" name="alt_max" type="number" min="0" max="60000" step="500"></div>
 <div><label for="most">Most shown</label><input id="most" name="most" type="number" min="1" max="60"></div></div>
@@ -119,6 +119,7 @@ function name_rotations(native){if(named||!native)return;named=true;const [w,h]=
  for(const o of $('rotation').options){const a=+o.value;if(a<0)continue;const wide=(a%180===0)?w>h:h>w;
   o.textContent=a+'\u00b0, '+(wide?'landscape':'portrait')+(a===0?' (least expensive)':a===180?' (cheap)':'')}}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
+ $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
  let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error;
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}

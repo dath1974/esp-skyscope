@@ -54,6 +54,7 @@ struct View {
   std::vector<int> kept;
   std::vector<ap::Point> laid_at;  // where each plane was when laid out, on the glass
   std::vector<ap::Box> boxes;      // what each plane took then, marker, track and label: what a glide draws again
+  std::map<std::string, ap::Box> box_of;  // the same by a plane's id, so a plane come or gone moves no other's
   // Each label drawn once into an image (render_labels), by label_key: its text, its style and its plane.
   struct LabelImage {
     uint8_t *data = nullptr;
@@ -430,7 +431,6 @@ static void draw(lv_event_t *e) {
       const auto found = id.empty() ? view->spot_of.end() : view->spot_of.find(id);
       kept[i] = found != view->spot_of.end() ? found->second : id.empty() && i < view->spots.size() ? view->spots[i] : ap::NO_SPOT;
     }
-    const std::vector<ap::Box> before = view->placed.size() == o.planes.size() ? view->boxes : std::vector<ap::Box>();
     view->placed = ap::place_labels(labels, frame_w, frame_h, s.gap, line_h, kept);
     view->spots.assign(view->placed.size(), ap::NO_SPOT);
     view->laid_at = places;
@@ -442,9 +442,20 @@ static void draw(lv_event_t *e) {
       ap::Box box = plane_box(view, o.planes[i], places[i]);
       if (pl.shown) box = ap::join(box, {a.x1 + pl.box.x - 1, a.y1 + pl.box.y - 1, pl.box.w + 2, pl.box.h + 2});
       view->boxes[i] = box;
-      // A label that took another spot is drawn again whole on the next frame, where it was and where it is.
-      if (pl.spot != kept[i] && kept[i] != ap::NO_SPOT)
-        view->again.push_back(i < before.size() && before[i].w > 0 ? ap::join(before[i], box) : box);
+      // A label that moved or took another size since the last frame is drawn again whole on the next one, where it
+      // was and where it is: the part of the glass drawn now need not hold either. Found by the plane's id, as the
+      // planes' order changes when one comes or goes.
+      const std::string id = o.planes[i].id.empty() ? "#" + std::to_string(i) : o.planes[i].id;
+      auto was = view->box_of.find(id);
+      if (was != view->box_of.end() && (was->second.x != box.x || was->second.y != box.y || was->second.w != box.w ||
+                                        was->second.h != box.h))
+        view->again.push_back(ap::join(was->second, box));
+      view->box_of[id] = box;
+    }
+    // Planes gone keep no box.
+    for (auto it = view->box_of.begin(); it != view->box_of.end();) {
+      const bool listed = std::any_of(o.planes.begin(), o.planes.end(), [&](const ap::Plane &p) { return p.id == it->first; });
+      it = listed || it->first[0] == '#' ? std::next(it) : view->box_of.erase(it);
     }
   }
   const auto &labels = view->labels;
@@ -674,7 +685,14 @@ void set_picked(View *view, const std::string &id) {
 }
 
 void tick(View *view, uint32_t now) {
-  if (!view || !view->layer || view->hidden || !view->overlay.glide || view->overlay.planes.empty() || sweeps(view)) return;
+  if (!view || !view->layer || view->hidden || sweeps(view)) return;
+  // Labels that moved in the last frame are drawn again whole, gliding or not (a sweeping scope's sweep does this).
+  for (const auto &box : view->again) {
+    lv_area_t area{box.x, box.y, box.x + box.w - 1, box.y + box.h - 1};
+    lv_obj_invalidate_area(view->layer, &area);
+  }
+  view->again.clear();
+  if (!view->overlay.glide || view->overlay.planes.empty()) return;
   // Gliding until GLIDE_MS after the report, then once more where it stopped.
   if (now - view->overlay.at > ap::GLIDE_MS + 1000) return;
   const ap::Overlay &o = view->overlay;
@@ -696,7 +714,5 @@ void tick(View *view, uint32_t now) {
     if (std::fabs(dx) < 0.5f && std::fabs(dy) < 0.5f) continue;
     invalidate(ap::join(view->boxes[i], ap::moved(view->boxes[i], dx, dy)));
   }
-  for (const auto &box : view->again) invalidate(box);
-  view->again.clear();
 }
 }  // namespace sky::view
