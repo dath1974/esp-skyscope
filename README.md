@@ -1,8 +1,7 @@
 # esp-skyscope
 
-Live aircraft over a map on a small ESP32-S3 touch screen, entirely on its own: the screen fetches the planes from a
-public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself. No Home Assistant,
-no server, no app on a PC.
+Live aircraft tracking on a self-contained ESP32-S3 touch screen: the ESP32-S3 fetches traffic information from a
+public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself.
 
 - **Maps**: a radar scope drawn on the screen (nothing downloaded), streets (Esri's gray maps, dark or light),
   OpenStreetMap, satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional, IFR area (low) and
@@ -10,10 +9,10 @@ no server, no app on a PC.
   maps without a dark version of their own are drawn dark by rules made for each (the IFR charts turn only their paper
   and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
   kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
-- **Aircraft**: from adsb.fi or adsb.lol, every few seconds, switching to the other while one is unavailable. Plane, arrow or dot markers, coloured by
-  altitude; labels kept apart from each other; tracks of the last seconds; planes glide between reports; a radar beam
-  that paints them as it passes. Watched aircraft (by registration, callsign or ICAO address) always show, in a
-  colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
+- **Aircraft**: from adsb.fi or adsb.lol, every polling interval, switching to the other if one is unavailable. Plane,
+  arrow or dot markers, coloured by altitude; labels kept apart from each other; tracks of the last seconds; planes
+  optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
+  callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
   while without a touch, and at a bedtime every night, on again at a time or a tap (while it is off no planes or
   tiles are fetched). A long press on the map opens a settings menu. Tap a plane for its card
@@ -21,7 +20,7 @@ no server, no app on a PC.
   tap the map to see the screen's address and range in the status line. The range and everything else is set on the
   web page: the screen has no zoom or pan keys, which are too slow on a small embedded display.
 - **Set up like any ESPHome device**: Wi-Fi through the screen's own setup network (captive portal) or over USB with
-  Improv; everything else on the screen's own web page.
+  Improv; everything else on the screen's own web page or built in configuration panel.
 
 ## Hardware
 
@@ -30,7 +29,8 @@ no server, no app on a PC.
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` |
 
 A board needs an ESP32-S3 with PSRAM (the map takes two frames of the screen, the tile cache 3 MB) and an LVGL-capable
-display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:` block's `dpi`.
+display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:` block's `dpi`.  Any
+new board will require ample testing, noting the goal of this project is a physically small display size.
 
 ## Install
 
@@ -44,20 +44,37 @@ esphome run skyscope.yaml          # over USB the first time
 
 Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen's address>`.
 
+## Updates
+
+Once it is on Wi-Fi the screen updates itself from the project's releases, with no computer. Every six hours it asks
+for the newest one (a manifest on GitHub Pages), and its web page shows it under **Firmware**, with **Install** and
+**Check now**. Nothing installs by itself. Installing shows **Updating** on the screen, downloads the release into the
+half of the flash the screen is not running from, checks it and restarts into it, in a minute or two. The settings
+are kept. A download that breaks off or fails its check changes nothing: the screen keeps the firmware it has.
+
+A build of your own offers the releases too, whenever its version differs. To leave them out, remove the `update:`
+block and the `skyscope:` block's `update_id` from `skyscope.yaml`.
+
+Releasing (maintainers): set `version` in `skyscope.yaml`, commit, and push an annotated tag `v<version>`
+(`git tag -a v0.3.0 -m "What changed, in one line"`). `.github/workflows/release.yml` builds it, makes the GitHub
+release and publishes the firmware with its manifest (`tools/release_site.py`). The tag's message is the summary the
+page shows.
+
 ## First start
 
-1. The screen shows **Set up Wi-Fi**. On a phone, join the Wi-Fi network **Skyscope Setup**. A page opens (or go to
-   `http://192.168.4.1`): choose your network and enter its password. (Or use Improv from
+1. The screen shows **Set up Wi-Fi**. On a phone or other device, join the Wi-Fi network **Skyscope Setup**. A page
+   opens (or go to `http://192.168.4.1`): choose your network and enter its password. (Or use Improv from
    [ESPHome Web](https://web.esphome.io) while the screen is on USB.)
 2. The screen joins your network and shows **Where are you?** with its address. Open that address in a browser on the
    same network.
 3. Search for a place (an airport, a town) or enter its latitude and longitude, choose a range and a map, and press
-   **Save**. The planes appear within seconds; the map fills in tile by tile.
+   **Save**. The display should draw the map and begin showing traffic within a few seconds.
 
-Every setting lives on that page and is kept by the screen across restarts and updates.
+All settings are on that page, and the screen keeps them across restarts and updates. Once it is set up and running,
+tapping the status bar at the top shows the screen's address for a moment.
 
 **Rotation** is set on that page too (the screen restarts to turn). 0° is the panel's own way up and the least
-expensive: every other angle turns each frame in software, and 90° and 270° cost the most (on the AMOLED 2.41, 0° is
+expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41, 0° is
 portrait and 90° landscape).
 
 ## The web page and API
@@ -70,6 +87,8 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
 | `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
+| `GET /api/firmware` | the version running, the newest release, and an install's progress |
+| `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
@@ -99,7 +118,8 @@ them with its load, so the screen keeps to what each one announces: never more o
 allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or `Retry-After`), else twice as long each
 time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the other
 exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status line
-and the page count down to the next try. Tiles are cached in memory for a day and asked again only when the place, range or map changes. Each tile server and feed is credited at the bottom of the screen.
+and the page count down to the next try. Tiles are cached in memory for a day and asked again only when the place, range
+or map changes.
 
 **Not for navigation.** ADS-B exchanges show what volunteers' receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.
