@@ -28,7 +28,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <section><h2>Where</h2>
 <label for="q">Find a place</label><div class="row"><input id="q" placeholder="An airport, a town, an address"><button type="button" class="plain" id="find">Search</button></div>
 <input type="hidden" id="place" name="place">
-<p class="hint">An airport code (KJFK, JFK) is looked up in the FAA's airport data first; anything else, and airports outside the United States, in OpenStreetMap. The search goes from this browser; the screen only stores the coordinates.</p>
+<p class="hint">An airport code (KJFK, JFK), or an airport's name (Teterboro Airport), is looked up in the FAA's airport data first; anything else, and airports outside the United States, in OpenStreetMap. An airport found by its name offers its identifier as the name the screen shows. The search goes from this browser; the screen only stores the coordinates.</p>
 <p id="used"></p><div id="found"></div>
 <div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" step="any" min="-85" max="85" required></div>
 <div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" step="any" min="-180" max="180" required></div></div>
@@ -138,8 +138,18 @@ f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
+let picking=0;
 function place(p){$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);$('place').value=p.short;$('q').value=p.short;
- $('used').textContent='Using '+p.display_name+' ('+p.source+'). Press Save to keep it.'}
+ $('used').textContent='Using '+p.display_name+' ('+p.source+'). Press Save to keep it.';
+ // An airport found by its name: its identifier offered as the place's name (the screen shows it), from the FAA's
+ // data (by name, or the airport at that spot) or OpenStreetMap's own tags.
+ const n=++picking,airport=p.ident||p.type==='aerodrome'||p.class==='aeroway';if(!airport)return;
+ (async()=>{let id=p.ident;const t=p.extratags||{};if(!id)id=t.icao||t.faa||t.iata||'';
+  if(!id)try{id=await faa_near(p.lat,p.lon)}catch(e){}
+  if(!id||n!==picking||id.toUpperCase()===p.short.toUpperCase())return;id=id.toUpperCase();
+  const b=document.createElement('button');b.type='button';b.className='plain';b.style.marginLeft='8px';b.textContent='Call it '+id;
+  b.onclick=()=>{$('place').value=id;$('q').value=id;$('used').textContent='Using '+p.display_name+' as '+id+' ('+p.source+'). Press Save to keep it.'};
+  $('used').appendChild(b)})()}
 // The FAA's own airport data (NASR, through its open data service) for something that looks like an airport code.
 const FAA='https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/US_Airport/FeatureServer/0/query';
 async function faa(q){const id=q.toUpperCase();if(!/^[A-Z0-9]{2,5}$/.test(id))return null;
@@ -147,19 +157,38 @@ async function faa(q){const id=q.toUpperCase();if(!/^[A-Z0-9]{2,5}$/.test(id))re
  const r=await fetch(FAA+'?f=json&outSR=4326&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where='+encodeURIComponent(where));
  const f=((await r.json()).features||[])[0];if(!f||!f.geometry)return null;const a=f.attributes;
  return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',short:(a.ICAO_ID||a.IDENT).toUpperCase(),display_name:(a.ICAO_ID||a.IDENT)+' '+a.NAME+', '+a.SERVCITY+', '+a.STATE}}
+// The FAA's airport within 3 km of a spot: its identifier (ICAO where it has one), or '' where none is.
+async function faa_near(lat,lon){const r=await fetch(FAA+'?f=json&outFields=IDENT,ICAO_ID&inSR=4326&geometryType=esriGeometryPoint&spatialRel=esriSpatialRelIntersects&distance=3000&units=esriSRUnit_Meter&geometry='+lon+','+lat+'&where='+encodeURIComponent("TYPE_CODE='AD'"));
+ const f=((await r.json()).features||[])[0];return f?(f.attributes.ICAO_ID||f.attributes.IDENT||''):''}
+// Airports by name, where the search says it is one ("Teterboro Airport"): every other word in the FAA's name (which
+// writes some words short: Boeing Fld/King County Intl) or its town.
+const FAA_SHORT={FIELD:'FLD',INTERNATIONAL:'INTL',REGIONAL:'RGNL',MUNICIPAL:'MUNI',MEMORIAL:'MEML',COUNTY:'CO'};
+const AIRPORT_WORDS=/\b(airport|airfield|aerodrome|airpark|airstrip|field|international|intl|regional|municipal)\b/i;
+async function faa_named(q){if(!AIRPORT_WORDS.test(q))return[];
+ const words=q.toUpperCase().replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w&&!/^(AIRPORT|AIRFIELD|AERODROME|AIRSTRIP)$/.test(w));
+ if(!words.length)return[];
+ const where="TYPE_CODE='AD' AND "+words.map(w=>"(UPPER(NAME) LIKE '%"+w+"%'"+(FAA_SHORT[w]?" OR UPPER(NAME) LIKE '%"+FAA_SHORT[w]+"%'":'')+" OR UPPER(SERVCITY) LIKE '%"+w+"%')").join(' AND ');
+ const r=await fetch(FAA+'?f=json&outSR=4326&resultRecordCount=6&orderByFields=PRIVATEUSE&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where='+encodeURIComponent(where));
+ return((await r.json()).features||[]).filter(f=>f.geometry).map(f=>{const a=f.attributes,id=a.ICAO_ID||a.IDENT;
+  return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',ident:id,short:a.NAME.slice(0,40),display_name:a.NAME+' ('+id+'), '+a.SERVCITY+', '+a.STATE}})}
 async function find(){const q=$('q').value.trim();if(!q)return;$('found').textContent='';$('used').textContent='Searching...';
  try{const hit=await faa(q);if(hit){place(hit);return}}catch(e){}
- try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q='+encodeURIComponent(q));// A place's short name: an airport found by its code keeps the code, in capitals; else the first part of its name.
+ let named=[],list=[],offline=false;
+ try{named=await faa_named(q)}catch(e){}
+ try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&extratags=1&q='+encodeURIComponent(q));
+ // A place's short name: an airport found by its code keeps the code, in capitals; else the first part of its name.
  const code=/^[A-Za-z0-9]{3,4}$/.test(q)?q.toUpperCase():'';
- const list=(await r.json()).map(p=>Object.assign(p,{source:'OpenStreetMap',
-  short:(code&&(p.type==='aerodrome'||p.class==='aeroway'))?code:p.display_name.split(',')[0].trim().slice(0,40)}));
- if(!list.length){$('used').textContent='Nothing found';return}
- // An airport when the search found one (a code such as EGLL or KJFK), else the best match.
- const best=list.find(p=>p.type==='aerodrome'||p.class==='aeroway')||list[0];place(best);
- list.filter(p=>p!==best).forEach(p=>{const b=document.createElement('button');b.type='button';b.className='plain';
+ list=(await r.json()).map(p=>Object.assign(p,{source:'OpenStreetMap',
+  short:(code&&(p.type==='aerodrome'||p.class==='aeroway'))?code:p.display_name.split(',')[0].trim().slice(0,40)}))}
+ catch(e){offline=!named.length}
+ if(offline){$('used').textContent='The search needs internet access in this browser';return}
+ const all=named.concat(list);if(!all.length){$('used').textContent='Nothing found';return}
+ // The FAA's airport by that name first, else an airport when the search found one (a code such as EGLL or KJFK), else
+ // the best match.
+ const best=named[0]||list.find(p=>p.type==='aerodrome'||p.class==='aeroway')||list[0];place(best);
+ all.filter(p=>p!==best).forEach(p=>{const b=document.createElement('button');b.type='button';b.className='plain';
  b.textContent=p.display_name;b.onclick=()=>place(p);$('found').appendChild(b)});
- if(list.length>1)$('found').insertAdjacentHTML('afterbegin','<p class="hint">Not it? Pick another:</p>')}
- catch(e){$('used').textContent='The search needs internet access in this browser'}}
+ if(all.length>1)$('found').insertAdjacentHTML('afterbegin','<p class="hint">Not it? Pick another:</p>')}
 $('find').onclick=find;
 $('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};
 // Each rotation named portrait or landscape for this panel, from its own way up; 0 marked as the least expensive.
