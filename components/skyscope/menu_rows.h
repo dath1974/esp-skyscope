@@ -38,8 +38,8 @@ struct Row {
 inline const std::vector<Row> &rows() {
   static const std::vector<Row> table = {
       {"map", "Map", TEXT,
-       {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OpenStreetMap"}, {"satellite", "Satellite"}, {"topo", "Topo"},
-        {"sectional", "Sectional"}, {"ifr_low", "IFR low (area)"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
+       {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OSM"}, {"satellite", "Satellite"}, {"topo", "Topo"},
+        {"sectional", "Sectional"}, {"ifr_low", "IFR low"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
       {"theme", "Appearance", TEXT, {{"dark", "Dark"}, {"light", "Light"}}, TILE_MAPS},
       {"range_nm", "Range", NUMBER,
        {{"2", "2 NM"}, {"3", "3 NM"}, {"5", "5 NM"}, {"7", "7 NM"}, {"10", "10 NM"}, {"15", "15 NM"}, {"20", "20 NM"},
@@ -55,11 +55,11 @@ inline const std::vector<Row> &rows() {
       {"rings", "Range rings", FLAG, {}},
       {"marker", "Marker", TEXT, {{"plane", "Plane"}, {"arrow", "Arrow"}, {"dot", "Dot"}}},
       {"label", "Labels", TEXT,
-       {{"auto", "Automatic"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"}, {"full", "Full"}}},
+       {{"auto", "Auto"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"}, {"full", "Full"}}},
       {"track_s", "Tracks", NUMBER, {{"0", "Off"}, {"30", "30 s"}, {"60", "1 min"}, {"120", "2 min"}, {"300", "5 min"}}},
       {"most", "Most planes", NUMBER,
        {{"5", "5"}, {"10", "10"}, {"15", "15"}, {"20", "20"}, {"30", "30"}, {"40", "40"}, {"60", "60"}}},
-      {"by_altitude", "Altitude colours", FLAG, {}},
+      {"by_altitude", "Colour by altitude", FLAG, {}},
       {"glide", "Glide", FLAG, {}},
       {"ground", "On the ground", FLAG, {}},
       {"feed", "Source", TEXT, {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}}},
@@ -85,7 +85,7 @@ inline std::string shown(const Row &row, const Settings &s) {
   JsonVariantConst v = doc[row.key];
   if (row.kind == FLAG) {
     // Units is the one flag that is not on or off.
-    if (std::string(row.key) == "metric") return v.as<bool>() ? "Metric" : "Feet, knots";
+    if (std::string(row.key) == "metric") return v.as<bool>() ? "Metric" : "ft, kt";
     return v.as<bool>() ? "On" : "Off";
   }
   const std::string now = row.kind == NUMBER ? std::to_string(v.as<int>()) : std::string(v.as<const char *>());

@@ -441,7 +441,7 @@ static void test_menu() {
   // Flags turn over.
   st.rings = true;
   CHECK(menu::stepped(row("rings"), st, 1) && !st.rings && menu::shown(row("rings"), st) == "Off");
-  CHECK(menu::shown(row("metric"), st) == "Feet, knots");
+  CHECK(menu::shown(row("metric"), st) == "ft, kt");
   // Rows follow the map: the phosphor on the radar only, place names on streets and imagery.
   st.map = RADAR;
   CHECK(menu::applies(row("tint"), st) && !menu::applies(row("place_names"), st) && !menu::applies(row("theme"), st));

@@ -37,7 +37,7 @@ void Skyscope::open_menu_() {
   lv_obj_set_size(menu_, width_, height_);
   lv_obj_set_style_bg_color(menu_, lv_color_hex(c.card), 0);
   lv_obj_set_style_bg_opa(menu_, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(menu_, ui::mm(1.5f), 0);
+  lv_obj_set_style_pad_all(menu_, ui::mm(1), 0);
   lv_obj_set_flex_flow(menu_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(menu_, ui::mm(1), 0);
   lv_obj_add_flag(menu_, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched
@@ -58,7 +58,7 @@ void Skyscope::open_menu_() {
   lv_obj_set_width(list, lv_pct(100));
   lv_obj_set_flex_grow(list, 1);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, ui::mm(0.8f), 0);
+  lv_obj_set_style_pad_row(list, ui::mm(0.4f), 0);
   lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
@@ -71,14 +71,14 @@ void Skyscope::open_menu_() {
     lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, ui::mm(1), 0);
+    lv_obj_set_style_pad_column(row, ui::mm(0.6f), 0);
+    // The name a third of the row, wrapping between its words when long; the value whatever room the keys leave it.
     lv_obj_t *name = text(row, ui::fonts.label, c.muted, rows[i].name);
-    lv_obj_set_flex_grow(name, 1);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(name, lv_pct(34));
+    lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
     key_(row, "<", (int) i, -1);
     lv_obj_t *value = text(row, ui::fonts.label, c.ink, "");
-    // Room for the longest value; the keys either side stay put.
-    lv_obj_set_width(value, std::min(ui::mm(17), width_ * 2 / 5));
+    lv_obj_set_flex_grow(value, 1);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(value, LV_LABEL_LONG_DOT);
     key_(row, ">", (int) i, 1);
@@ -102,7 +102,8 @@ void Skyscope::open_menu_() {
 lv_obj_t *Skyscope::key_(lv_obj_t *parent, const char *label, int row, int step) {
   const Chrome c = chrome_();
   lv_obj_t *b = plain(parent);
-  const int size = ui::mm(8);
+  // 5.5 mm: two of them, a name and a value fit the AMOLED 2.41's 37 mm standing up.
+  const int size = ui::mm(5.5f);
   lv_obj_set_size(b, size, size);
   lv_obj_set_style_radius(b, ui::px(8), 0);
   lv_obj_set_style_bg_color(b, lv_color_hex(c.ink), 0);
