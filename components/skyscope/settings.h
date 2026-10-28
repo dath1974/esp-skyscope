@@ -24,8 +24,8 @@ template<size_t N> struct Names {
   const char *operator[](int i) const { return names[i >= 0 && i < (int) N ? i : 0]; }
 };
 
-enum MapStyle : uint8_t { RADAR, OSM, CARTO_LIGHT, CARTO_DARK, SATELLITE, TOPO, SECTIONAL, IFR_LOW, IFR_HIGH, CUSTOM };
-inline constexpr Names<10> MAP_STYLES{{"radar", "osm", "carto_light", "carto_dark", "satellite", "topo", "sectional",
+enum MapStyle : uint8_t { RADAR, OSM, LIGHT_GRAY, DARK_GRAY, SATELLITE, TOPO, SECTIONAL, IFR_LOW, IFR_HIGH, CUSTOM };
+inline constexpr Names<10> MAP_STYLES{{"radar", "osm", "light_gray", "dark_gray", "satellite", "topo", "sectional",
                                        "ifr_low", "ifr_high", "custom"}};
 enum MapFilter : uint8_t { FILTER_NONE, FILTER_DIM, FILTER_INVERT };
 inline constexpr Names<3> MAP_FILTERS{{"none", "dim", "invert"}};
@@ -171,7 +171,13 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   }
   if (!flag("located", n.located)) return fail("located");
   if (!number("range_nm", n.range_nm, MIN_RANGE_NM, MAX_RANGE_NM)) return fail("range_nm");
-  if (!choice("map", n.map, MAP_STYLES)) return fail("map");
+  // CARTO's basemaps, which went behind an API key (their tiles say so), are Esri's gray canvas maps now.
+  if (!o["map"].isNull()) {
+    const char *m = o["map"].as<const char *>();
+    if (m && std::strcmp(m, "carto_dark") == 0) n.map = DARK_GRAY;
+    else if (m && std::strcmp(m, "carto_light") == 0) n.map = LIGHT_GRAY;
+    else if (!choice("map", n.map, MAP_STYLES)) return fail("map");
+  }
   if (!o["custom_url"].isNull()) {
     const char *url = o["custom_url"].as<const char *>();
     if (!url || std::strlen(url) > 200) return fail("custom_url");

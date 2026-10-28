@@ -126,7 +126,7 @@ static void test_tiles() {
   s.lon = -73.78;
   s.located = true;
   s.range_nm = 20;
-  s.map = CARTO_DARK;
+  s.map = DARK_GRAY;
   tiles::Plan p = tiles::plan(s, 600, 450, 2);
   CHECK(p.view.zoom == std::floor(p.view.zoom));
   CHECK(p.tile_z == (int) p.view.zoom - 1);
@@ -144,7 +144,15 @@ static void test_tiles() {
   // The middle's tile first.
   const geo::TileOrigin first = geo::tile_origin(p.view, p.keys[0].z, p.keys[0].x, p.keys[0].y);
   CHECK(300 >= first.x && 300 < first.x + 256 * first.scale);
-  CHECK(tiles::url(s, p.keys[0]).rfind("https://basemaps.cartocdn.com/dark_all/", 0) == 0);
+  // ArcGIS orders a tile's address {z}/{y}/{x}.
+  CHECK(tiles::url(s, p.keys[0]) == "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/" +
+                                         std::to_string(p.keys[0].z) + "/" + std::to_string(p.keys[0].y) + "/" + std::to_string(p.keys[0].x));
+  // A screen that kept CARTO's style takes Esri's in its place.
+  Settings old;
+  JsonDocument carto;
+  deserializeJson(carto, R"({"map":"carto_light"})");
+  std::string why;
+  CHECK(apply(carto.as<JsonObjectConst>(), old, why) && old.map == LIGHT_GRAY);
   // A chart is drawn from its sharpest zoom, enlarged, and not at all far out.
   s.map = SECTIONAL;
   s.range_nm = 3;

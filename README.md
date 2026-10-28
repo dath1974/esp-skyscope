@@ -4,7 +4,7 @@ Live aircraft over a map on a small ESP32-S3 touch screen, entirely on its own: 
 public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself. No Home Assistant,
 no server, no app on a PC.
 
-- **Maps**: a radar scope drawn on the screen (nothing downloaded), street maps (CARTO dark or light, OpenStreetMap),
+- **Maps**: a radar scope drawn on the screen (nothing downloaded), street maps (Esri dark or light gray, OpenStreetMap),
   satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional and IFR low and high enroute charts,
   or any 256-pixel PNG/JPEG tile server of your own. Range rings and a compass rose over any of them.
 - **Aircraft**: from adsb.fi or adsb.lol, every few seconds, switching to the other while one is unavailable. Plane, arrow or dot markers, coloured by
@@ -69,7 +69,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 
 ```sh
 curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
-  -d '{"lat": 51.4700, "lon": -0.4543, "range_nm": 15, "map": "carto_dark"}'
+  -d '{"lat": 51.4700, "lon": -0.4543, "range_nm": 15, "map": "dark_gray"}'
 ```
 
 The page and the API are open to anyone on your network, as an ESPHome device's own web server is.
@@ -82,7 +82,7 @@ Everything the screen shows comes from free public services. Please keep to thei
 |---|---|---|
 | [adsb.fi](https://adsb.fi) | aircraft (the default) | free for personal, non-commercial use; at most one request a second |
 | [adsb.lol](https://adsb.lol) | aircraft | open data, ODbL; no key yet (it plans to ask feeders for one); limits that change with its load |
-| [CARTO basemaps](https://carto.com/basemaps) | streets | free up to 75,000 tiles a month, non-commercial |
+| [Esri gray canvas](https://www.esri.com) | dark and light gray streets | Esri's terms of use |
 | [OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/) | streets | light use only, with a User-Agent and caching (both done) |
 | [Esri World Imagery](https://www.esri.com) | satellite | Esri's terms of use |
 | [USGS National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) | topographic | public domain, United States |

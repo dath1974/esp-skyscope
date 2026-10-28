@@ -35,8 +35,8 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </section>
 <section><h2>Map</h2>
 <label for="map">Background</label><select id="map" name="map">
-<option value="radar">Radar scope (nothing downloaded)</option><option value="carto_dark">Streets, dark (CARTO)</option>
-<option value="carto_light">Streets, light (CARTO)</option><option value="osm">OpenStreetMap</option>
+<option value="radar">Radar scope (nothing downloaded)</option><option value="dark_gray">Streets, dark gray (Esri, no place names)</option>
+<option value="light_gray">Streets, light gray (Esri, no place names)</option><option value="osm">OpenStreetMap</option>
 <option value="satellite">Satellite (Esri)</option><option value="topo">Topographic (USGS, United States)</option>
 <option value="sectional">FAA VFR sectional (United States)</option><option value="ifr_low">FAA IFR low enroute (United States)</option>
 <option value="ifr_high">FAA IFR high enroute (United States)</option><option value="custom">Custom tile server</option></select>

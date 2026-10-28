@@ -26,8 +26,11 @@ struct Source {
 inline constexpr Source SOURCES[] = {
     /* RADAR */ {"", 0, 0, ""},
     /* OSM */ {"https://tile.openstreetmap.org/{z}/{x}/{y}.png", 0, 19, "\xC2\xA9 OpenStreetMap contributors"},
-    /* CARTO_LIGHT */ {"https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", 0, 20, "\xC2\xA9 OpenStreetMap \xC2\xA9 CARTO"},
-    /* CARTO_DARK */ {"https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", 0, 20, "\xC2\xA9 OpenStreetMap \xC2\xA9 CARTO"},
+    // Esri's gray canvas maps: streets and water, no place names (Esri keeps those in a layer of their own).
+    /* LIGHT_GRAY */ {"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+                      0, 16, "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap"},
+    /* DARK_GRAY */ {"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+                     0, 16, "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap"},
     /* SATELLITE */ {"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19,
                      "Esri, Maxar, Earthstar Geographics"},
     /* TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS"},
