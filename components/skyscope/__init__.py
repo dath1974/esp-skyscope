@@ -25,6 +25,7 @@ CONF_BRIGHTNESS_OUTPUT = "brightness_output"
 CONF_PANEL_TE_PIN = "panel_te_pin"
 CONF_TIME_ID = "time_id"
 CONF_UPDATE_ID = "update_id"
+CONF_TEST_API = "test_api"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
@@ -64,6 +65,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
         # Firmware from the internet (an http_request update): the web page shows it and installs it.
         cv.Optional(CONF_UPDATE_ID): cv.use_id(HttpRequestUpdate),
+        # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
+        # can use them, as they can the settings.
+        cv.Optional(CONF_TEST_API, default=True): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -105,6 +109,8 @@ async def to_code(config):
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
     if CONF_TIME_ID in config:
         cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
+    if config[CONF_TEST_API]:
+        cg.add_define("SKYSCOPE_TEST_API")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
     if CONF_BRIGHTNESS_OUTPUT in config:

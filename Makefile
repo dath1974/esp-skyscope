@@ -3,6 +3,8 @@
 
 DEVICE ?=
 SOAK ?= 30
+# With CHURN (minutes), the soak changes the map and range that often, to catch what a change leaves behind.
+CHURN ?= 0
 
 .PHONY: test host python page device device-full soak firmware
 
@@ -24,15 +26,15 @@ device:
 	@test -n "$(DEVICE)" || { echo "make device DEVICE=<the screen's address>"; exit 2; }
 	tests/device_test.py $(DEVICE)
 
-# Also each map drawn whole, and a restart that keeps the settings.
+# Also each map drawn whole, a restart that keeps the settings, and the screen going off and waking at a tap.
 device-full:
 	@test -n "$(DEVICE)" || { echo "make device-full DEVICE=<the screen's address>"; exit 2; }
-	tests/device_test.py $(DEVICE) --maps --reboot
+	tests/device_test.py $(DEVICE) --maps --reboot --sleep
 
-# Memory over SOAK minutes.
+# Memory over SOAK minutes (and with CHURN, the map changed every CHURN minutes).
 soak:
-	@test -n "$(DEVICE)" || { echo "make soak DEVICE=<the screen's address> [SOAK=minutes]"; exit 2; }
-	tests/device_test.py $(DEVICE) --soak $(SOAK)
+	@test -n "$(DEVICE)" || { echo "make soak DEVICE=<the screen's address> [SOAK=minutes] [CHURN=minutes]"; exit 2; }
+	tests/device_test.py $(DEVICE) --no-touch --soak $(SOAK) --churn $(CHURN)
 
 firmware:
 	esphome compile skyscope.yaml

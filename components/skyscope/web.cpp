@@ -8,6 +8,7 @@
 //   GET  /api/firmware     the firmware running and the newest on the update server
 //   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware
 //   POST /api/reboot
+//   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //
 // These run in the HTTP server's task: they read a copy of the settings and hand new ones to the loop (defer), which
 // owns them.
@@ -265,6 +266,14 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     send_json(request, 200, out);
     return;
   }
+#ifdef SKYSCOPE_TEST_API
+  if ((url == "/api/touch" && post) || url == "/api/ui") {
+    const std::string text = std::move(body_);
+    body_.clear();
+    this->handle_probe_(request, url, text);
+    return;
+  }
+#endif
   if (url == "/api/reboot" && post) {
     request->send(200, "application/json", "{\"ok\":true}");
     this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });

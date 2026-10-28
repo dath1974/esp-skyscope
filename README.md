@@ -91,6 +91,8 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `POST /api/reboot` | restarts the screen |
+| `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
+| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), and where each plane is |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -98,7 +100,8 @@ curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
   -d '{"lat": 51.4700, "lon": -0.4543, "range_nm": 15, "map": "dark_gray"}'
 ```
 
-The page and the API are open to anyone on your network, as an ESPHome device's own web server is.
+The page and the API are open to anyone on your network, as an ESPHome device's own web server is. The two test endpoints
+(`/api/touch`, `/api/ui`) are left out of a build with `test_api: false` in the `skyscope:` block.
 
 ## Data sources
 
@@ -139,10 +142,14 @@ receiver's range, are missing, and positions may be late.
 - With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is
   put back, and it prints nothing of the screen's place):
   - `make device DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
-    aircraft, the update check against the published release.
-  - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, and a restart that keeps
-    the settings.
-  - `make soak DEVICE=<address> SOAK=60`: memory sampled for an hour, failing if it keeps falling.
+    aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
+    stepped, cancelled and saved, paged, recoloured; Check and Install's second tap; a plane's card; the address;
+    a drag on the brightness strip).
+  - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
+    settings, and the screen going off and waking at a tap that does nothing else.
+  - `make soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every two
+    minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
+    that grows as the screen runs passes its bound.
 
 ## License
 

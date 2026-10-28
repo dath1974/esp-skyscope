@@ -34,6 +34,8 @@ SpiRam spiram;
 constexpr size_t CACHE_BYTES = 3 * 1024 * 1024;
 constexpr uint32_t TILE_TTL_MS = 24 * 3600 * 1000;
 constexpr size_t MOST_TILE_BYTES = 512 * 1024, MOST_FEED_BYTES = 768 * 1024;
+// Of a report, the planes beyond the most shown that are kept (overlay.h keep_showable).
+constexpr int KEEP_EXTRA = 20;
 struct Cached {
   tiles::Key key;
   uint8_t *data = nullptr;
@@ -164,6 +166,7 @@ void Skyscope::worker_() {
         if (ok) {
           JsonDocument doc(&spiram);
           ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
+          if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
         }
         const uint32_t done = millis();
         ui::worker_phase = ui::IDLE;

@@ -1,8 +1,8 @@
 // The screen's own settings menu: a long press on the map opens it. One row a setting (menu_rows.h): its name, and its
 // value between two keys that step it back and on. The changes wait in a copy of the settings and are applied together
-// by Done (Cancel drops them), so the map is drawn again once, not at every step; rows that do not apply to the map
+// by Save (Cancel drops them), so the map is drawn again once, not at every step; rows that do not apply to the map
 // chosen in the menu are hidden, as on the web page. The rows are grouped under headings, a changed value shows in the
-// accent until Done, and the arrows at the foot turn the list a page at a time. Last comes the firmware: the version
+// accent until Save, and the arrows at the foot turn the list a page at a time. Last comes the firmware: the version
 // running, the newest release, Check and Install (a second tap installs; the menu's changes are dropped).
 #include "skyscope.h"
 
@@ -21,7 +21,7 @@ static const char *const TAG = "skyscope.menu";
 
 namespace {
 // The menu's own keys, by negative ids in their user data.
-constexpr int MENU_DONE = -1, MENU_CANCEL = -2, MENU_UP = -3, MENU_DOWN = -4, MENU_CHECK = -5, MENU_INSTALL = -6;
+constexpr int MENU_SAVE = -1, MENU_CANCEL = -2, MENU_UP = -3, MENU_DOWN = -4, MENU_CHECK = -5, MENU_INSTALL = -6;
 // The arrows a key can show, drawn as chevrons (the fonts have no arrows, and lines stay sharp at any size).
 enum { ARROW_UP, ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT };
 lv_point_precise_t arrow_points[4][3];  // LVGL keeps a pointer to a line's points: kept here, for every key
@@ -97,7 +97,7 @@ void Skyscope::open_menu_() {
 
 void Skyscope::build_menu_() {
   // In the colours of what is being chosen: another appearance or phosphor shows on the menu at once, and on the map
-  // only with Done.
+  // only with Save.
   const Chrome c = chrome_for_(menu_settings_);
   const uint32_t surface = colours::mix(c.ink, c.card, 20);  // the groups' cards, a shade off the ground
   const int tall = ui::mm(8);
@@ -111,14 +111,14 @@ void Skyscope::build_menu_() {
   lv_obj_set_style_pad_row(menu_, ui::mm(1), 0);
   lv_obj_add_flag(menu_, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched
 
-  // Cancel, the title, and Done.
+  // Cancel, the title, and Save.
   lv_obj_t *head = plain(menu_);
   lv_obj_set_size(head, lv_pct(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(head, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  key_(head, "Cancel", MENU_CANCEL, 0, LV_SIZE_CONTENT, tall);
+  menu_cancel_ = key_(head, "Cancel", MENU_CANCEL, 0, LV_SIZE_CONTENT, tall);
   text(head, ui::fonts.title, c.ink, "Settings");
-  key_(head, "Done", MENU_DONE, 0, LV_SIZE_CONTENT, tall, -1, true);
+  menu_save_ = key_(head, "Save", MENU_SAVE, 0, LV_SIZE_CONTENT, tall, -1, true);
 
   // The groups, in a list that scrolls.
   lv_obj_t *list = lv_obj_create(menu_);
@@ -221,8 +221,10 @@ void Skyscope::build_menu_() {
   lv_obj_set_size(foot_keys, lv_pct(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(foot_keys, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(foot_keys, ui::mm(1), 0);
-  lv_obj_set_flex_grow(key_(foot_keys, nullptr, MENU_UP, 0, 0, tall, ARROW_UP), 1);
-  lv_obj_set_flex_grow(key_(foot_keys, nullptr, MENU_DOWN, 0, 0, tall, ARROW_DOWN), 1);
+  menu_up_ = key_(foot_keys, nullptr, MENU_UP, 0, 0, tall, ARROW_UP);
+  menu_down_ = key_(foot_keys, nullptr, MENU_DOWN, 0, 0, tall, ARROW_DOWN);
+  lv_obj_set_flex_grow(menu_up_, 1);
+  lv_obj_set_flex_grow(menu_down_, 1);
 
   menu_install_armed_until_ = 0;
   refresh_menu_();
@@ -264,7 +266,7 @@ void Skyscope::menu_step_(int index, int step) {
     return;
   }
   // Other colours (the appearance, the phosphor, or the radar against a map): the menu built again in them, where it
-  // was scrolled to. After this event, as the key pressed is part of what goes. Nothing else changes until Done.
+  // was scrolled to. After this event, as the key pressed is part of what goes. Nothing else changes until Save.
   const int32_t scrolled = lv_obj_get_scroll_y(menu_list_);
   this->defer([this, scrolled]() {
     if (!menu_) return;
@@ -307,8 +309,8 @@ void Skyscope::menu_action_(int action) {
     return;
   }
 #endif
-  if (action != MENU_DONE && action != MENU_CANCEL) return;
-  const bool apply = action == MENU_DONE;
+  if (action != MENU_SAVE && action != MENU_CANCEL) return;
+  const bool apply = action == MENU_SAVE;
   const Settings changed = menu_settings_;
   // Closed after this event: the key pressed is part of what goes. The settings after it, all at once.
   this->defer([this, apply, changed]() {
@@ -336,7 +338,7 @@ void Skyscope::refresh_menu_() {
     if (shown) shown_groups.push_back(menu_groups_[i]);
     const std::string value = menu::shown(rows[i], menu_settings_);
     set_label(menu_values_[i], value);
-    // Changed in the menu, not yet applied: in the accent until Done.
+    // Changed in the menu, not yet applied: in the accent until Save.
     set_colour(menu_values_[i], value != menu::shown(rows[i], settings_) ? c.accent : c.ink);
   }
   for (lv_obj_t *g : menu_groups_)
@@ -379,6 +381,7 @@ void Skyscope::close_menu_() {
   menu_values_.clear();
   menu_groups_.clear();
   menu_fw_line_ = menu_fw_install_ = menu_fw_check_ = nullptr;
+  menu_save_ = menu_cancel_ = menu_up_ = menu_down_ = nullptr;
   // The radar's scope clean again (its beam stopped where it was while the menu was open), then the planes and beam.
   if (settings_.map == RADAR && scope_background_ && canvas_buffer_) {
     std::memcpy(canvas_buffer_, scope_background_, (size_t) width_ * height_ * 2);

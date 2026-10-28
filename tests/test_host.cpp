@@ -21,6 +21,7 @@
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/tiles.h"
+#include "../components/skyscope/touch.h"
 
 using namespace sky;
 
@@ -278,6 +279,37 @@ static void test_overlay() {
   CHECK(east.vx > 0 && std::abs(east.vy) <= 1);
   CHECK(near(east.vx / (225.0 / 20), 7.5, 0.3));
   CHECK(east.band == 4);
+  // A busy sky cut to what can be shown: the nearest `most` and the extra, each watched one, nothing off the map.
+  {
+    std::vector<feed::Flight> sky;
+    for (int i = 0; i < 300; ++i) {
+      feed::Flight f;
+      f.hex = "a" + std::to_string(i);
+      f.lat = s.lat + (i % 2 ? 1 : -1) * 0.0004 * i;
+      f.lon = s.lon;
+      f.has_altitude = true;
+      f.altitude = 10000;
+      sky.push_back(f);
+    }
+    feed::Flight far = sky[0];
+    far.hex = "far";
+    far.lat = s.lat + 10;  // off the map
+    sky.push_back(far);
+    feed::Flight watched = sky[299];
+    watched.hex = "w1";
+    watched.registration = "N12345";
+    sky.push_back(watched);
+    Settings busy = s;
+    busy.most = 10;
+    busy.watch = {{"N12345", 0}};
+    overlay::keep_showable(sky, busy, p.view, 20);
+    CHECK(sky.size() <= 31);
+    CHECK(std::any_of(sky.begin(), sky.end(), [](const feed::Flight &f) { return f.hex == "a0"; }));
+    CHECK(std::any_of(sky.begin(), sky.end(), [](const feed::Flight &f) { return f.hex == "w1"; }));
+    CHECK(std::none_of(sky.begin(), sky.end(), [](const feed::Flight &f) { return f.hex == "far" || f.hex == "a299"; }));
+    // What is shown of it is what would have been shown of the whole.
+    CHECK(overlay::shown(sky, busy, p.view).size() == 11);
+  }
   // Watched planes come last and always show.
   s.watch = {{"N12345", 2}};
   s.alt_max = 10000;
@@ -564,6 +596,37 @@ static void test_pixels() {
   CHECK(frame[0] == BLUE && std::all_of(frame + 9, frame + 15, [](uint16_t p) { return p == RED; }));
 }
 
+static void test_touch() {
+  using namespace touch;
+  // A tap: down where it is for a moment, then up there.
+  Player p;
+  CHECK(!p.at(0).pressed);
+  p.play(tap(10, 20), 1000);
+  CHECK(p.busy(1000) && p.at(1000).pressed && p.at(1000).x == 10 && p.at(1050).y == 20);
+  CHECK(!p.at(1100).pressed);  // up after 80 ms
+  CHECK(!p.busy(1200) && !p.at(1200).pressed && p.at(1200).x == 10);
+  // A hold of a second and a half is down all that time.
+  p.play(hold(5, 5, 1500), 0);
+  CHECK(p.at(1499).pressed && !p.at(1500).pressed);
+  CHECK(gesture("hold", 1, 1, -1, -1, 0)[0].ms == 1200);  // a long press unless it says
+  // A drag goes from its start to its end, down all the way, each point further on, and lifts at the end.
+  const Script d = drag(100, 400, 100, 100, 600);
+  CHECK(d.front().pressed && d.front().y == 400 && d.back().y == 100 && !d.back().pressed);
+  int last = 401;
+  bool down = true, nearer = true;
+  for (size_t i = 0; i + 1 < d.size(); ++i) {
+    down = down && d[i].pressed;
+    nearer = nearer && d[i].y < last;
+    last = d[i].y;
+  }
+  CHECK(down && nearer && last == 100);
+  CHECK(length(d) >= 600 && length(d) < 800);
+  // Across millis() wrapping.
+  p.play(tap(1, 1), 0xFFFFFFF0u);
+  CHECK(p.at(0x10).pressed && !p.busy(0x200));
+  CHECK(gesture("swipe", 0, 0, 0, 0, 0).empty());
+}
+
 static void test_firmware() {
   using namespace firmware;
   // Nothing to install: no start, nothing said.
@@ -617,6 +680,7 @@ int main(int argc, char **argv) {
   test_menu();
   test_schedule();
   test_firmware();
+  test_touch();
   test_pixels();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);

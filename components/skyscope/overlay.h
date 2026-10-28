@@ -102,6 +102,20 @@ inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &
   return out;
 }
 
+// A report cut to what the glass can show, as it comes: the planes `shown` would show, and `extra` more of the nearest
+// (a plane coming into the most shown has its track already), with every watched one. A wide range over a busy sky
+// brings hundreds; kept whole, they and their tracks held so much of the internal RAM that no request could be made
+// any more, and the report that would have let them go never came.
+inline void keep_showable(std::vector<feed::Flight> &flights, const Settings &s, const geo::View &view, int extra) {
+  Settings wider = s;
+  wider.most = s.most + extra;
+  std::vector<feed::Flight> kept;
+  const auto chosen = shown(flights, wider, view);
+  kept.reserve(chosen.size());
+  for (const feed::Flight *f : chosen) kept.push_back(std::move(*const_cast<feed::Flight *>(f)));
+  flights = std::move(kept);
+}
+
 // What a label says: the choice, or for `auto` what the frame has room for, `px_per_mm` pixels to the millimetre.
 inline LabelKind label_kind(const Settings &s, const geo::View &view, float px_per_mm) {
   if (s.label != LABEL_AUTO) return s.label;

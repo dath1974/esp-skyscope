@@ -34,6 +34,7 @@
 #include "firmware.h"
 #include "overlay.h"
 #include "providers.h"
+#include "touch.h"
 #include "settings.h"
 #include "tiles.h"
 #include "view.h"
@@ -144,6 +145,16 @@ class Skyscope : public Component, public AsyncWebHandler {
   lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height, int arrow = -1,
                  bool primary = false);
   void set_brightness_now_(int percent);
+#ifdef SKYSCOPE_TEST_API
+  // Tests without a finger (probe.cpp): a touch as a second input device, and what the glass shows.
+  void make_probe_input_();
+  void probe_touch_start_(const touch::Script &s);  // on the loop
+  void describe_ui_(JsonObject out);                  // on the loop
+  void handle_probe_(AsyncWebServerRequest *request, const std::string &url, const std::string &body);
+  touch::Player probe_touch_;
+  lv_indev_t *probe_input_{nullptr};
+  uint32_t probe_busy_until_{0};  // the web server's task: the touch under way ends then
+#endif
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card, accent; };
   Chrome chrome_() const;
@@ -189,6 +200,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   overlay::Tracks tracks_;
   std::string picked_;
   size_t shown_count_{0};
+  std::vector<std::pair<std::string, lv_point_t>> shown_planes_;  // each plane drawn, where it was placed
   // How long the loop took over the last report (placing its planes, the plane layer's update), and the longest yet.
   float report_ms_{0}, report_ms_max_{0};
   // ESPHome's loop as this component sees it, over the last five seconds: passes a second and the longest gap.
@@ -215,10 +227,11 @@ class Skyscope : public Component, public AsyncWebHandler {
   lv_obj_t *canvas_{nullptr}, *planes_{nullptr}, *status_{nullptr}, *credit_{nullptr};
   lv_obj_t *dimmer_{nullptr}, *level_{nullptr}, *level_fill_{nullptr}, *level_text_{nullptr};
   lv_obj_t *menu_{nullptr}, *menu_list_{nullptr};
-  Settings menu_settings_;  // the menu's changes, applied all at once by Done
+  Settings menu_settings_;  // the menu's changes, applied all at once by Save
   std::vector<lv_obj_t *> menu_rows_, menu_values_;
   std::vector<lv_obj_t *> menu_groups_;  // each group's heading and card, by row: the group the row is in
   lv_obj_t *menu_fw_line_{nullptr}, *menu_fw_install_{nullptr}, *menu_fw_check_{nullptr};
+  lv_obj_t *menu_save_{nullptr}, *menu_cancel_{nullptr}, *menu_up_{nullptr}, *menu_down_{nullptr};
   uint32_t menu_install_armed_until_{0};  // Install takes a second tap before this
   uint32_t menu_checking_until_{0}, menu_checking_from_{0};  // a check asked for in the menu, and the reports then
   uint32_t firmware_reports_{0};  // the update entity's reports so far

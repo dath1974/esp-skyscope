@@ -539,6 +539,9 @@ void Skyscope::build_ui_() {
   lv_display_add_event_cb(display, frame_ready, LV_EVENT_REFR_READY, nullptr);
   lv_display_add_event_cb(display, flush_start, LV_EVENT_FLUSH_START, nullptr);
   lv_display_add_event_cb(display, flush_finish, LV_EVENT_FLUSH_FINISH, nullptr);
+#ifdef SKYSCOPE_TEST_API
+  make_probe_input_();
+#endif
   replan_();
   // Its stack in internal RAM: a TLS handshake needs some 8 KB of it. Core 0, beside Wi-Fi, away from LVGL.
   if (xTaskCreatePinnedToCore(worker_main, "skyscope", 16384, this, 3, &worker_task_, 0) != pdPASS)
@@ -778,6 +781,8 @@ void Skyscope::update_planes_(uint32_t now) {
     o.radar.sweep = settings_.sweep;
   }
   shown_count_ = o.planes.size();
+  shown_planes_.clear();
+  for (const auto &p : o.planes) shown_planes_.push_back({p.id, lv_point_t{p.x, p.y}});
   view::show(view_, planes_, o);
   view::set_picked(view_, picked_);
   update_card_();
