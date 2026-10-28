@@ -122,6 +122,10 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       out["ip"] = own_address();
     }
     // A report's cost: on the loop (it draws the glass), and on the worker.
+    out["loops_per_s"] = std::round(loops_per_s_ * 10) / 10;
+    out["loop_gap_max_ms"] = std::round(loop_gap_max_ms_ * 10) / 10;
+    out["sweep_steps_per_s"] = std::round(steps_per_s_ * 10) / 10;
+    out["beam_paint_ms"] = std::round(paint_ms_ * 10) / 10;
     out["report_ms"] = std::round(report_ms_ * 10) / 10;
     out["report_ms_max"] = std::round(report_ms_max_ * 10) / 10;
     JsonObject slow = out["slow_frames"].to<JsonObject>();

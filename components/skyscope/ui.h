@@ -41,6 +41,10 @@ inline volatile bool report_taken = false;
 enum Part : uint8_t { TRACKS, MARKERS, LAYOUT, LABELS, PARTS };
 inline int64_t part_us[PARTS] = {};
 inline uint32_t draw_calls = 0;
+// Steps the beam has taken (view.cpp's sweep), and ESPHome's loop: passes and the longest gap between two, for
+// /api/status.
+inline uint32_t sweep_steps = 0;
+inline int64_t paint_us = 0;  // spent painting the beam into the map, summed
 
 struct Fonts {
   const lv_font_t *small = nullptr;  // planes' labels on a small glass, credits

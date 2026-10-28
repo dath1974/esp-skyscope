@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "../components/skyscope/beam.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/geo.h"
 #include "../components/skyscope/overlay.h"
@@ -227,6 +228,38 @@ static void test_sprites() {
   CHECK(cache.get(30, 270, 8, 1) != borrowed && cache.size() == 4);  // the next frame makes it
 }
 
+static void test_beam() {
+  // A 101 x 101 scope round its middle, a grey ground; the beam at 90 degrees (east), having come from 85.
+  const int n = 101;
+  std::vector<uint16_t> canvas(n * n, 0x1234), ground(n * n, 0x1234);
+  beam::Painter p;
+  p.canvas = canvas.data();
+  p.background = ground.data();
+  p.width = p.height = n;
+  p.cx = p.cy = n / 2.0f;
+  p.reach = 48;
+  p.beam_width = 3;
+  p.set_tint(colours::tint(0));
+  // Something left behind the trail's end: cleaned within the band this step swept (to 18 degrees back), left beyond.
+  auto at = [&](float bearing, float r) {
+    const float a = bearing * 3.14159265f / 180.0f;
+    return (int) std::floor(p.cy - std::cos(a) * r) * n + (int) std::floor(p.cx + std::sin(a) * r);
+  };
+  canvas[at(74, 30)] = 0xFFFF;
+  canvas[at(60, 30)] = 0xFFFF;
+  p.paint(85, 90, {0, 0, n, n});
+  CHECK(canvas[at(90, 30)] == p.beam);                        // on the beam
+  const uint16_t trail = canvas[at(85, 30)];                 // 5 degrees behind: the afterglow
+  CHECK(trail != 0x1234 && trail != p.beam);
+  CHECK(canvas[at(120, 30)] == 0x1234);                      // ahead: untouched
+  CHECK(canvas[at(74, 30)] == 0x1234);                       // 16 degrees behind, past the trail: clean again
+  CHECK(canvas[at(60, 30)] == 0xFFFF);                       // 30 degrees behind, cleaned by an earlier step: left
+  CHECK(canvas[at(270, 30)] == 0x1234);                      // the far side: untouched
+  // The afterglow fades: nearer the beam is brighter (more of the glow's green).
+  const uint16_t near_beam = canvas[at(88, 30)], far_back = canvas[at(81, 30)];
+  CHECK((near_beam >> 5 & 0x3F) > (far_back >> 5 & 0x3F));
+}
+
 static void test_labels() {
   std::vector<plan::Label> labels(3);
   labels[0] = {{100, 100}, 6, 60, 20, false};
@@ -246,6 +279,7 @@ int main(int argc, char **argv) {
   test_overlay();
   test_labels();
   test_sprites();
+  test_beam();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

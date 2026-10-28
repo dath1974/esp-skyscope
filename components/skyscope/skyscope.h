@@ -130,6 +130,10 @@ class Skyscope : public Component, public AsyncWebHandler {
   size_t shown_count_{0};
   // How long the loop took over the last report (placing its planes, the plane layer's update), and the longest yet.
   float report_ms_{0}, report_ms_max_{0};
+  // ESPHome's loop as this component sees it, over the last five seconds: passes a second and the longest gap.
+  uint32_t loop_last_us_{0}, loop_passes_{0}, loop_window_start_{0}, steps_from_{0};
+  float loop_gap_ms_{0}, loop_gap_max_ms_{0}, loops_per_s_{0}, steps_per_s_{0}, paint_ms_{0};
+  int64_t paint_from_{0};
   uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool ui_built_{false};

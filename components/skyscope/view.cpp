@@ -34,6 +34,9 @@ struct View {
   // The bearing the beam is drawn at, which only the sweep moves: every area drawn in between (a label, a plane) draws
   // the beam where the rest of the glass shows it, so no piece of an older beam is left behind.
   float beam_drawn = -1;
+  // When the next step of the beam is due, on the clock: LVGL's timer counts its period from when it last ran, and the
+  // loop's lateness each time would add up to 80 ms steps for 50.
+  uint32_t next_step = 0;
   BeamPainter painter;  // paints the beam into the map under the layer
   // A sweeping scope paints each plane as the beam last passed it, as a radar does (`painted`: the report's style, its
   // planes as they were then, standing still): a plane moves, takes its new label or goes only when the beam crosses it,
@@ -485,9 +488,16 @@ static ap::Box guess_box(const View *view, const ap::Plane &p, ap::Point c) {
   const int r = sizes(view->overlay).plane * 2;
   return ap::join(plane_box(view, p, c), {(int) c.x - 3 * r, (int) c.y - r, 6 * r, 2 * r});
 }
+static constexpr uint32_t SWEEP_CHECK_MS = 10;
 static void sweep(lv_timer_t *timer) {
   auto *view = static_cast<View *>(lv_timer_get_user_data(timer));
   if (!view || !view->layer) return;
+  const uint32_t clock = lv_tick_get();
+  if ((int32_t) (clock - view->next_step) < 0) return;
+  // A step every SWEEP_FRAME_MS on the clock; after a long stall it starts again from now rather than catching up.
+  view->next_step += ap::SWEEP_FRAME_MS;
+  ++ui::sweep_steps;
+  if ((int32_t) (clock - view->next_step) > (int32_t) ap::SWEEP_FRAME_MS) view->next_step = clock + ap::SWEEP_FRAME_MS;
   lv_area_t a;
   lv_obj_get_coords(view->layer, &a);
   const ap::Overlay &o = view->overlay;
@@ -502,7 +512,11 @@ static void sweep(lv_timer_t *timer) {
     lv_obj_invalidate_area(target, &area);
   };
   const ap::Box swept = ap::wedge_box(c, scope_reach(view, c, a), was - ap::SWEEP_TRAIL - 2, beam + 2);
-  if (view->painter) view->painter(was, beam, swept);
+  if (view->painter) {
+    const int64_t from = esp_timer_get_time();
+    view->painter(was, beam, swept);
+    ui::paint_us += esp_timer_get_time() - from;
+  }
   invalidate(swept);
   view->beam_drawn = beam;
   // Hidden (a measurement without the planes, /api/debug): the beam goes on over the map alone.
@@ -612,7 +626,7 @@ void show(View *&view, lv_obj_t *parent, const ap::Overlay &o) {
     view->painted = {};
   }
   render_labels(view);
-  if (o.radar.on && o.radar.sweep && !view->sweeping) view->sweeping = lv_timer_create(sweep, ap::SWEEP_FRAME_MS, view);
+  if (o.radar.on && o.radar.sweep && !view->sweeping) view->sweeping = lv_timer_create(sweep, SWEEP_CHECK_MS, view);
   else if (!(o.radar.on && o.radar.sweep)) stop_sweep(view);
   if (!sweeps(view) || fresh) lv_obj_invalidate(view->layer);
 }

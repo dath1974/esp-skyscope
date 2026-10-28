@@ -109,10 +109,11 @@ inline std::array<Point, 2> heading_tick(Point c, float radius, float length, in
 inline constexpr float BAND_LIGHT[BANDS] = {0.5f, 0.75f, 1.0f, 1.35f, 1.7f};
 inline float band_light(int band) { return BAND_LIGHT[band >= 0 && band < BANDS ? band : 0]; }
 // The beam of a scope that sweeps: once round in SWEEP_MS, clockwise from north, its afterglow a trail of
-// SWEEP_TRAIL degrees behind it, drawn every SWEEP_FRAME_MS. A plane it passes lights up and fades over AFTERGLOW
+// SWEEP_TRAIL degrees behind it, drawn every SWEEP_FRAME_MS (on the clock, view.cpp's sweep: 18 steps a second
+// measured on the AMOLED 2.41 standing up with a few planes, of the 20 asked for). A plane it passes lights up and fades over AFTERGLOW
 // degrees of the turn. Every pixel of the trail changes each frame, so it is kept short: each is a see-through pixel to
 // draw again (about a microsecond each in PSRAM on an ESP32-S3) and to send to the panel, every frame.
-constexpr uint32_t SWEEP_MS = 4000, SWEEP_FRAME_MS = 80;
+constexpr uint32_t SWEEP_MS = 4000, SWEEP_FRAME_MS = 50;
 constexpr float SWEEP_TRAIL = 10.0f, AFTERGLOW = 360.0f;
 // The beam's bearing at `now`, degrees from north, clockwise.
 inline float beam(uint32_t now) { return (now % SWEEP_MS) * 360.0f / SWEEP_MS; }

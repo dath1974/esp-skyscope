@@ -280,6 +280,25 @@ void Skyscope::dump_config() {
 
 void Skyscope::loop() {
   const uint32_t now = millis();
+  {
+    const uint32_t us = (uint32_t) esp_timer_get_time();
+    if (loop_last_us_) loop_gap_ms_ = std::max(loop_gap_ms_, (us - loop_last_us_) / 1000.0f);
+    loop_last_us_ = us;
+    ++loop_passes_;
+    if (now - loop_window_start_ >= 5000) {
+      const float seconds = (now - loop_window_start_) / 1000.0f;
+      loops_per_s_ = loop_passes_ / seconds;
+      steps_per_s_ = (ui::sweep_steps - steps_from_) / seconds;
+      const uint32_t steps = ui::sweep_steps - steps_from_;
+      paint_ms_ = steps ? (ui::paint_us - paint_from_) / 1000.0f / steps : 0;
+      paint_from_ = ui::paint_us;
+      loop_gap_max_ms_ = loop_gap_ms_;
+      loop_passes_ = 0;
+      loop_gap_ms_ = 0;
+      steps_from_ = ui::sweep_steps;
+      loop_window_start_ = now;
+    }
+  }
   if (!ui_built_) {
     if (!lv_display_get_default()) return;
     build_ui_();
