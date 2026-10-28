@@ -164,7 +164,14 @@ static void test_tiles() {
   s.map = OSM;
   p = tiles::plan(s, 600, 450, 2);
   for (const auto &k : p.keys) CHECK(k.layer == 0);
+  // The credits: the map's own, and over the imagery its names' sources too.
+  s.map = SATELLITE;
+  CHECK(tiles::credit(s) == "Esri, Vantor, Earthstar Geographics, HERE, Garmin, \xC2\xA9 OpenStreetMap");
+  s.place_names = false;
+  CHECK(tiles::credit(s) == "Esri, Vantor, Earthstar Geographics");
+  s.place_names = true;
   s.map = DARK_GRAY;
+  CHECK(tiles::credit(s) == "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap");
   // A screen that kept CARTO's style takes Esri's in its place.
   Settings old;
   JsonDocument carto;

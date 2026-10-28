@@ -629,7 +629,7 @@ void Skyscope::update_status_(uint32_t now) {
   }
   address_until_ = 0;
   // The credits: the map's, and the exchange the planes come from.
-  std::string credit = tiles::source(settings_.map).credit;
+  std::string credit = tiles::credit(settings_);
   if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
   set_text(credit_, credit);
   const Feed preferred = settings_.feed;

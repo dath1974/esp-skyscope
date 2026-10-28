@@ -19,6 +19,7 @@ struct Source {
   int min_z, max_z;    // the zooms the server draws; a chart's are those it is sharp at
   const char *credit;  // what the screen credits, as the server's terms ask
   const char *labels = nullptr;  // a layer of place names over it (transparent PNG, same squares), where it has one
+  const char *labels_credit = nullptr;  // what that layer credits, where it is not the map's own
 };
 #define SKYSCOPE_ESRI "https://server.arcgisonline.com/ArcGIS/rest/services/"
 
@@ -35,8 +36,10 @@ inline constexpr Source SOURCES[] = {
     /* DARK_GRAY */ {SKYSCOPE_ESRI "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", 0, 16,
                      "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap",
                      SKYSCOPE_ESRI "Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"},
-    /* SATELLITE */ {SKYSCOPE_ESRI "World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19, "Esri, Maxar, Earthstar Geographics",
-                     SKYSCOPE_ESRI "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"},
+    // The credits are Esri's own (each service's copyrightText), shortened.
+    /* SATELLITE */ {SKYSCOPE_ESRI "World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19, "Esri, Vantor, Earthstar Geographics",
+                     SKYSCOPE_ESRI "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+                     "HERE, Garmin, \xC2\xA9 OpenStreetMap"},
     /* TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS"},
     /* SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA"},
     /* IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA"},
@@ -49,6 +52,13 @@ inline const Source &source(MapStyle style) { return SOURCES[style < sizeof(SOUR
 inline bool has_tiles(MapStyle style) { return style != RADAR; }
 // Whether the frame of `s` takes a layer of place names over its map.
 inline bool has_labels(const Settings &s) { return s.place_names && has_tiles(s.map) && source(s.map).labels; }
+// What the screen credits for the map of `s`: its own credit, and its layer of names' where that is another.
+inline std::string credit(const Settings &s) {
+  const Source &src = source(s.map);
+  std::string out = src.credit;
+  if (has_labels(s) && src.labels_credit) out += std::string(", ") + src.labels_credit;
+  return out;
+}
 
 // The most tiles one frame asks for; a frame that needs more (a chart far before its first zoom) is drawn without one.
 constexpr size_t MOST_TILES = 30;
