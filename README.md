@@ -7,7 +7,7 @@ no server, no app on a PC.
 - **Maps**: a radar scope drawn on the screen (nothing downloaded), street maps (CARTO dark or light, OpenStreetMap),
   satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional and IFR low and high enroute charts,
   or any 256-pixel PNG/JPEG tile server of your own. Range rings and a compass rose over any of them.
-- **Aircraft**: from adsb.fi (every few seconds) or adsb.lol (every few minutes, its daily limit). Plane, arrow or dot markers, coloured by
+- **Aircraft**: from adsb.fi or adsb.lol, every few seconds, switching to the other while one is unavailable. Plane, arrow or dot markers, coloured by
   altitude; labels kept apart from each other; tracks of the last seconds; planes glide between reports; a radar beam
   that paints them as it passes. Watched aircraft (by registration, callsign or ICAO address) always show, in a
   colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
@@ -81,16 +81,19 @@ Everything the screen shows comes from free public services. Please keep to thei
 | Source | What | Terms |
 |---|---|---|
 | [adsb.fi](https://adsb.fi) | aircraft (the default) | free for personal, non-commercial use; at most one request a second |
-| [adsb.lol](https://adsb.lol) | aircraft | open data, ODbL; no key; 500 requests a day per address, so the screen asks it at most every 3 minutes |
+| [adsb.lol](https://adsb.lol) | aircraft | open data, ODbL; no key yet (it plans to ask feeders for one); limits that change with its load |
 | [CARTO basemaps](https://carto.com/basemaps) | streets | free up to 75,000 tiles a month, non-commercial |
 | [OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/) | streets | light use only, with a User-Agent and caching (both done) |
 | [Esri World Imagery](https://www.esri.com) | satellite | Esri's terms of use |
 | [USGS National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) | topographic | public domain, United States |
 | [FAA aeronautical charts](https://www.faa.gov/air_traffic/flight_info/aeronav) | sectional, IFR | public domain, United States; not for navigation |
 
-The screen asks a feed every 10 seconds by default (3 at the least), and never more often than the feed's own announced
-limits allow (its `x-ratelimit-limit` header); when a feed says it has had enough, the screen waits until it says its
-quota is back. Tiles are cached in memory for a day and asked again only when the place, range or map changes. Each tile server and feed is credited at the bottom of the screen.
+The screen asks for planes every 10 seconds by default (3 at the least). Each exchange sets its own limits and may change
+them with its load, so the screen keeps to what each one announces: never more often than its `x-ratelimit-limit` header
+allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or `Retry-After`), else twice as long each
+time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the other
+exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status line
+and the page count down to the next try. Tiles are cached in memory for a day and asked again only when the place, range or map changes. Each tile server and feed is credited at the bottom of the screen.
 
 **Not for navigation.** ADS-B exchanges show what volunteers' receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.

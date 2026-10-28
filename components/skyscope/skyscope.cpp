@@ -510,10 +510,7 @@ void Skyscope::update_frame_() {
     framed_plan_rev_ = plan_rev_;
     view::new_frame(view_);
     seen_flights_rev_ = AGAIN;  // the planes again, on the new frame
-    std::string credit = tiles::source(settings_.map).credit;
-    std::lock_guard<std::mutex> guard(lock_);
-    if (!shared_.flights.empty() || shared_.feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(settings_.feed);
-    set_text(credit_, credit);
+    last_status_ = 0;  // the credits again, at once
   }
 }
 
@@ -608,13 +605,15 @@ void Skyscope::update_status_(uint32_t now) {
     set_text(setup_body_, body);
     return;
   }
-  std::string status, feed_error, tile_error;
+  std::string status, tile_error;
+  providers::Providers sources;
+  Feed source = ADSB_FI;
   uint32_t feed_at;
   int done, total;
   {
     std::lock_guard<std::mutex> guard(lock_);
-    feed_error = shared_.feed_error;
-    if (!feed_error.empty() && shared_.feed_retry_at) feed_error += ", again in " + feed::countdown(shared_.feed_retry_at, now);
+    sources = shared_.providers;
+    source = shared_.feed_source;
     tile_error = shared_.tile_error;
     feed_at = shared_.feed_at;
     done = shared_.tiles_done;
@@ -628,13 +627,30 @@ void Skyscope::update_status_(uint32_t now) {
     return;
   }
   address_until_ = 0;
-  if (!feed_error.empty() && (feed_at == 0 || now - feed_at > 60000)) {
-    status = std::string(feed::credit(settings_.feed)) + ": " + feed_error;
+  // The credits: the map's, and the exchange the planes come from.
+  std::string credit = tiles::source(settings_.map).credit;
+  if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
+  set_text(credit_, credit);
+  const Feed preferred = settings_.feed;
+  const providers::State &first = sources.state(preferred);
+  if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
+    // Every exchange it may ask is waiting: the one free soonest, and when.
+    Feed next = preferred;
+    for (const Feed f : sources.order()) {
+      if (!settings_.fallback) break;
+      if (providers::before(sources.state(f).until, sources.state(next).until)) next = f;
+    }
+    const providers::State &s = sources.state(next);
+    status = std::string(feed::credit(next)) + ": " + s.error + ", again in " + feed::countdown(s.until, now);
     colour = colours::ERROR;
   } else if (feed_at == 0) {
     status = "Finding aircraft...";
   } else {
     status = std::to_string(shown_count_) + " aircraft";
+    // From another exchange while the preferred one waits: which, and how long it still waits.
+    if (source != preferred) status += std::string(" via ") + feed::credit(source);
+    if (first.blocked && providers::before(now, first.until))
+      status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);
     if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) {
       status += " (" + std::to_string((now - feed_at) / 1000) + " s old)";
       colour = colours::WARNING;

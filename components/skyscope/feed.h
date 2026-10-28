@@ -67,8 +67,8 @@ inline std::string trimmed(const char *s, size_t most = 24) {
 
 // The fewest milliseconds between two requests that keep within every window a server announces in its
 // x-ratelimit-limit header, as Envoy writes it ("500, 4;w=1, 60;w=60, 500;w=86400": N requests in W seconds; the
-// first number alone is the default window's, which the list repeats); 0 when it names no window. adsb.lol's 500 a day
-// is one request every 173 seconds.
+// first number alone is the default window's, which the list repeats); 0 when it names no window. 500 a day, as adsb.lol
+// announced it once, is one request every 173 seconds.
 inline uint32_t min_interval_ms(const std::string &limit) {
   uint32_t most = 0;
   size_t at = 0;

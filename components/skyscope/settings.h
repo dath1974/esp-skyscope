@@ -64,8 +64,10 @@ struct Settings {
   Tint tint = GREEN;
   bool sweep = true;       // the radar's beam turns
   // The aircraft.
-  // adsb.fi: adsb.lol allows 500 requests a day per address, one every three minutes (feed.h min_interval_ms).
-  Feed feed = ADSB_FI;
+  // adsb.fi first: adsb.lol's limits change with its load and went as low as 500 requests a day per address (one every
+  // three minutes); providers.h keeps to whatever each one announces.
+  Feed feed = ADSB_FI;  // the preferred exchange
+  bool fallback = true;  // while it waits (it failed, or asked for fewer requests), the next one in FEEDS
   int refresh_s = 10;
   int alt_min = 0, alt_max = ALTITUDE_CEILING;
   bool ground = false;
@@ -106,6 +108,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["tint"] = TINTS[s.tint];
   o["sweep"] = s.sweep;
   o["feed"] = FEEDS[s.feed];
+  o["fallback"] = s.fallback;
   o["refresh_s"] = s.refresh_s;
   o["alt_min"] = s.alt_min;
   o["alt_max"] = s.alt_max;
@@ -183,6 +186,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!choice("tint", n.tint, TINTS)) return fail("tint");
   if (!flag("sweep", n.sweep)) return fail("sweep");
   if (!choice("feed", n.feed, FEEDS)) return fail("feed");
+  if (!flag("fallback", n.fallback)) return fail("fallback");
   if (!number("refresh_s", n.refresh_s, 3, 300)) return fail("refresh_s");
   if (!number("alt_min", n.alt_min, 0, ALTITUDE_CEILING)) return fail("alt_min");
   if (!number("alt_max", n.alt_max, 0, ALTITUDE_CEILING)) return fail("alt_max");

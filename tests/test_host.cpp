@@ -13,6 +13,7 @@
 #include "../components/skyscope/geo.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/plan.h"
+#include "../components/skyscope/providers.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/tiles.h"
@@ -269,6 +270,59 @@ static void test_beam() {
   CHECK((near_beam >> 5 & 0x3F) > (far_back >> 5 & 0x3F));
 }
 
+static void test_providers() {
+  providers::Providers p;
+  p.set_order(ADSB_FI, true);
+  Feed f;
+  uint32_t wait = 0;
+  CHECK(p.choose(0, f, wait) && f == ADSB_FI);
+  // A good answer: the refresh asked for.
+  CHECK(p.succeeded(ADSB_FI, 0, 10000, {200}) == 10000);
+  // adsb.fi refuses with the end of its quota: left alone that long, and adsb.lol is asked meanwhile.
+  providers::Answer limited{429, 0, 26798, "500, 4;w=1, 60;w=60, 500;w=86400", "HTTP 429"};
+  CHECK(p.failed(ADSB_FI, 1000, limited) == 26798u * 1000 + 5000);
+  CHECK(p.state(ADSB_FI).error == "limit reached" && p.state(ADSB_FI).failures == 1);
+  CHECK(p.choose(2000, f, wait) && f == ADSB_LOL);
+  // adsb.lol fails too, with no word on when: 15 s, then 30, 60 ... at most 15 minutes; meanwhile nothing is free.
+  providers::Answer down{0, 0, 0, "", "ESP_ERR_HTTP_CONNECT"};
+  CHECK(p.failed(ADSB_LOL, 2000, down) == 15000);
+  CHECK(!p.choose(3000, f, wait) && wait == 14000 && p.all_blocked(3000));
+  CHECK(p.choose(17000, f, wait) && f == ADSB_LOL);  // its 15 s are up: asked again
+  CHECK(p.failed(ADSB_LOL, 17000, down) == 30000);
+  CHECK(p.failed(ADSB_LOL, 47000, down) == 60000);
+  for (int i = 0; i < 10; ++i) p.failed(ADSB_LOL, 107000, down);
+  CHECK(p.state(ADSB_LOL).until - 107000 == providers::FAILED_MOST_MS);
+  // A refusal with no word on when: 2, 4, 8 minutes ... at most 30. Retry-After wins over doubling.
+  providers::Providers q;
+  providers::Answer refused{429, 0, 0, "", "HTTP 429"};
+  CHECK(q.failed(ADSB_LOL, 0, refused) == 120000 && q.failed(ADSB_LOL, 0, refused) == 240000);
+  for (int i = 0; i < 10; ++i) q.failed(ADSB_LOL, 0, refused);
+  CHECK(q.state(ADSB_LOL).until == providers::REFUSED_MOST_MS);
+  CHECK(q.failed(ADSB_LOL, 0, {429, 90, 0, "", ""}) == 90000);
+  // A good answer clears the record.
+  q.succeeded(ADSB_LOL, 0, 10000, {200});
+  CHECK(!q.state(ADSB_LOL).blocked && q.state(ADSB_LOL).failures == 0);
+  // Back to the preferred one once its quota is back.
+  CHECK(p.choose(1000 + 26798u * 1000 + 5000, f, wait) && f == ADSB_FI);
+  // An announced pace holds until the quota's end, then the refresh asked for again.
+  providers::Providers r;
+  CHECK(r.succeeded(ADSB_LOL, 0, 10000, {200, 0, 600, "500, 500;w=86400", ""}) == 172800);
+  CHECK(r.succeeded(ADSB_LOL, 300000, 10000, {200}) == 172800);   // still within its 600 s
+  CHECK(r.succeeded(ADSB_LOL, 700000, 10000, {200}) == 10000);    // past it
+  // Without falling back, a source that waits is waited for.
+  providers::Providers alone;
+  alone.set_order(ADSB_LOL, false);
+  alone.failed(ADSB_LOL, 0, down);
+  CHECK(!alone.choose(1000, f, wait) && wait == 14000);
+  // Across millis() wrapping.
+  providers::Providers wrap;
+  wrap.failed(ADSB_FI, 0xFFFFF000u, down);
+  CHECK(!wrap.choose(0xFFFFF000u + 1000, f, wait) || f == ADSB_LOL);
+  wrap.set_order(ADSB_FI, false);
+  CHECK(!wrap.choose(0x00001000u, f, wait) && wait == 15000 - 0x2000);
+  CHECK(wrap.choose(0xFFFFF000u + 15000, f, wait) && f == ADSB_FI);
+}
+
 static void test_labels() {
   std::vector<plan::Label> labels(3);
   labels[0] = {{100, 100}, 6, 60, 20, false};
@@ -289,6 +343,7 @@ int main(int argc, char **argv) {
   test_labels();
   test_sprites();
   test_beam();
+  test_providers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

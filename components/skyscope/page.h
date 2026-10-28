@@ -50,9 +50,11 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
 </section>
 <section><h2>Aircraft</h2>
-<div class="row"><div><label for="feed">Source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol (every 3 minutes at most)</option></select></div>
+<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
-<p class="hint">adsb.fi asks for no more than one request a second, so 10 seconds is kind to it. adsb.lol allows 500 requests a day per address: the screen then asks it at most every 3 minutes, whatever is set here. <span id="every"></span></p>
+<label class="check"><input type="checkbox" id="fallback" name="fallback"> Use the other source while this one is unavailable</label>
+<p class="hint">Each exchange sets its own limits and may change them with its load (adsb.fi asks for no more than one request a second; adsb.lol has at times allowed only a few hundred a day per address). The screen keeps to what each one announces: when one refuses, it waits as long as that exchange says, or twice as long each time it refuses again, and meanwhile asks the other one if allowed to. It goes back to the preferred source as soon as that one's wait is over. <span id="every"></span></p>
+<p class="hint" id="sources"></p>
 <div class="row3"><div><label for="alt_min">Lowest (ft)</label><input id="alt_min" name="alt_min" type="number" min="0" max="60000" step="500"></div>
 <div><label for="alt_max">Highest (ft)</label><input id="alt_max" name="alt_max" type="number" min="0" max="60000" step="500"></div>
 <div><label for="most">Most shown</label><input id="most" name="most" type="number" min="1" max="60"></div></div>
@@ -77,7 +79,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','dim','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
-const BOOL=['rings','sweep','by_altitude','glide','ground'];
+const BOOL=['rings','sweep','by_altitude','glide','ground','fallback'];
 const TXT=['map','custom_url','filter','tint','feed','marker','label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
@@ -123,7 +125,11 @@ function wait(t){return t>=5400?Math.floor(t/3600)+' h '+String(Math.floor(t%360
  :Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
- let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error+(s.feed_retry_in_s>0?', again in '+wait(s.feed_retry_in_s):'');
+ const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol'};
+ let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+NAMES[s.feed_source]:'');
+ const waits=(s.feeds||[]).filter(f=>f.waiting).map(f=>NAMES[f.feed]+': '+f.error+', again in '+wait(f.retry_in_s));
+ if(waits.length)t+=' · '+waits.join(' · ');
+ $('sources').textContent=(s.feeds||[]).map(f=>NAMES[f.feed]+': '+(f.waiting?f.error+' ('+f.failures+(f.failures>1?' times':' time')+' in a row), again in '+wait(f.retry_in_s):'available')+(f.paced_s?', asked at most every '+f.paced_s+' s':'')).join(' · ');
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
 load();status();setInterval(status,5000);

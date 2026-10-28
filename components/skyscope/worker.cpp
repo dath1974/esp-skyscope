@@ -76,7 +76,6 @@ class Cache {
 };
 
 // How long a source that failed is left alone: a feed that says "too many requests" longer.
-constexpr uint32_t FEED_BACKOFF_MS = 30000, FEED_LIMITED_MS = 120000, FEED_LIMITED_MOST_MS = 600000;
 constexpr uint32_t TILE_BACKOFF_MS = 60000;
 }  // namespace
 
@@ -90,9 +89,8 @@ void Skyscope::worker_() {
   uint32_t settings_rev = 0, plan_rev = 0, painting_rev = 0;
   size_t next_tile = 0;
   uint32_t feed_due = 0, tiles_quiet_until = 0;
-  std::string feed_key;  // what the last feed request asked for: a new place or range asks at once
-  int limited = 0;       // "too many requests" in a row: each waits twice as long as the one before
-  uint32_t paced_ms = 0; // the fewest ms between two requests the feed's own limits allow (x-ratelimit-limit)
+  std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
+  providers::Providers providers;
   const int width = width_, height = height_;
   while (true) {
     bool online;
@@ -114,81 +112,65 @@ void Skyscope::worker_() {
       continue;
     }
 
-    // ---- The planes, every refresh_s, or at once for a new place, range or feed.
+    // ---- The planes, every refresh_s, or at once for a new place or range, from the first exchange free
+    // (providers.h): the preferred one, or while it waits the next in the list.
+    providers.set_order(settings.feed, settings.fallback);
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
-    const std::string url = feed::url(settings.feed, settings.lat, settings.lon, radius_nm);
-    if (url != feed_key) {
-      // Another feed or place: asked at once. Its limits are its own.
-      if (feed_key.rfind(url.substr(0, url.find('/', 8)), 0) != 0) paced_ms = 0;
+    char place[64];
+    std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d", settings.lat, settings.lon, radius_nm, (int) settings.feed,
+                  (int) settings.fallback);
+    if (place != feed_key) {
+      feed_key = place;
       feed_due = now;
     }
     if ((int32_t) (now - feed_due) >= 0) {
-      feed_key = url;
-      const uint32_t asked = millis();
-      ui::worker_phase = ui::FEED_FETCH;
-      const http::Result r = http::get(url, body, MOST_FEED_BYTES, agent_, "application/json");
-      const uint32_t fetched = millis();
-      ui::worker_phase = ui::FEED_PARSE;
-      std::vector<feed::Flight> flights;
-      std::string error = r.error;
-      bool ok = r.status == 200;
-      if (ok) {
-        JsonDocument doc(&spiram);
-        ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
-      }
-      const uint32_t done = millis();
-      ui::worker_phase = ui::IDLE;
-      {
+      Feed source;
+      uint32_t wait = 0;
+      if (!providers.choose(now, source, wait)) {
+        // Every exchange it may ask is waiting: until the first is free.
+        feed_due = now + wait;
+      } else {
+        const std::string url = feed::url(source, settings.lat, settings.lon, radius_nm);
+        const uint32_t asked = millis();
+        ui::worker_phase = ui::FEED_FETCH;
+        const http::Result r = http::get(url, body, MOST_FEED_BYTES, agent_, "application/json");
+        const uint32_t fetched = millis();
+        ui::worker_phase = ui::FEED_PARSE;
+        std::vector<feed::Flight> flights;
+        std::string error = r.error;
+        bool ok = r.status == 200;
+        if (ok) {
+          JsonDocument doc(&spiram);
+          ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
+        }
+        const uint32_t done = millis();
+        ui::worker_phase = ui::IDLE;
+        providers::Answer answer{r.status, r.retry_after_s, r.rate_reset_s, r.rate_limit, error};
+        if (ok) {
+          const uint32_t every = providers.succeeded(source, done, settings.refresh_s * 1000, answer);
+          feed_due = done + every;
+          std::lock_guard<std::mutex> guard(lock_);
+          shared_.flights = std::move(flights);
+          shared_.flights_rev++;
+          shared_.feed_at = done;
+          shared_.feed_every_ms = every;
+          shared_.feed_source = source;
+        } else {
+          const uint32_t left = providers.failed(source, done, answer);
+          ESP_LOGW(TAG, "%s: %s (HTTP %d), left alone for %u s%s", feed::credit(source), providers.state(source).error.c_str(),
+                   r.status, (unsigned) (left / 1000), r.rate_limit.empty() ? "" : (" (its limits: " + r.rate_limit + ")").c_str());
+          // The next exchange in the list at once, if there is one free; else when the first one is.
+          feed_due = done;
+        }
         std::lock_guard<std::mutex> guard(lock_);
         shared_.fetch_ms = fetched - asked;
         shared_.parse_ms = done - fetched;
         shared_.reply_bytes = body.size;
-        if (ok) {
-          shared_.flights = std::move(flights);
-          shared_.flights_rev++;
-          shared_.feed_at = done;
-          shared_.feed_error.clear();
-          shared_.feed_retry_at = 0;
-        } else {
-          shared_.feed_error = error;
-        }
+        body.clear();
+        if (body.room > 256 * 1024) body.release();  // a large reply's memory goes back
       }
-      if (!r.rate_limit.empty()) paced_ms = feed::min_interval_ms(r.rate_limit);
-      if (ok) {
-        limited = 0;
-        // As often as asked, but never more often than the feed's own limits allow (adsb.lol: 500 a day).
-        const uint32_t every = std::max<uint32_t>(settings.refresh_s * 1000, paced_ms);
-        feed_due = done + every;
-        std::lock_guard<std::mutex> guard(lock_);
-        shared_.feed_every_ms = every;
-      } else if ((r.status == 429 || r.status == 403) && r.rate_reset_s > 0) {
-        // The feed says when its quota comes back: then, and not before.
-        const uint32_t wait = (uint32_t) std::min(r.rate_reset_s, 24 * 3600) * 1000 + 5000;
-        error = "limit reached";
-        ESP_LOGW(TAG, "%s: %s, again in %u s (its limits: %s)", feed::credit(settings.feed), error.c_str(),
-                 (unsigned) (wait / 1000), r.rate_limit.c_str());
-        feed_due = done + wait;
-        ++limited;
-        std::lock_guard<std::mutex> guard(lock_);
-        shared_.feed_error = error;
-        shared_.feed_retry_at = feed_due;
-      } else {
-        uint32_t wait = FEED_BACKOFF_MS;
-        if (r.status == 429 || r.status == 403) {
-          // The exchange asks for fewer requests: as long as it says (Retry-After), else 2, 4, 8 minutes, at most 10.
-          wait = std::min<uint32_t>(FEED_LIMITED_MOST_MS, FEED_LIMITED_MS << std::min(limited, 3));
-          if (r.retry_after_s > 0) wait = std::max<uint32_t>(wait / 4, r.retry_after_s * 1000);
-          ++limited;
-          error = "too many requests";
-        }
-        ESP_LOGW(TAG, "%s: %s, again in %u s", feed::credit(settings.feed), error.c_str(), (unsigned) (wait / 1000));
-        feed_due = done + wait;
-        std::lock_guard<std::mutex> guard(lock_);
-        shared_.feed_error = error;
-        shared_.feed_retry_at = feed_due;
-      }
-      body.clear();
-      if (body.room > 256 * 1024) body.release();  // a large reply's memory goes back
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.providers = providers;
     }
 
     // ---- The map, one tile a turn, so the planes keep coming while it fills.

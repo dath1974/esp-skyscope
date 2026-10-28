@@ -10,6 +10,6 @@ if [ ! -f "$include/ArduinoJson.h" ]; then
   curl -fsSL -o "$build/ArduinoJson.h" https://github.com/bblanchon/ArduinoJson/releases/download/v7.4.3/ArduinoJson-v7.4.3.h
   include="$build"
 fi
-${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -I"$include" \
+${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fsanitize=address,undefined -I"$include" \
   "$here/test_host.cpp" -o "$build/test_host"
 "$build/test_host" "$@"

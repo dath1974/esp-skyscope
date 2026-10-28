@@ -138,10 +138,22 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["feed_bytes"] = shared_.reply_bytes;
     out["aircraft"] = shared_.flights.size();
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
-    out["feed_error"] = shared_.feed_error;
-    if (shared_.feed_retry_at) {
-      const int32_t left = (int32_t) (shared_.feed_retry_at - millis());
-      out["feed_retry_in_s"] = left > 0 ? (left + 999) / 1000 : 0;
+    // Each exchange in the order it is tried: waiting or not, for how long, and why.
+    out["feed_source"] = FEEDS[shared_.feed_source];
+    JsonArray sources = out["feeds"].to<JsonArray>();
+    const uint32_t now_ms = millis();
+    for (const Feed f : shared_.providers.order()) {
+      const providers::State &s = shared_.providers.state(f);
+      JsonObject e = sources.add<JsonObject>();
+      e["feed"] = FEEDS[f];
+      const bool waiting = s.blocked && providers::before(now_ms, s.until);
+      e["waiting"] = waiting;
+      if (waiting) {
+        e["error"] = s.error;
+        e["retry_in_s"] = (s.until - now_ms + 999) / 1000;
+        e["failures"] = s.failures;
+      }
+      if (s.paced_ms && providers::before(now_ms, s.paced_until)) e["paced_s"] = (s.paced_ms + 999) / 1000;
     }
     out["tiles_done"] = shared_.tiles_done;
     out["tiles_total"] = shared_.tiles_total;

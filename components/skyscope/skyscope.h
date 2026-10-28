@@ -26,6 +26,7 @@
 #include "beam.h"
 #include "feed.h"
 #include "overlay.h"
+#include "providers.h"
 #include "settings.h"
 #include "tiles.h"
 #include "view.h"
@@ -76,8 +77,8 @@ class Skyscope : public Component, public AsyncWebHandler {
     std::vector<feed::Flight> flights;
     uint32_t flights_rev = 0;
     uint32_t feed_at = 0;  // millis() of the last good answer
-    std::string feed_error;
-    uint32_t feed_retry_at = 0;  // millis() of the next request after a failed one; 0 while the feed answers
+    providers::Providers providers;  // each exchange's record: waiting, failures, pace (providers.h)
+    Feed feed_source = ADSB_FI;      // the exchange the last good report came from
     uint32_t frame_rev = 0, frame_plan_rev = 0;  // the base frame changed, for that plan
     int tiles_done = 0, tiles_total = 0;
     std::string tile_error;
