@@ -11,6 +11,7 @@
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/geo.h"
+#include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
@@ -402,6 +403,54 @@ static void test_providers() {
   CHECK(wrap.choose(0xFFFFF000u + 15000, f, wait) && f == ADSB_FI);
 }
 
+static void test_menu() {
+  // Every value of every row is one the settings take, and a row shows it as its label.
+  for (const auto &row : menu::rows()) {
+    for (const auto &c : row.choices) {
+      Settings st;
+      JsonDocument change;
+      if (row.kind == menu::NUMBER) change[row.key] = std::atoi(c.value);
+      else change[row.key] = c.value;
+      std::string error;
+      const bool ok = apply(change.as<JsonObjectConst>(), st, error);
+      if (!ok) std::printf("menu row %s refuses %s\n", row.key, c.value);
+      CHECK(ok);
+      if (ok) CHECK(menu::shown(row, st) == c.label || std::string(row.key) == "map");
+    }
+  }
+  auto row = [](const char *key) -> const menu::Row & {
+    for (const auto &r : menu::rows())
+      if (std::string(r.key) == key) return r;
+    return menu::rows()[0];
+  };
+  Settings st;
+  // Numbers stop at their ends; one between two choices steps to the next its way.
+  st.range_nm = 6;
+  CHECK(menu::stepped(row("range_nm"), st, 1) && st.range_nm == 7);
+  st.range_nm = 6;
+  CHECK(menu::stepped(row("range_nm"), st, -1) && st.range_nm == 5);
+  st.range_nm = 250;
+  CHECK(!menu::stepped(row("range_nm"), st, 1) && st.range_nm == 250);
+  // Words go round; the map skips the custom server when none is set.
+  st.map = IFR_HIGH;
+  CHECK(menu::stepped(row("map"), st, 1) && st.map == RADAR);
+  st.custom_url = "https://t.example/{z}/{x}/{y}.png";
+  st.map = IFR_HIGH;
+  CHECK(menu::stepped(row("map"), st, 1) && st.map == CUSTOM);
+  CHECK(menu::shown(row("map"), st) == "Custom");
+  // Flags turn over.
+  st.rings = true;
+  CHECK(menu::stepped(row("rings"), st, 1) && !st.rings && menu::shown(row("rings"), st) == "Off");
+  CHECK(menu::shown(row("metric"), st) == "Feet, knots");
+  // Rows follow the map: the phosphor on the radar only, place names on streets and imagery.
+  st.map = RADAR;
+  CHECK(menu::applies(row("tint"), st) && !menu::applies(row("place_names"), st) && !menu::applies(row("theme"), st));
+  st.map = SATELLITE;
+  CHECK(!menu::applies(row("tint"), st) && menu::applies(row("place_names"), st) && menu::applies(row("tile_scale"), st));
+  st.map = SECTIONAL;
+  CHECK(!menu::applies(row("tile_scale"), st) && menu::applies(row("map_brightness"), st));
+}
+
 static void test_labels() {
   std::vector<plan::Label> labels(3);
   labels[0] = {{100, 100}, 6, 60, 20, false};
@@ -423,6 +472,7 @@ int main(int argc, char **argv) {
   test_sprites();
   test_beam();
   test_providers();
+  test_menu();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

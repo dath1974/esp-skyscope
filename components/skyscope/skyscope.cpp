@@ -250,6 +250,11 @@ void Skyscope::restyle_() {
   lv_obj_set_style_border_color(card_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_border_width(card_, settings_.map == RADAR ? std::max(1, ui::px(1)) : 0, 0);
   lv_obj_set_style_radius(card_, settings_.map == RADAR ? 0 : ui::px(8), 0);
+  // The brightness bar: the scope's phosphor on the radar, the accent over a map.
+  lv_obj_set_style_bg_color(level_, lv_color_hex(c.card), 0);
+  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(settings_.map == RADAR ? colours::tint(settings_.tint).glow
+                                                                             : colours::ACCENT), 0);
+  lv_obj_set_style_text_color(level_text_, lv_color_hex(c.ink), 0);
   for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
   last_status_ = 0;
   update_card_();
@@ -380,8 +385,20 @@ void Skyscope::build_ui_() {
   lv_obj_set_pos(canvas_, 0, 0);
   lv_obj_add_flag(canvas_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(canvas_, [](lv_event_t *e) {
-    static_cast<Skyscope *>(lv_event_get_user_data(e))->on_tap_(e);
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (self->long_pressed_) {
+      self->long_pressed_ = false;
+      return;
+    }
+    self->on_tap_(e);
   }, LV_EVENT_CLICKED, this);
+  // A long press on the map: the settings menu.
+  lv_obj_add_event_cb(canvas_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if ((int32_t) (millis() - self->taps_from_) < 0) return;
+    self->long_pressed_ = true;
+    self->open_menu_();
+  }, LV_EVENT_LONG_PRESSED, this);
 
   // The planes lie in this, over the map and under everything else.
   planes_ = lv_obj_create(screen);

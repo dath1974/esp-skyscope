@@ -521,8 +521,9 @@ static void sweep(lv_timer_t *timer) {
   const ap::Point c = scope_middle(view, a);
   const uint32_t now = lv_tick_get();
   const float was = view->beam_drawn < 0 ? ap::beam(now) : view->beam_drawn, beam = ap::beam(now);
-  // A hidden layer draws nothing again: its parent, which lies over the same glass, does.
-  lv_obj_t *target = view->hidden ? lv_obj_get_parent(view->layer) : view->layer;
+  // Hidden (the menu over it, or a measurement without the planes): the beam stops until it shows again.
+  if (view->hidden) return;
+  lv_obj_t *target = view->layer;
   auto invalidate = [&](const ap::Box &box) {
     lv_area_t area{box.x, box.y, box.x + box.w - 1, box.y + box.h - 1};
     lv_obj_invalidate_area(target, &area);
@@ -535,8 +536,6 @@ static void sweep(lv_timer_t *timer) {
   }
   invalidate(swept);
   view->beam_drawn = beam;
-  // Hidden (a measurement without the planes, /api/debug): the beam goes on over the map alone.
-  if (view->hidden) return;
   for (const auto &box : view->again) invalidate(box);
   view->again.clear();
   auto on_glass = [&](const ap::Plane &p) { return ap::Point{a.x1 + p.x * view->sx, a.y1 + p.y * view->sy}; };
@@ -659,6 +658,8 @@ void new_frame(View *view) {
 void set_hidden(View *view, bool hidden) {
   if (!view || view->hidden == hidden) return;
   view->hidden = hidden;
+  // Shown again, the beam starts afresh where the clock has it (the map under it is the clean scope again).
+  if (!hidden) view->beam_drawn = -1;
   if (!view->layer) return;
   if (hidden) lv_obj_add_flag(view->layer, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_remove_flag(view->layer, LV_OBJ_FLAG_HIDDEN);

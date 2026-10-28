@@ -105,6 +105,12 @@ class Skyscope : public Component, public AsyncWebHandler {
   // The brightness strip down the right edge.
   void on_dimmer_(lv_event_t *e);
   void show_level_(int percent);
+  // The settings menu (menu.cpp): a long press on the map opens it.
+  void open_menu_();
+  void close_menu_();
+  void refresh_menu_();
+  void menu_step_(int index, int step);
+  lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step);
   void set_brightness_now_(int percent);
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card; };
@@ -163,6 +169,9 @@ class Skyscope : public Component, public AsyncWebHandler {
 
   lv_obj_t *canvas_{nullptr}, *planes_{nullptr}, *status_{nullptr}, *credit_{nullptr};
   lv_obj_t *dimmer_{nullptr}, *level_{nullptr}, *level_fill_{nullptr}, *level_text_{nullptr};
+  lv_obj_t *menu_{nullptr}, *menu_list_{nullptr};
+  std::vector<lv_obj_t *> menu_rows_, menu_values_;
+  bool long_pressed_{false};  // the click that ends a long press (which opened the menu) is no tap
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
   uint16_t *canvas_buffer_{nullptr};
