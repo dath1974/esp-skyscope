@@ -36,7 +36,7 @@ display. Adding one is a new file in `boards/` with its display, touch, fonts an
 You need [ESPHome](https://esphome.io) 2026.9 or newer.
 
 ```sh
-git clone https://github.com/<you>/esp-skyscope
+git clone https://github.com/dath1974/esp-skyscope
 cd esp-skyscope
 esphome run skyscope.yaml          # over USB the first time
 ```
