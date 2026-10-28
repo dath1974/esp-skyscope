@@ -41,5 +41,13 @@ ota:
   - platform: esphome
     id: ota_esphome
 
+# The time of day, for bedtime. The time zone is a setting on the screen's web page; UTC0 here only builds the time
+# zone support in (and keeps the build machine's own zone out of the firmware).
+time:
+  - platform: sntp
+    id: sntp_clock
+    timezone: UTC0
+
 skyscope:
   setup_network: "Skyscope Setup"
+  time_id: sntp_clock

@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "schedule.h"
+
 namespace sky {
 
 template<size_t N> struct Names {
@@ -87,6 +89,11 @@ struct Settings {
   bool metric = false;
   int brightness = 80;
   int sleep_min = 0;  // the screen goes dark after this many minutes without a touch; 0: never
+  // Bedtime: dark every day at bed_off, until a tap or, with bed_wake, bed_on; the times in `timezone` (POSIX TZ).
+  bool bedtime = false;
+  std::string bed_off = "22:00", bed_on = "07:00";
+  bool bed_wake = true;
+  std::string timezone = "UTC0";
 };
 
 inline std::string upper_id(const char *s) {
@@ -136,6 +143,11 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["metric"] = s.metric;
   o["brightness"] = s.brightness;
   o["sleep_min"] = s.sleep_min;
+  o["bedtime"] = s.bedtime;
+  o["bed_off"] = s.bed_off;
+  o["bed_on"] = s.bed_on;
+  o["bed_wake"] = s.bed_wake;
+  o["timezone"] = s.timezone;
 }
 
 // Applies the keys `o` has to `s`, leaving the others as they are. Nothing changes and `error` names the first key that
@@ -239,6 +251,20 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");
   if (!number("sleep_min", n.sleep_min, 0, 1440)) return fail("sleep_min");
+  if (!flag("bedtime", n.bedtime)) return fail("bedtime");
+  if (!flag("bed_wake", n.bed_wake)) return fail("bed_wake");
+  for (const auto &[key, field] : {std::pair<const char *, std::string *>{"bed_off", &n.bed_off}, {"bed_on", &n.bed_on}}) {
+    if (o[key].isNull()) continue;
+    const char *t = o[key].as<const char *>();
+    if (!t || schedule::minutes(t) < 0) return fail(key);
+    *field = t;
+  }
+  if (!o["timezone"].isNull()) {
+    const char *t = o["timezone"].as<const char *>();
+    schedule::Zone zone;
+    if (!t || std::strlen(t) > 60 || !schedule::parse(t, zone)) return fail("timezone");
+    n.timezone = t;
+  }
   s = std::move(n);
   return true;
 }

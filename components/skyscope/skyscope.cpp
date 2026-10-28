@@ -210,7 +210,11 @@ void Skyscope::use_settings_(const Settings &s) {
                              s.rings != settings_.rings || s.tint != settings_.tint || s.located != settings_.located ||
                              s.place_names != settings_.place_names;
   if (s.lat != settings_.lat || s.lon != settings_.lon) tracks_.clear();
+  const bool new_zone = s.timezone != settings_.timezone;
+  const bool new_bedtime = s.bedtime != settings_.bedtime || s.bed_off != settings_.bed_off || s.bed_on != settings_.bed_on;
   settings_ = s;
+  if (new_zone) use_timezone_();
+  if (new_bedtime) bed_minute_ = -1;
   {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.settings = settings_;
@@ -273,12 +277,39 @@ void Skyscope::replan_() {
 
 // ---------------------------------------------------------------- component
 
+void Skyscope::use_timezone_() {
+#if defined(USE_TIME) && defined(USE_TIME_TIMEZONE)
+  schedule::Zone z;
+  if (!schedule::parse(settings_.timezone, z)) return;
+  // The same parts ESPHome's clock takes from a zone built in (posix_tz.h), here read at any time.
+  time::ParsedTimezone tz{};
+  tz.std_offset_seconds = z.std_offset_seconds;
+  tz.dst_offset_seconds = z.dst_offset_seconds;
+  auto rule = [](const schedule::Rule &r) {
+    time::DSTRule out{};
+    out.time_seconds = r.time_seconds;
+    out.day = r.day;
+    out.type = static_cast<time::DSTRuleType>(r.type);
+    out.month = r.month;
+    out.week = r.week;
+    out.day_of_week = r.day_of_week;
+    return out;
+  };
+  tz.dst_start = rule(z.dst_start);
+  tz.dst_end = rule(z.dst_end);
+  time::set_global_tz(tz);
+  bed_minute_ = -1;  // the schedule looked at afresh in the new zone
+  ESP_LOGI(TAG, "Time zone %s", settings_.timezone.c_str());
+#endif
+}
+
 void Skyscope::setup() {
   ui::set_dpi(dpi_);
   ui::fonts.small = font_small_ ? font_small_->get_lv_font() : nullptr;
   ui::fonts.label = font_label_ ? font_label_->get_lv_font() : ui::fonts.small;
   ui::fonts.title = font_title_ ? font_title_->get_lv_font() : ui::fonts.label;
   load_settings_();
+  use_timezone_();
   {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.settings = settings_;
@@ -537,8 +568,12 @@ void Skyscope::tap_at_(lv_point_t p) {
 void Skyscope::sleep_or_wake_(uint32_t now) {
   if (!lvgl_) return;
   if (asleep_) {
-    // LVGL woke itself at a touch (lvgl: resume_on_input): the screen is on again, and that touch is no tap.
-    if (lvgl_->is_paused()) return;
+    // LVGL woke itself at a touch (lvgl: resume_on_input), or bedtime is over: the screen is on again, and the touch
+    // that woke it is no tap.
+    if (lvgl_->is_paused()) {
+      wake_by_clock_();
+      if (lvgl_->is_paused()) return;
+    }
     asleep_ = false;
     taps_from_ = now + WAKE_DEAF_MS;
     applied_brightness_ = -1;  // the brightness again, at once
@@ -550,8 +585,51 @@ void Skyscope::sleep_or_wake_(uint32_t now) {
     ESP_LOGI(TAG, "Screen on");
     return;
   }
+  if (bedtime_(now)) return;
   if (settings_.sleep_min <= 0) return;
   if (lv_display_get_inactive_time(lv_display_get_default()) < (uint32_t) settings_.sleep_min * 60000) return;
+  go_to_sleep_("after " + std::to_string(settings_.sleep_min) + " min without a touch");
+}
+
+// Bedtime, once a minute by the clock: dark at bed_off, on again at bed_on where the person asked for it. A screen that
+// starts (or learns the time) between the two goes dark at once. True when it just went dark.
+bool Skyscope::bedtime_(uint32_t now) {
+#ifdef USE_TIME
+  if (!clock_ || !settings_.bedtime) return false;
+  const ESPTime t = clock_->now();
+  if (!t.is_valid()) return false;
+  const int minute = t.hour * 60 + t.minute;
+  if (minute == bed_minute_) return false;
+  const bool first = bed_minute_ < 0;
+  bed_minute_ = minute;
+  const int off = schedule::minutes(settings_.bed_off), on = schedule::minutes(settings_.bed_on);
+  if (off < 0) return false;
+  if (minute == off || (first && settings_.bed_wake && on >= 0 && schedule::within(minute, off, on))) {
+    go_to_sleep_("bedtime");
+    return true;
+  }
+#endif
+  return false;
+}
+
+// The scheduled end of bedtime, checked while asleep: the screen on again by itself.
+void Skyscope::wake_by_clock_() {
+#ifdef USE_TIME
+  if (!clock_ || !settings_.bedtime || !settings_.bed_wake) return;
+  const ESPTime t = clock_->now();
+  if (!t.is_valid()) return;
+  const int minute = t.hour * 60 + t.minute;
+  if (minute == bed_minute_) return;
+  bed_minute_ = minute;
+  if (minute != schedule::minutes(settings_.bed_on)) return;
+  ESP_LOGI(TAG, "Bedtime over");
+  lvgl_->set_paused(false, false);  // sleep_or_wake_ turns the rest on, as at a touch
+#endif
+}
+
+void Skyscope::go_to_sleep_(const std::string &why) {
+  if (asleep_) return;
+  if (menu_) close_menu_();
   // Dark, and nothing drawn: an AMOLED shows black as off. The worker asks for no planes or tiles meanwhile.
   asleep_ = true;
   if (brightness_) brightness_->set_level(0);
@@ -561,7 +639,7 @@ void Skyscope::sleep_or_wake_(uint32_t now) {
     shared_.asleep = true;
   }
   lvgl_->set_paused(true, false);
-  ESP_LOGI(TAG, "Screen off after %d min without a touch", settings_.sleep_min);
+  ESP_LOGI(TAG, "Screen off: %s", why.c_str());
 }
 
 void Skyscope::show_level_(int percent) {

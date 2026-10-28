@@ -14,6 +14,9 @@
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/output/float_output.h"
 #include "esphome/components/web_server_base/web_server_base.h"
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -41,6 +44,9 @@ class Skyscope : public Component, public AsyncWebHandler {
  public:
   void set_web_server_base(web_server_base::WebServerBase *base) { base_ = base; }
   void set_lvgl(lvgl::LvglComponent *lvgl) { lvgl_ = lvgl; }
+#ifdef USE_TIME
+  void set_clock(time::RealTimeClock *clock) { clock_ = clock; }
+#endif
   void set_fonts(font::Font *small, font::Font *label, font::Font *title) {
     font_small_ = small;
     font_label_ = label;
@@ -102,6 +108,10 @@ class Skyscope : public Component, public AsyncWebHandler {
   void tap_at_(lv_point_t p);
   // The screen off after settings_.sleep_min without a touch, and on again at one (skyscope.cpp).
   void sleep_or_wake_(uint32_t now);
+  void go_to_sleep_(const std::string &why);
+  bool bedtime_(uint32_t now);
+  void wake_by_clock_();
+  void use_timezone_();  // settings_.timezone to the clock
   // The brightness strip down the right edge.
   void on_dimmer_(lv_event_t *e);
   void show_level_(int percent);
@@ -129,6 +139,10 @@ class Skyscope : public Component, public AsyncWebHandler {
 
   web_server_base::WebServerBase *base_{nullptr};
   lvgl::LvglComponent *lvgl_{nullptr};
+#ifdef USE_TIME
+  time::RealTimeClock *clock_{nullptr};
+#endif
+  int bed_minute_{-1};  // the minute of the day bedtime was last looked at; -1 before the first
   int native_width_{0}, native_height_{0};  // the panel's own way up, rotation 0
   font::Font *font_small_{nullptr}, *font_label_{nullptr}, *font_title_{nullptr};
   output::FloatOutput *brightness_{nullptr};

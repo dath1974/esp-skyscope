@@ -15,6 +15,7 @@
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
+#include "../components/skyscope/schedule.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/tiles.h"
@@ -451,6 +452,41 @@ static void test_menu() {
   CHECK(!menu::applies(row("tile_scale"), st) && menu::applies(row("map_brightness"), st));
 }
 
+static void test_schedule() {
+  using namespace schedule;
+  Zone z;
+  CHECK(parse("PST8PDT,M3.2.0,M11.1.0", z) && z.std_offset_seconds == 8 * 3600 && z.dst_offset_seconds == 7 * 3600);
+  CHECK(z.dst_start.type == MONTH_WEEK_DAY && z.dst_start.month == 3 && z.dst_start.week == 2 && z.dst_start.day_of_week == 0 &&
+        z.dst_start.time_seconds == 7200 && z.dst_end.month == 11 && z.dst_end.week == 1);
+  CHECK(parse("CET-1CEST,M3.5.0,M10.5.0/3", z) && z.std_offset_seconds == -3600 && z.dst_offset_seconds == -7200 &&
+        z.dst_end.time_seconds == 3 * 3600);
+  CHECK(parse("IST-5:30", z) && z.std_offset_seconds == -(5 * 3600 + 1800) && z.dst_start.type == NONE);
+  CHECK(parse("<+0545>-5:45", z) && z.std_offset_seconds == -(5 * 3600 + 45 * 60));
+  CHECK(parse("EST5EDT4,M3.2.0/2:00:00,M11.1.0/2:00:00", z) && z.dst_offset_seconds == 4 * 3600);
+  CHECK(parse("AEST-10AEDT,M10.1.0,M4.1.0/3", z) && z.dst_start.month == 10 && z.dst_end.month == 4);
+  CHECK(parse("UTC0", z) && z.std_offset_seconds == 0 && z.dst_start.type == NONE);
+  CHECK(parse("XXX3YYY,J60/-1,300/26", z) && z.dst_start.type == JULIAN_NO_LEAP && z.dst_start.day == 60 &&
+        z.dst_start.time_seconds == -3600 && z.dst_end.type == DAY_OF_YEAR && z.dst_end.time_seconds == 26 * 3600);
+  for (const char *bad : {"", "PST", "P8", "PST8PDT,M13.2.0,M11.1.0", "PST8PDT,M3.2.0", "PST8PDT,M3.2.0,M11.1.0x", "PST99"})
+    CHECK(!parse(bad, z));
+  CHECK(minutes("22:30") == 22 * 60 + 30 && minutes("7:05") == 7 * 60 + 5 && minutes("24:00") == -1 && minutes("1230") == -1);
+  // Over midnight: dark from 22:00 to 07:00.
+  CHECK(within(23 * 60, 22 * 60, 7 * 60) && within(3 * 60, 22 * 60, 7 * 60) && !within(7 * 60, 22 * 60, 7 * 60) &&
+        !within(12 * 60, 22 * 60, 7 * 60));
+  // Within a day: dark from 13:00 to 14:00.
+  CHECK(within(13 * 60, 13 * 60, 14 * 60) && !within(14 * 60, 13 * 60, 14 * 60) && !within(5, 13 * 60, 14 * 60));
+  CHECK(!within(600, 600, 600));
+  Settings st;
+  JsonDocument in;
+  std::string error;
+  deserializeJson(in, R"({"timezone":"bogus","bed_off":"23:00"})");
+  CHECK(!apply(in.as<JsonObjectConst>(), st, error) && error == "timezone" && st.bed_off == "22:00");
+  deserializeJson(in, R"({"timezone":"CET-1CEST,M3.5.0,M10.5.0/3","bed_off":"23:15","bed_on":"6:45","bedtime":true})");
+  CHECK(apply(in.as<JsonObjectConst>(), st, error) && st.bedtime && st.bed_off == "23:15" && st.bed_on == "6:45");
+  deserializeJson(in, R"({"bed_on":"25:00"})");
+  CHECK(!apply(in.as<JsonObjectConst>(), st, error) && error == "bed_on");
+}
+
 static void test_labels() {
   std::vector<plan::Label> labels(3);
   labels[0] = {{100, 100}, 6, 60, 20, false};
@@ -473,6 +509,7 @@ int main(int argc, char **argv) {
   test_beam();
   test_providers();
   test_menu();
+  test_schedule();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

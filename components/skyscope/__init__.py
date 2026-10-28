@@ -1,7 +1,7 @@
 """Skyscope: live aircraft over a map, fetched and drawn by an ESP32-S3 screen on its own."""
 
 import esphome.codegen as cg
-from esphome.components import esp32, font, output
+from esphome.components import esp32, font, output, time
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
@@ -21,6 +21,7 @@ CONF_USER_AGENT = "user_agent"
 CONF_SETUP_NETWORK = "setup_network"
 CONF_BRIGHTNESS_OUTPUT = "brightness_output"
 CONF_PANEL_TE_PIN = "panel_te_pin"
+CONF_TIME_ID = "time_id"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
@@ -53,6 +54,8 @@ CONFIG_SCHEMA = cv.Schema(
         # A panel with its own memory (a QSPI AMOLED) whose tearing signal reaches a GPIO: each frame waits for it, so
         # the radar's beam never shows in steps (panel_sync.h).
         cv.Optional(CONF_PANEL_TE_PIN, default=-1): cv.int_range(min=-1, max=48),
+        # The clock bedtime goes by (an sntp time with `timezone: UTC0`; the zone is a setting, applied at any time).
+        cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -87,6 +90,8 @@ async def to_code(config):
     cg.add(var.set_setup_network(config[CONF_SETUP_NETWORK]))
     cg.add(var.set_version(VERSION))
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
+    if CONF_TIME_ID in config:
+        cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
     if CONF_BRIGHTNESS_OUTPUT in config:
         out = await cg.get_variable(config[CONF_BRIGHTNESS_OUTPUT])
         cg.add(var.set_brightness_output(out))

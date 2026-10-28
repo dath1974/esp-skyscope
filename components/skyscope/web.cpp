@@ -14,6 +14,7 @@
 #include "ui.h"
 
 #include <cmath>
+#include <cstdio>
 
 #include "esphome/components/wifi/wifi_component.h"
 #include "esphome/core/application.h"
@@ -104,6 +105,16 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["version"] = version_;
     out["uptime_s"] = millis() / 1000;
     out["asleep"] = asleep_;
+#ifdef USE_TIME
+    if (clock_) {
+      const ESPTime t = clock_->now();
+      if (t.is_valid()) {
+        char hhmm[8];
+        std::snprintf(hhmm, sizeof(hhmm), "%02d:%02d", t.hour, t.minute);
+        out["time"] = hhmm;  // the screen's local time, by its time zone
+      }
+    }
+#endif
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     // The largest piece of it in one block: what the largest allocation from internal RAM can have.
     out["heap_largest"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);

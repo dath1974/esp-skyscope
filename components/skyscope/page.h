@@ -75,6 +75,22 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Metres, km/h</option></select></div></div>
 <label for="sleep_min">Turn the screen off after (minutes without a touch, 0 for never)</label><input id="sleep_min" name="sleep_min" type="number" min="0" max="1440">
 <p class="hint">A tap turns it on again. While it is off the screen asks for no planes or map tiles. Drag up or down along the screen's right edge to set its brightness.</p>
+<label class="check"><input type="checkbox" id="bedtime" name="bedtime"> Bedtime: turn the screen off every night</label>
+<div id="bed">
+<div class="row"><div><label for="bed_off">Off at</label><input id="bed_off" type="time"></div>
+<div><label class="check" style="margin-top:8px"><input type="checkbox" id="bed_wake" name="bed_wake"> On again at</label><input id="bed_on" type="time"></div></div>
+<label for="tzsel">Time zone</label><select id="tzsel">
+<option value="UTC0">UTC</option><option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option><option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
+<option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option><option value="MST7">US Arizona</option><option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+<option value="AKST9AKDT,M3.2.0,M11.1.0">US Alaska</option><option value="HST10">US Hawaii</option><option value="&lt;-03&gt;3">Brazil (Brasilia)</option>
+<option value="GMT0BST,M3.5.0/1,M10.5.0">UK, Ireland, Portugal</option><option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe</option>
+<option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe</option><option value="IST-5:30">India</option>
+<option value="CST-8">China, Singapore</option><option value="JST-9">Japan, Korea</option>
+<option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia (Sydney, Melbourne)</option><option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand</option>
+<option value="custom">Other (a POSIX TZ string)</option></select>
+<input id="timezone" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
+<p class="hint">A tap wakes the screen at any time; the screen-off timer above works as well. The screen's clock now: <span id="clock">not set yet</span>. <span id="tzhint"></span></p>
+</div>
 <label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="-1">The board's default</option>
 <option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
@@ -84,13 +100,26 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
-const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names'];
-const TXT=['map','custom_url','theme','tint','feed','marker','label','place'];
+const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake'];
+const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');
  $('q').value=s.place||'';
- if(!s.located){$('lat').value='';$('lon').value=''}relevant()}
+ // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
+ ['bed_off','bed_on'].forEach(k=>{const [h,m]=(s[k]||'0:00').split(':');$(k).value=h.padStart(2,'0')+':'+m});
+ zone(s.timezone);
+ if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed()}
+// The time zone: the browser's, where the screen still has none and the browser's is in the list.
+const IANA={"America/New_York":"EST5EDT,M3.2.0,M11.1.0","America/Detroit":"EST5EDT,M3.2.0,M11.1.0","America/Toronto":"EST5EDT,M3.2.0,M11.1.0","America/Chicago":"CST6CDT,M3.2.0,M11.1.0","America/Winnipeg":"CST6CDT,M3.2.0,M11.1.0","America/Denver":"MST7MDT,M3.2.0,M11.1.0","America/Edmonton":"MST7MDT,M3.2.0,M11.1.0","America/Phoenix":"MST7","America/Los_Angeles":"PST8PDT,M3.2.0,M11.1.0","America/Vancouver":"PST8PDT,M3.2.0,M11.1.0","America/Anchorage":"AKST9AKDT,M3.2.0,M11.1.0","Pacific/Honolulu":"HST10","America/Sao_Paulo":"<-03>3","Europe/London":"GMT0BST,M3.5.0/1,M10.5.0","Europe/Lisbon":"GMT0BST,M3.5.0/1,M10.5.0","Asia/Kolkata":"IST-5:30","Asia/Shanghai":"CST-8","Asia/Hong_Kong":"CST-8","Asia/Singapore":"CST-8","Asia/Taipei":"CST-8","Asia/Tokyo":"JST-9","Asia/Seoul":"JST-9","Australia/Sydney":"AEST-10AEDT,M10.1.0,M4.1.0/3","Australia/Melbourne":"AEST-10AEDT,M10.1.0,M4.1.0/3","Pacific/Auckland":"NZST-12NZDT,M9.5.0,M4.1.0/3","Europe/Paris":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Berlin":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Madrid":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Rome":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Amsterdam":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Brussels":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Vienna":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Zurich":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Stockholm":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Oslo":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Copenhagen":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Prague":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Warsaw":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Athens":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Helsinki":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Kyiv":"EET-2EEST,M3.5.0/3,M10.5.0/4"};
+function zone(tz){let pick=tz;$('tzhint').textContent='';
+ if(tz==='UTC0'){let b='';try{b=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}
+  if(IANA[b]){pick=IANA[b];$('tzhint').textContent='Matched to this browser\'s time zone ('+b+'); press Save to keep it.'}}
+ const known=[...$('tzsel').options].some(o=>o.value===pick);
+ $('tzsel').value=known?pick:'custom';$('timezone').value=pick;$('timezone').style.display=known?'none':''}
+$('tzsel').onchange=()=>{const v=$('tzsel').value;$('timezone').style.display=v==='custom'?'':'none';if(v!=='custom')$('timezone').value=v};
+function bed(){$('bed').style.display=$('bedtime').checked?'':'none';$('bed_on').disabled=!$('bed_wake').checked}
+$('bedtime').onchange=bed;$('bed_wake').onchange=bed;
 // Only what applies to the map chosen: each part names its maps in data-for.
 function relevant(){const m=$('map').value;document.querySelectorAll('[data-for]').forEach(e=>{
  e.style.display=e.dataset.for.split(' ').includes(m)?'':'none'})}
@@ -144,6 +173,7 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
  if(waits.length)t+=' · '+waits.join(' · ');
  $('sources').textContent=(s.feeds||[]).map(f=>NAMES[f.feed]+': '+(f.waiting?f.error+' ('+f.failures+(f.failures>1?' times':' time')+' in a row), again in '+wait(f.retry_in_s):'available')+(f.paced_s?', asked at most every '+f.paced_s+' s':'')).join(' · ');
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
+ if(s.time)$('clock').textContent=s.time;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
 load();status();setInterval(status,5000);
 </script></body></html>)HTML";
