@@ -24,6 +24,9 @@ std::string pick(View *view, int x, int y, int reach);
 void set_picked(View *view, const std::string &id);
 // Every 200 ms: planes that glide are drawn where they are now, each in the small part of the glass it covers.
 void tick(View *view, uint32_t now);
+// How many entries each of the layer's own records holds, for /api/status: what grows as the screen runs.
+struct Counts { size_t spot_of = 0, drawn = 0, box_of = 0, label_images = 0, symbols = 0, again = 0; };
+Counts counts(const View *view);
 // A radar scope's colours: its phosphor at `light` (0 the ground, 1 the glow, 2 the hottest light), and its ground.
 lv_color_t phosphor(const plan::Overlay &o, float light);
 lv_color_t ground(const plan::Overlay &o);

@@ -156,8 +156,9 @@ static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, lv_co
     image.dsc.header.stride = m.size;
     image.dsc.data_size = m.alpha.size();
     image.dsc.data = image.data;
-    // Its pixels live in PSRAM now, not in the internal heap.
-    entry.mask.alpha = {};
+    // Its pixels live in PSRAM now: the internal copy is freed. (Assigning {} only empties a vector and keeps its memory,
+    // some 2 KB a symbol, which used up the internal heap as the headings came.)
+    std::vector<uint8_t>().swap(entry.mask.alpha);
   }
   const int n = image.dsc.header.w;
   const int x = (int) std::lround(c.x - n / 2.0f), y = (int) std::lround(c.y - n / 2.0f);
@@ -452,11 +453,14 @@ static void draw(lv_event_t *e) {
         view->again.push_back(ap::join(was->second, box));
       view->box_of[id] = box;
     }
-    // Planes gone keep no box.
-    for (auto it = view->box_of.begin(); it != view->box_of.end();) {
-      const bool listed = std::any_of(o.planes.begin(), o.planes.end(), [&](const ap::Plane &p) { return p.id == it->first; });
-      it = listed || it->first[0] == '#' ? std::next(it) : view->box_of.erase(it);
-    }
+    // Planes gone keep no box and no spot.
+    auto listed = [&](const std::string &id) {
+      return std::any_of(o.planes.begin(), o.planes.end(), [&](const ap::Plane &p) { return p.id == id; });
+    };
+    for (auto it = view->box_of.begin(); it != view->box_of.end();)
+      it = listed(it->first) || it->first[0] == '#' ? std::next(it) : view->box_of.erase(it);
+    for (auto it = view->spot_of.begin(); it != view->spot_of.end();)
+      it = listed(it->first) ? std::next(it) : view->spot_of.erase(it);
   }
   const auto &labels = view->labels;
   const auto &placed = view->placed;
@@ -676,6 +680,18 @@ std::string pick(View *view, int x, int y, int reach) {
   lv_area_t a;
   lv_obj_get_coords(view->layer, &a);
   return ap::pick(shown(view), (float) (x - a.x1), (float) (y - a.y1), (float) reach, lv_tick_get(), view->sx, view->sy);
+}
+
+Counts counts(const View *view) {
+  Counts c;
+  c.symbols = symbols.size();
+  if (!view) return c;
+  c.spot_of = view->spot_of.size();
+  c.drawn = view->drawn.size();
+  c.box_of = view->box_of.size();
+  c.label_images = view->label_images.size();
+  c.again = view->again.size();
+  return c;
 }
 
 void set_picked(View *view, const std::string &id) {

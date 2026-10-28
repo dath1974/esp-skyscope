@@ -81,6 +81,9 @@ class Cache {
   }
   std::list<Cached> items_;
   size_t bytes_ = 0;
+
+ public:
+  size_t size() const { return items_.size(); }
 };
 
 // How long a source that failed is left alone: a feed that says "too many requests" longer.
@@ -251,6 +254,7 @@ void Skyscope::worker_() {
         else job.due = millis() + wait;
       }
       std::lock_guard<std::mutex> guard(lock_);
+      shared_.cached_tiles = cache.size();
       if (shared_.frame_plan_rev == plan_rev) {
         if (drawn) shared_.tiles_done++;
         if (!drawn) shared_.tile_error = error.empty() ? std::string("tile server") : error;

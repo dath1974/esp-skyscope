@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
-#include <map>
+#include <new>
 #include <memory>
 #include <vector>
 
@@ -91,44 +91,76 @@ inline Mask render(float length, int step) {
 }
 
 // Masks made as they are first needed, by length (whole pixels) and heading step, kept for as long as the screen runs:
-// a few sizes (plain, watched, each with its halo) times 90 headings, about 2.5 KB each.
+// a few lengths (plain, watched, each with its halo, larger off the radar) times 90 headings. Each length is one table
+// of 90 entries, and each entry is made in PSRAM as its mask is: internal RAM holds only the short list of lengths, so
+// it does not shrink as the headings come (one small allocation an entry, some 260 bytes with the map's, used it up).
 template<typename Extra> class Cache {
  public:
   struct Entry {
     Mask mask;
     Extra extra;  // what the drawing side keeps beside it (an LVGL image descriptor)
   };
+  static constexpr int STEPS = 360 / HEADING_STEP;
+  Cache() = default;
+  Cache(const Cache &) = delete;
+  Cache &operator=(const Cache &) = delete;
+  ~Cache() {
+    for (auto &t : tables_) {
+      for (int i = 0; i < STEPS; ++i)
+        if (t.steps[i]) {
+          t.steps[i]->~Entry();
+          release(t.steps[i]);
+        }
+      release(t.steps);
+    }
+  }
   // The mask of `length` and `heading`. At most `budget` masks are made by the calls of one `frame`: past that, a mask
   // not made yet is the nearest heading of that length already made (for a frame or two), so no frame waits for many.
   Entry *get(int length, int heading, uint32_t frame = 0, int budget = 1 << 30) {
     const int step = heading_step(heading);
-    auto found = entries_.find(key(length, step));
-    if (found != entries_.end()) return found->second.get();
+    Entry **steps = table(length);
+    if (!steps) return nullptr;
+    if (steps[step]) return steps[step];
     if (frame != frame_) {
       frame_ = frame;
       made_ = 0;
     }
     if (made_ >= budget) {
-      constexpr int steps = 360 / HEADING_STEP;
-      for (int d = 1; d <= steps / 2; ++d)
-        for (const int near : {(step + d) % steps, (step - d + steps) % steps}) {
-          auto other = entries_.find(key(length, near));
-          if (other != entries_.end()) return other->second.get();
-        }
+      for (int d = 1; d <= STEPS / 2; ++d)
+        for (const int near : {(step + d) % STEPS, (step - d + STEPS) % STEPS})
+          if (steps[near]) return steps[near];
       // None of this length yet: this one is made all the same.
     }
     ++made_;
-    auto entry = std::make_unique<Entry>();
-    entry->mask = render((float) length, step);
-    if (entry->mask.size == 0) return nullptr;  // no memory for it now: nothing drawn, asked again next frame
-    return (entries_[key(length, step)] = std::move(entry)).get();
+    Mask mask = render((float) length, step);
+    if (mask.size == 0) return nullptr;  // no memory for it now: nothing drawn, asked again next frame
+    void *room = scratch(sizeof(Entry));
+    if (!room) return nullptr;
+    Entry *entry = new (room) Entry();
+    entry->mask = std::move(mask);
+    steps[step] = entry;
+    ++count_;
+    return entry;
   }
-  size_t size() const { return entries_.size(); }
+  size_t size() const { return count_; }
 
  private:
-  static uint32_t key(int length, int step) { return (uint32_t) length << 8 | (uint32_t) step; }
-  std::map<uint32_t, std::unique_ptr<Entry>> entries_;
+  struct Table {
+    int length;
+    Entry **steps;  // STEPS of them, in PSRAM
+  };
+  Entry **table(int length) {
+    for (auto &t : tables_)
+      if (t.length == length) return t.steps;
+    auto **steps = static_cast<Entry **>(scratch(sizeof(Entry *) * STEPS));
+    if (!steps) return nullptr;
+    std::memset(steps, 0, sizeof(Entry *) * STEPS);
+    tables_.push_back({length, steps});
+    return steps;
+  }
+  std::vector<Table> tables_;
   uint32_t frame_ = 0;
   int made_ = 0;
+  size_t count_ = 0;
 };
 }  // namespace sky::sprites

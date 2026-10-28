@@ -106,6 +106,19 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     // The largest piece of it in one block: what the largest allocation from internal RAM can have.
     out["heap_largest"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    {
+      // The records that grow as the screen runs, by entries.
+      const view::Counts c = view::counts(view_);
+      JsonObject n = out["records"].to<JsonObject>();
+      n["symbols"] = c.symbols;
+      n["label_images"] = c.label_images;
+      n["spot_of"] = c.spot_of;
+      n["drawn"] = c.drawn;
+      n["box_of"] = c.box_of;
+      n["again"] = c.again;
+      n["tracks"] = tracks_.size();
+      n["flights"] = flights_.size();
+    }
     out["psram_free"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     out["glass"] = std::to_string(width_) + "x" + std::to_string(height_);
     // The panel's own way up (rotation 0, nothing turned) and the rotation now.
@@ -137,6 +150,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["feed_fetch_ms"] = shared_.fetch_ms;
     out["feed_parse_ms"] = shared_.parse_ms;
     out["feed_every_s"] = (shared_.feed_every_ms + 500) / 1000;
+    out["records"]["cached_tiles"] = shared_.cached_tiles;
     out["feed_bytes"] = shared_.reply_bytes;
     out["aircraft"] = shared_.flights.size();
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;

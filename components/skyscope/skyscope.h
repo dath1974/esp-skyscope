@@ -84,7 +84,8 @@ class Skyscope : public Component, public AsyncWebHandler {
     std::string tile_error;
     // How long the last report took: its download, reading its JSON (both on the worker), and its bytes.
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
-    uint32_t feed_every_ms = 0;  // how often the feed is asked: refresh_s, or less often when its limits say so
+    uint32_t feed_every_ms = 0;
+    size_t cached_tiles = 0;  // the worker's tile cache, entries  // how often the feed is asked: refresh_s, or less often when its limits say so
   };
 
   // worker.cpp
