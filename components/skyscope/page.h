@@ -118,9 +118,12 @@ let named=false;
 function name_rotations(native){if(named||!native)return;named=true;const [w,h]=native.split('x').map(Number);
  for(const o of $('rotation').options){const a=+o.value;if(a<0)continue;const wide=(a%180===0)?w>h:h>w;
   o.textContent=a+'\u00b0, '+(wide?'landscape':'portrait')+(a===0?' (least expensive)':a===180?' (cheap)':'')}}
+// The same countdown as the screen's (feed.h countdown): hours and minutes from an hour and a half, else m:ss.
+function wait(t){return t>=5400?Math.floor(t/3600)+' h '+String(Math.floor(t%3600/60)).padStart(2,'0')+' min'
+ :Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
- let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error;
+ let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error+(s.feed_retry_in_s>0?', again in '+wait(s.feed_retry_in_s):'');
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
 load();status();setInterval(status,5000);

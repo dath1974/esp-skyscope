@@ -77,6 +77,7 @@ class Skyscope : public Component, public AsyncWebHandler {
     uint32_t flights_rev = 0;
     uint32_t feed_at = 0;  // millis() of the last good answer
     std::string feed_error;
+    uint32_t feed_retry_at = 0;  // millis() of the next request after a failed one; 0 while the feed answers
     uint32_t frame_rev = 0, frame_plan_rev = 0;  // the base frame changed, for that plan
     int tiles_done = 0, tiles_total = 0;
     std::string tile_error;

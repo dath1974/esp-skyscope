@@ -110,6 +110,11 @@ static void test_feed() {
   CHECK(feed::min_interval_ms("500, 4;w=1, 60;w=60, 500;w=86400") == 172800);
   CHECK(feed::min_interval_ms("") == 0 && feed::min_interval_ms("100") == 0);
   CHECK(feed::min_interval_ms("10;w=1") == 100);
+  // The countdown to the next request: m:ss below an hour and a half, hours and minutes above, "now" when due.
+  CHECK(feed::countdown(1000 + 105000, 1000) == "1:45");
+  CHECK(feed::countdown(26798000, 0) == "7 h 26 min");
+  CHECK(feed::countdown(5000, 5000) == "now" && feed::countdown(4000, 5000) == "now");
+  CHECK(feed::countdown(0x10, 0xFFFFFFF0u) == "0:01");  // across millis() wrapping
   CHECK(feed::url(ADSB_LOL, 40.64, -73.78, 400) == "https://api.adsb.lol/v2/point/40.6400/-73.7800/250");
   CHECK(feed::url(ADSB_FI, 1, 2, 5) == "https://opendata.adsb.fi/api/v2/lat/1.0000/lon/2.0000/dist/5");
 }

@@ -614,6 +614,7 @@ void Skyscope::update_status_(uint32_t now) {
   {
     std::lock_guard<std::mutex> guard(lock_);
     feed_error = shared_.feed_error;
+    if (!feed_error.empty() && shared_.feed_retry_at) feed_error += ", again in " + feed::countdown(shared_.feed_retry_at, now);
     tile_error = shared_.tile_error;
     feed_at = shared_.feed_at;
     done = shared_.tiles_done;

@@ -85,6 +85,18 @@ inline uint32_t min_interval_ms(const std::string &limit) {
   return most;
 }
 
+// How long until `at` (millis), from `now`, for a countdown: "6 h 58 min" from an hour and a half, "12:05" (minutes and
+// seconds) below, "now" once it is due.
+inline std::string countdown(uint32_t at, uint32_t now) {
+  const int32_t left = (int32_t) (at - now);
+  if (left <= 0) return "now";
+  const uint32_t s = ((uint32_t) left + 999) / 1000;
+  char out[24];
+  if (s >= 90 * 60) std::snprintf(out, sizeof(out), "%u h %02u min", (unsigned) (s / 3600), (unsigned) (s % 3600 / 60));
+  else std::snprintf(out, sizeof(out), "%u:%02u", (unsigned) (s / 60), (unsigned) (s % 60));
+  return out;
+}
+
 // A plane whose position is older than this is left out: the exchange still lists it for a while after it was heard.
 constexpr double STALE_POSITION_S = 60;
 

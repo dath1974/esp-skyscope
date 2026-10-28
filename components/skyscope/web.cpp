@@ -139,6 +139,10 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["aircraft"] = shared_.flights.size();
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
     out["feed_error"] = shared_.feed_error;
+    if (shared_.feed_retry_at) {
+      const int32_t left = (int32_t) (shared_.feed_retry_at - millis());
+      out["feed_retry_in_s"] = left > 0 ? (left + 999) / 1000 : 0;
+    }
     out["tiles_done"] = shared_.tiles_done;
     out["tiles_total"] = shared_.tiles_total;
     out["tile_error"] = shared_.tile_error;

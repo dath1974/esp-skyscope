@@ -148,16 +148,11 @@ void Skyscope::worker_() {
           shared_.flights_rev++;
           shared_.feed_at = done;
           shared_.feed_error.clear();
+          shared_.feed_retry_at = 0;
         } else {
           shared_.feed_error = error;
         }
       }
-      auto in_words = [](uint32_t ms) {
-        char out[24];
-        if (ms >= 90 * 60000) std::snprintf(out, sizeof(out), "%u h", (unsigned) ((ms + 1800000) / 3600000));
-        else std::snprintf(out, sizeof(out), "%u min", (unsigned) ((ms + 59999) / 60000));
-        return std::string(out);
-      };
       if (!r.rate_limit.empty()) paced_ms = feed::min_interval_ms(r.rate_limit);
       if (ok) {
         limited = 0;
@@ -169,12 +164,14 @@ void Skyscope::worker_() {
       } else if ((r.status == 429 || r.status == 403) && r.rate_reset_s > 0) {
         // The feed says when its quota comes back: then, and not before.
         const uint32_t wait = (uint32_t) std::min(r.rate_reset_s, 24 * 3600) * 1000 + 5000;
-        error = "limit reached, again in " + in_words(wait);
-        ESP_LOGW(TAG, "%s: %s (its limits: %s)", feed::credit(settings.feed), error.c_str(), r.rate_limit.c_str());
+        error = "limit reached";
+        ESP_LOGW(TAG, "%s: %s, again in %u s (its limits: %s)", feed::credit(settings.feed), error.c_str(),
+                 (unsigned) (wait / 1000), r.rate_limit.c_str());
         feed_due = done + wait;
         ++limited;
         std::lock_guard<std::mutex> guard(lock_);
         shared_.feed_error = error;
+        shared_.feed_retry_at = feed_due;
       } else {
         uint32_t wait = FEED_BACKOFF_MS;
         if (r.status == 429 || r.status == 403) {
@@ -182,12 +179,13 @@ void Skyscope::worker_() {
           wait = std::min<uint32_t>(FEED_LIMITED_MOST_MS, FEED_LIMITED_MS << std::min(limited, 3));
           if (r.retry_after_s > 0) wait = std::max<uint32_t>(wait / 4, r.retry_after_s * 1000);
           ++limited;
-          error = "too many requests, again in " + in_words(wait);
+          error = "too many requests";
         }
-        ESP_LOGW(TAG, "%s: %s", feed::credit(settings.feed), error.c_str());
+        ESP_LOGW(TAG, "%s: %s, again in %u s", feed::credit(settings.feed), error.c_str(), (unsigned) (wait / 1000));
         feed_due = done + wait;
         std::lock_guard<std::mutex> guard(lock_);
         shared_.feed_error = error;
+        shared_.feed_retry_at = feed_due;
       }
       body.clear();
       if (body.room > 256 * 1024) body.release();  // a large reply's memory goes back
