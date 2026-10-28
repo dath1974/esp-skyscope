@@ -110,7 +110,9 @@ class Skyscope : public Component, public AsyncWebHandler {
   void close_menu_();
   void refresh_menu_();
   void menu_step_(int index, int step);
-  lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step);
+  void menu_action_(int action);
+  // A key of the menu: a row's step back or on (row >= 0), or one of its actions (row < 0, MENU_* in menu.cpp).
+  lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height);
   void set_brightness_now_(int percent);
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card; };
@@ -170,6 +172,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   lv_obj_t *canvas_{nullptr}, *planes_{nullptr}, *status_{nullptr}, *credit_{nullptr};
   lv_obj_t *dimmer_{nullptr}, *level_{nullptr}, *level_fill_{nullptr}, *level_text_{nullptr};
   lv_obj_t *menu_{nullptr}, *menu_list_{nullptr};
+  Settings menu_settings_;  // the menu's changes, applied all at once by Done
   std::vector<lv_obj_t *> menu_rows_, menu_values_;
   bool long_pressed_{false};  // the click that ends a long press (which opened the menu) is no tap
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
