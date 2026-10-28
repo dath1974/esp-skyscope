@@ -35,8 +35,8 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </section>
 <section><h2>Map</h2>
 <label for="map">Background</label><select id="map" name="map">
-<option value="radar">Radar scope (nothing downloaded)</option><option value="dark_gray">Streets, dark gray (Esri, no place names)</option>
-<option value="light_gray">Streets, light gray (Esri, no place names)</option><option value="osm">OpenStreetMap</option>
+<option value="radar">Radar scope (nothing downloaded)</option><option value="dark_gray">Streets, dark gray (Esri)</option>
+<option value="light_gray">Streets, light gray (Esri)</option><option value="osm">OpenStreetMap</option>
 <option value="satellite">Satellite (Esri)</option><option value="topo">Topographic (USGS, United States)</option>
 <option value="sectional">FAA VFR sectional (United States)</option><option value="ifr_low">FAA IFR low enroute (United States)</option>
 <option value="ifr_high">FAA IFR high enroute (United States)</option><option value="custom">Custom tile server</option></select>
@@ -46,6 +46,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div><label for="dim">Dimmed to (%)</label><input id="dim" name="dim" type="number" min="10" max="100"></div></div>
 <div class="row"><div><label for="tile_scale">Map text size</label><select id="tile_scale" name="tile_scale"><option value="0">The screen's default</option><option value="1">Small (1:1)</option><option value="2">Large (2x)</option></select></div>
 <div><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
+<label class="check"><input type="checkbox" id="place_names" name="place_names"> Place names (Esri's gray maps and satellite)</label>
 <label class="check"><input type="checkbox" id="rings" name="rings"> Range rings and compass rose</label>
 <label class="check"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
 </section>
@@ -79,7 +80,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','dim','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
-const BOOL=['rings','sweep','by_altitude','glide','ground','fallback'];
+const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names'];
 const TXT=['map','custom_url','filter','tint','feed','marker','label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);

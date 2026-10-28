@@ -61,6 +61,7 @@ struct Settings {
   int dim = 60;            // percent of the map's light kept by FILTER_DIM
   int tile_scale = 0;      // 1 or 2 screen pixels per tile pixel; 0 the board's default
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`
+  bool place_names = true; // a map's layer of place names over it, where it has one (Esri's gray maps and imagery)
   Tint tint = GREEN;
   bool sweep = true;       // the radar's beam turns
   // The aircraft.
@@ -105,6 +106,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["dim"] = s.dim;
   o["tile_scale"] = s.tile_scale;
   o["rings"] = s.rings;
+  o["place_names"] = s.place_names;
   o["tint"] = TINTS[s.tint];
   o["sweep"] = s.sweep;
   o["feed"] = FEEDS[s.feed];
@@ -189,6 +191,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!number("dim", n.dim, 10, 100)) return fail("dim");
   if (!number("tile_scale", n.tile_scale, 0, 2)) return fail("tile_scale");
   if (!flag("rings", n.rings)) return fail("rings");
+  if (!flag("place_names", n.place_names)) return fail("place_names");
   if (!choice("tint", n.tint, TINTS)) return fail("tint");
   if (!flag("sweep", n.sweep)) return fail("sweep");
   if (!choice("feed", n.feed, FEEDS)) return fail("feed");

@@ -130,7 +130,7 @@ static void test_tiles() {
   tiles::Plan p = tiles::plan(s, 600, 450, 2);
   CHECK(p.view.zoom == std::floor(p.view.zoom));
   CHECK(p.tile_z == (int) p.view.zoom - 1);
-  CHECK(!p.keys.empty() && p.keys.size() <= 9);
+  CHECK(!p.keys.empty() && std::count_if(p.keys.begin(), p.keys.end(), [](const tiles::Key &k) { return k.layer == 0; }) <= 9);
   // Every pixel of the frame is under one of the tiles.
   for (int y = 0; y < 450; y += 449)
     for (int x = 0; x < 600; x += 599) {
@@ -147,6 +147,24 @@ static void test_tiles() {
   // ArcGIS orders a tile's address {z}/{y}/{x}.
   CHECK(tiles::url(s, p.keys[0]) == "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/" +
                                          std::to_string(p.keys[0].z) + "/" + std::to_string(p.keys[0].y) + "/" + std::to_string(p.keys[0].x));
+  // Place names: each map tile is followed by its labels tile, the same square; off, the map alone.
+  s.place_names = true;
+  p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.keys.size() % 2 == 0 && p.keys[0].layer == 0 && p.keys[1].layer == 1);
+  CHECK(p.keys[1].x == p.keys[0].x && p.keys[1].y == p.keys[0].y && p.keys[1].z == p.keys[0].z);
+  CHECK(tiles::url(s, p.keys[1]).find("World_Dark_Gray_Reference") != std::string::npos);
+  CHECK(!(p.keys[0] == p.keys[1]));
+  const size_t with_names = p.keys.size();
+  s.place_names = false;
+  p = tiles::plan(s, 600, 450, 2);
+  CHECK(p.keys.size() * 2 == with_names);
+  for (const auto &k : p.keys) CHECK(k.layer == 0);
+  // A map without a layer of names takes none, the setting on or not.
+  s.place_names = true;
+  s.map = OSM;
+  p = tiles::plan(s, 600, 450, 2);
+  for (const auto &k : p.keys) CHECK(k.layer == 0);
+  s.map = DARK_GRAY;
   // A screen that kept CARTO's style takes Esri's in its place.
   Settings old;
   JsonDocument carto;

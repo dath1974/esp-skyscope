@@ -21,14 +21,27 @@ struct Target {
   tiles::Filter filter;
 };
 
-inline void put(const Target &t, int x, int y, uint16_t colour) {
+// `colour` over the frame's pixel, `alpha` of it (255: all of it): a place name's soft edges over the map under it.
+inline uint16_t over(uint16_t under, uint16_t colour, uint32_t alpha) {
+  if (alpha >= 255) return colour;
+  const uint32_t a = alpha + (alpha >> 7);  // 0 to 256
+  const uint32_t r = ((under >> 11) * (256 - a) + (colour >> 11) * a) >> 8;
+  const uint32_t g = ((under >> 5 & 0x3F) * (256 - a) + (colour >> 5 & 0x3F) * a) >> 8;
+  const uint32_t b = ((under & 0x1F) * (256 - a) + (colour & 0x1F) * a) >> 8;
+  return (uint16_t) (r << 11 | g << 5 | b);
+}
+
+inline void put(const Target &t, int x, int y, uint16_t colour, uint32_t alpha = 255) {
   if (t.down) {
     const int mask = (1 << t.down) - 1;
     if ((x & mask) || (y & mask)) return;
     x >>= t.down;
     y >>= t.down;
     const int fx = t.ox + x, fy = t.oy + y;
-    if (fx >= 0 && fy >= 0 && fx < t.width && fy < t.height) t.frame[fy * t.width + fx] = colour;
+    if (fx >= 0 && fy >= 0 && fx < t.width && fy < t.height) {
+      uint16_t &px = t.frame[fy * t.width + fx];
+      px = over(px, colour, alpha);
+    }
     return;
   }
   const int n = 1 << t.up;
@@ -40,18 +53,19 @@ inline void put(const Target &t, int x, int y, uint16_t colour) {
     uint16_t *row = t.frame + fy * t.width;
     for (int dx = 0; dx < n; ++dx) {
       const int fx = fx0 + dx;
-      if (fx >= 0 && fx < t.width) row[fx] = colour;
+      if (fx >= 0 && fx < t.width) row[fx] = over(row[fx], colour, alpha);
     }
   }
 }
 
 void png_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
   const Target &t = *static_cast<const Target *>(pngle_get_user_data(pngle));
-  // A transparent pixel (a chart's edge) is left as the ground under it.
-  if (rgba[3] < 128) return;
+  // A transparent pixel (a chart's edge, a layer of names between them) leaves what is under it; a partly transparent
+  // one (the soft edge of a name) is blended with it.
+  if (rgba[3] == 0) return;
   const uint16_t colour = tiles::paint(t.filter, rgba[0], rgba[1], rgba[2]);
   for (uint32_t dy = 0; dy < h; ++dy)
-    for (uint32_t dx = 0; dx < w; ++dx) put(t, (int) (x + dx), (int) (y + dy), colour);
+    for (uint32_t dx = 0; dx < w; ++dx) put(t, (int) (x + dx), (int) (y + dy), colour, rgba[3]);
 }
 
 int jpeg_draw(JPEGDRAW *d) {

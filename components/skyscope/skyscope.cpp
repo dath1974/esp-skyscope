@@ -196,7 +196,8 @@ void Skyscope::use_settings_(const Settings &s) {
   const bool frame_changed = s.lat != settings_.lat || s.lon != settings_.lon || s.range_nm != settings_.range_nm ||
                              s.map != settings_.map || s.custom_url != settings_.custom_url ||
                              s.filter != settings_.filter || s.dim != settings_.dim || s.tile_scale != settings_.tile_scale ||
-                             s.rings != settings_.rings || s.tint != settings_.tint || s.located != settings_.located;
+                             s.rings != settings_.rings || s.tint != settings_.tint || s.located != settings_.located ||
+                             s.place_names != settings_.place_names;
   if (s.lat != settings_.lat || s.lon != settings_.lon) tracks_.clear();
   settings_ = s;
   {

@@ -6,7 +6,8 @@ no server, no app on a PC.
 
 - **Maps**: a radar scope drawn on the screen (nothing downloaded), street maps (Esri dark or light gray, OpenStreetMap),
   satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional and IFR low and high enroute charts,
-  or any 256-pixel PNG/JPEG tile server of your own. Range rings and a compass rose over any of them.
+  or any 256-pixel PNG/JPEG tile server of your own. Place names over Esri's gray maps and the satellite imagery
+  (optional, from Esri's own label layers). Range rings and a compass rose over any of them.
 - **Aircraft**: from adsb.fi or adsb.lol, every few seconds, switching to the other while one is unavailable. Plane, arrow or dot markers, coloured by
   altitude; labels kept apart from each other; tracks of the last seconds; planes glide between reports; a radar beam
   that paints them as it passes. Watched aircraft (by registration, callsign or ICAO address) always show, in a

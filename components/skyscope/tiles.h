@@ -18,7 +18,9 @@ struct Source {
   const char *url;     // {z} {x} {y}
   int min_z, max_z;    // the zooms the server draws; a chart's are those it is sharp at
   const char *credit;  // what the screen credits, as the server's terms ask
+  const char *labels = nullptr;  // a layer of place names over it (transparent PNG, same squares), where it has one
 };
+#define SKYSCOPE_ESRI "https://server.arcgisonline.com/ArcGIS/rest/services/"
 
 // The FAA's charts and the USGS topographic map are United States government services and cover the United States.
 // The sectional is scanned at about zoom 10 and the IFR charts at 8 (high) and 10 (low); one level closer is still sharp.
@@ -27,12 +29,14 @@ inline constexpr Source SOURCES[] = {
     /* RADAR */ {"", 0, 0, ""},
     /* OSM */ {"https://tile.openstreetmap.org/{z}/{x}/{y}.png", 0, 19, "\xC2\xA9 OpenStreetMap contributors"},
     // Esri's gray canvas maps: streets and water, no place names (Esri keeps those in a layer of their own).
-    /* LIGHT_GRAY */ {"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-                      0, 16, "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap"},
-    /* DARK_GRAY */ {"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-                     0, 16, "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap"},
-    /* SATELLITE */ {"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19,
-                     "Esri, Maxar, Earthstar Geographics"},
+    /* LIGHT_GRAY */ {SKYSCOPE_ESRI "Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", 0, 16,
+                      "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap",
+                      SKYSCOPE_ESRI "Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"},
+    /* DARK_GRAY */ {SKYSCOPE_ESRI "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", 0, 16,
+                     "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap",
+                     SKYSCOPE_ESRI "Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"},
+    /* SATELLITE */ {SKYSCOPE_ESRI "World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19, "Esri, Maxar, Earthstar Geographics",
+                     SKYSCOPE_ESRI "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"},
     /* TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS"},
     /* SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA"},
     /* IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA"},
@@ -40,18 +44,23 @@ inline constexpr Source SOURCES[] = {
     /* CUSTOM */ {"", 0, 19, ""},
 };
 #undef SKYSCOPE_FAA
+#undef SKYSCOPE_ESRI
 inline const Source &source(MapStyle style) { return SOURCES[style < sizeof(SOURCES) / sizeof(SOURCES[0]) ? style : 0]; }
 inline bool has_tiles(MapStyle style) { return style != RADAR; }
+// Whether the frame of `s` takes a layer of place names over its map.
+inline bool has_labels(const Settings &s) { return s.place_names && has_tiles(s.map) && source(s.map).labels; }
 
 // The most tiles one frame asks for; a frame that needs more (a chart far before its first zoom) is drawn without one.
 constexpr size_t MOST_TILES = 30;
 // How far a tile may be enlarged or made smaller, as a power of two.
 constexpr int MOST_UP = 3, MOST_DOWN = 1;
 
+// A tile: its map, zoom and square, and its layer (0 the map, 1 its place names).
 struct Key {
   uint8_t style, z;
   uint32_t x, y;
-  bool operator==(const Key &o) const { return style == o.style && z == o.z && x == o.x && y == o.y; }
+  uint8_t layer = 0;
+  bool operator==(const Key &o) const { return style == o.style && z == o.z && x == o.x && y == o.y && layer == o.layer; }
 };
 
 struct Plan {
@@ -81,6 +90,8 @@ inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   const int x0 = (int) std::floor(out.view.left / span), x1 = (int) std::floor((out.view.left + w - 1) / span);
   const int y0 = (int) std::floor(out.view.top / span), y1 = (int) std::floor((out.view.top + h - 1) / span);
   struct Near { double d; Key k; };
+  // Each map tile's place names come right after it, so the names show as each piece of the map does.
+  const bool labels = has_labels(s);
   std::vector<Near> near;
   const double cx = out.view.left + w / 2.0, cy = out.view.top + h / 2.0;
   for (int y = std::max(0, y0); y <= std::min(count - 1, y1); ++y)
@@ -91,13 +102,21 @@ inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   if (near.size() > MOST_TILES) return out;
   std::sort(near.begin(), near.end(), [](const Near &a, const Near &b) { return a.d < b.d; });
   out.tile_z = tz;
-  for (const auto &n : near) out.keys.push_back(n.k);
+  for (const auto &n : near) {
+    out.keys.push_back(n.k);
+    if (labels) {
+      Key l = n.k;
+      l.layer = 1;
+      out.keys.push_back(l);
+    }
+  }
   return out;
 }
 
 // The address of a tile.
 inline std::string url(const Settings &s, const Key &k) {
-  std::string t = s.map == CUSTOM ? s.custom_url : source((MapStyle) k.style).url;
+  const Source &src = source((MapStyle) k.style);
+  std::string t = k.layer && src.labels ? src.labels : s.map == CUSTOM ? s.custom_url : src.url;
   auto put = [&](const char *name, uint32_t value) {
     const size_t at = t.find(name);
     if (at != std::string::npos) t.replace(at, 3, std::to_string(value));
