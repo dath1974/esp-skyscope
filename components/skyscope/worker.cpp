@@ -53,6 +53,13 @@ class Cache {
     }
     return nullptr;
   }
+  void forget(const tiles::Key &k) {
+    for (auto it = items_.begin(); it != items_.end(); ++it)
+      if (it->key == k) {
+        drop_(it);
+        return;
+      }
+  }
   Cached *keep(const tiles::Key &k, const uint8_t *data, size_t size, uint32_t now) {
     while (bytes_ + size > CACHE_BYTES && !items_.empty()) drop_(std::prev(items_.end()));
     Cached c{k, nullptr, size, now};
@@ -77,7 +84,15 @@ class Cache {
 };
 
 // How long a source that failed is left alone: a feed that says "too many requests" longer.
-constexpr uint32_t TILE_BACKOFF_MS = 60000;
+// A tile that did not come is asked again after 2 s, then 4, 8 ... at most 60, while the others go on loading; one
+// that came but could not be read is fetched again at most this many times.
+constexpr uint32_t TILE_RETRY_FIRST_MS = 2000, TILE_RETRY_MOST_MS = 60000;
+constexpr int TILE_UNREADABLE_MOST = 3;
+struct Pending {
+  size_t index;          // into the plan's keys
+  uint32_t due = 0;      // millis() when it may be asked again
+  int failures = 0, unreadable = 0;
+};
 }  // namespace
 
 void Skyscope::worker_main(void *self) { static_cast<Skyscope *>(self)->worker_(); }
@@ -88,8 +103,8 @@ void Skyscope::worker_() {
   Settings settings;
   tiles::Plan plan;
   uint32_t settings_rev = 0, plan_rev = 0, painting_rev = 0;
-  size_t next_tile = 0;
-  uint32_t feed_due = 0, tiles_quiet_until = 0;
+  std::vector<Pending> pending;  // the plan's tiles not drawn yet, in its order (nearest the middle first)
+  uint32_t feed_due = 0;
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
   providers::Providers providers;
   const int width = width_, height = height_;
@@ -180,7 +195,8 @@ void Skyscope::worker_() {
     // ---- The map, one tile a turn, so the planes keep coming while it fills.
     if (painting_rev != plan_rev) {
       painting_rev = plan_rev;
-      next_tile = 0;
+      pending.clear();
+      for (size_t i = 0; i < plan.keys.size(); ++i) pending.push_back({i});
       {
         std::lock_guard<std::mutex> frame(frame_lock_);
         std::fill(base_frame_, base_frame_ + width * height, (uint16_t) 0);
@@ -192,10 +208,14 @@ void Skyscope::worker_() {
       shared_.tiles_total = plan.keys.size();
       shared_.tile_error.clear();
     }
-    if (next_tile < plan.keys.size() && (int32_t) (millis() - tiles_quiet_until) >= 0) {
-      const tiles::Key key = plan.keys[next_tile];
+    // The first tile due, nearest the middle first; one that failed waits its turn while the others load.
+    auto due = std::find_if(pending.begin(), pending.end(), [&](const Pending &p) { return (int32_t) (millis() - p.due) >= 0; });
+    if (due != pending.end()) {
+      Pending &job = *due;
+      const tiles::Key key = plan.keys[job.index];
       Cached *tile = cache.find(key, millis());
       std::string error;
+      bool fetched_failed = false;
       if (!tile) {
         ui::worker_phase = ui::TILE_FETCH;
         const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
@@ -204,31 +224,38 @@ void Skyscope::worker_() {
         // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
         else if (r.status == 404 || r.status == 204) tile = cache.keep(key, nullptr, 0, millis());
         else error = r.error;
+        fetched_failed = !tile;
         body.clear();
       }
-      bool failed = !tile;
+      bool drawn = tile && !tile->size;  // an empty square is done
       if (tile && tile->size) {
         const geo::TileOrigin at = geo::tile_origin(plan.view, key.z, key.x, key.y);
         std::lock_guard<std::mutex> frame(frame_lock_);
         ui::worker_phase = ui::TILE_DECODE;
-        failed = !decode::draw(tile->data, tile->size, base_frame_, width, height, at, tiles::filter_of(settings), error);
+        drawn = decode::draw(tile->data, tile->size, base_frame_, width, height, at, tiles::filter_of(settings), error);
         ui::worker_phase = ui::IDLE;
+        // What could not be read is not kept: the next try fetches it again.
+        if (!drawn) cache.forget(key);
       }
-      if (failed && !error.empty()) ESP_LOGW(TAG, "Tile %u/%u/%u: %s", key.z, (unsigned) key.x, (unsigned) key.y, error.c_str());
-      if (failed && !tile) {
-        // The server gave nothing: try this tile again after a while, and say so on the glass.
-        tiles_quiet_until = millis() + TILE_BACKOFF_MS;
+      bool given_up = false;
+      if (drawn) {
+        pending.erase(due);
       } else {
-        ++next_tile;
+        if (!fetched_failed) ++job.unreadable;
+        ++job.failures;
+        given_up = job.unreadable >= TILE_UNREADABLE_MOST;
+        const uint32_t wait = std::min<uint32_t>(TILE_RETRY_MOST_MS, TILE_RETRY_FIRST_MS << std::min(job.failures - 1, 5));
+        ESP_LOGW(TAG, "Tile %u/%u/%u%s: %s; %s", key.z, (unsigned) key.x, (unsigned) key.y, key.layer ? " (names)" : "",
+                 error.c_str(), given_up ? "given up" : ("again in " + std::to_string(wait / 1000) + " s").c_str());
+        if (given_up) pending.erase(due);
+        else job.due = millis() + wait;
       }
       std::lock_guard<std::mutex> guard(lock_);
       if (shared_.frame_plan_rev == plan_rev) {
-        if (failed) {
-          shared_.tile_error = error.empty() ? std::string("tile server") : error;
-        } else {
-          shared_.tiles_done++;
+        if (drawn) shared_.tiles_done++;
+        if (!drawn) shared_.tile_error = error.empty() ? std::string("tile server") : error;
+        else if (pending.empty() || std::none_of(pending.begin(), pending.end(), [](const Pending &p) { return p.failures; }))
           shared_.tile_error.clear();
-        }
         shared_.frame_rev++;
       }
       continue;

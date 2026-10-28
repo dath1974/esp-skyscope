@@ -5,6 +5,8 @@
 #include <esp_http_client.h>
 #include <esp_timer.h>
 
+#include "esphome/core/log.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +14,7 @@
 #include <map>
 
 namespace sky::http {
+static const char *const TAG = "skyscope.http";
 Body::~Body() { heap_caps_free(data); }
 
 void Body::release() {
@@ -132,6 +135,7 @@ Result get(const std::string &url, Body &body, size_t most, const std::string &a
   Result r;
   for (int attempt = 0; attempt < 2; ++attempt) {
     body.clear();
+    const bool reused = clients.count(server_of(url)) != 0;
     Client *c = client_for(url, agent);
     if (!c) {
       r.error = "no HTTP client";
@@ -141,9 +145,15 @@ Result get(const std::string &url, Body &body, size_t most, const std::string &a
     c->used = (uint32_t) (esp_timer_get_time() / 1000);
     esp_http_client_set_url(c->handle, url.c_str());
     esp_http_client_set_header(c->handle, "Accept", accept ? accept : "*/*");
+    const int64_t started = esp_timer_get_time();
     const esp_err_t err = esp_http_client_perform(c->handle);
     c->fill.body = nullptr;
     if (err != ESP_OK) {
+      // What the reply was when it broke off: how much came of how much, how long it took, on which connection.
+      ESP_LOGW(TAG, "%s: %s on try %d, %s connection: %u of %lld bytes, HTTP %d, %lld ms", server_of(url).c_str(),
+               esp_err_to_name(err), attempt + 1, reused ? "a reused" : "a new", (unsigned) body.size,
+               (long long) esp_http_client_get_content_length(c->handle), esp_http_client_get_status_code(c->handle),
+               (long long) ((esp_timer_get_time() - started) / 1000));
       // The server may have closed the connection while it sat idle: once more, on a new one.
       r.error = esp_err_to_name(err);
       r.status = 0;

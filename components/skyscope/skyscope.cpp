@@ -377,6 +377,9 @@ void Skyscope::build_ui_() {
   lv_obj_set_style_pad_hor(status_, ui::px(6), 0);
   lv_obj_set_style_pad_ver(status_, ui::px(2), 0);
   lv_obj_align(status_, LV_ALIGN_TOP_LEFT, ui::px(6), ui::px(6));
+  // As wide as its text, at most the glass's width: a long message (an error, a countdown) wraps onto more lines.
+  lv_obj_set_style_max_width(status_, width_ - 2 * ui::px(6), 0);
+  lv_label_set_long_mode(status_, LV_LABEL_LONG_WRAP);
   lv_obj_remove_flag(status_, LV_OBJ_FLAG_CLICKABLE);
 
   credit_ = label(screen, ui::fonts.small, colours::MUTED);
