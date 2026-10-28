@@ -53,6 +53,7 @@ struct Overlay {
   Marker marker = DOT;
   bool by_altitude = true;  // coloured by band, else in the accent
   bool glide = true;
+  bool light = false;       // the light appearance: the pills and rings in its palette (colours.h)
   uint32_t at = 0;          // millis() when it came
   std::vector<Plane> planes;
   Radar radar;

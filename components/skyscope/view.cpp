@@ -208,9 +208,9 @@ static int glow_step(const View *view, ap::Point c, ap::Point plane, float beam)
 // text or style changes, and never while LVGL draws the glass (show and the sweep call render_labels).
 static std::string style_of(const ap::Overlay &o, const ap::Plane &p) {
   const bool radar = o.radar.on;
-  const lv_color_t first = radar ? colour_of(o, p) : lv_color_hex(cl::INK);
-  const lv_color_t rest = radar ? phosphor(o, 0.65f) : lv_color_hex(cl::MUTED);
-  const lv_color_t ground = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::CARD);
+  const lv_color_t first = radar ? colour_of(o, p) : lv_color_hex(cl::palette(o.light).ink);
+  const lv_color_t rest = radar ? phosphor(o, 0.65f) : lv_color_hex(cl::palette(o.light).muted);
+  const lv_color_t ground = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::palette(o.light).card);
   char out[48];
   std::snprintf(out, sizeof(out), "%06x%06x%06x%c%c", (unsigned) lv_color_to_u32(first) & 0xFFFFFF,
                 (unsigned) lv_color_to_u32(rest) & 0xFFFFFF, (unsigned) lv_color_to_u32(ground) & 0xFFFFFF,
@@ -255,7 +255,7 @@ static void render_labels(View *view) {
     lv_draw_rect_dsc_init(&bg);
     // On a scope a data block: square, the tube showing through, its text in the plane's own phosphor.
     bg.radius = radar ? 0 : s.radius;
-    bg.bg_color = radar ? lv_color_hex(tint_of(style).ground) : lv_color_hex(cl::CARD);
+    bg.bg_color = radar ? lv_color_hex(tint_of(style).ground) : lv_color_hex(cl::palette(style.light).card);
     bg.bg_opa = radar ? LV_OPA_60 : LV_OPA_80;
     // A watched plane's label is edged in its colour.
     if (p.watch) { bg.border_width = s.line; bg.border_color = colour_of(style, p); bg.border_opa = LV_OPA_COVER; }
@@ -266,7 +266,8 @@ static void render_labels(View *view) {
       lv_draw_label_dsc_init(&dsc);
       dsc.font = font;
       dsc.text = rows[n].c_str();
-      dsc.color = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p)) : lv_color_hex(n ? cl::MUTED : cl::INK);
+      dsc.color = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p))
+                        : lv_color_hex(n ? cl::palette(style.light).muted : cl::palette(style.light).ink);
       dsc.text_local = 1;
       const int y = s.pad / 2 + (int) n * line_h;
       lv_area_t text{s.pad, y, w - 1 - s.pad, y + line_h - 1};
@@ -305,7 +306,7 @@ static void draw(lv_event_t *e) {
   const uint32_t now = lv_tick_get();
   const bool radar = o.radar.on;
   // On a scope the halo is its ground, so every mark reads as lit phosphor on the dark tube.
-  const lv_color_t halo = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::CARD);
+  const lv_color_t halo = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::palette(o.light).card);
   const ap::Point middle = radar ? scope_middle(view, a) : ap::Point{0, 0};
   const float beam = radar && o.radar.sweep ? (view->beam_drawn >= 0 ? view->beam_drawn : ap::beam(now)) : 0;
   // The beam itself is in the map's canvas (beam.h), painted by the sweep.
@@ -377,7 +378,7 @@ static void draw(lv_event_t *e) {
       // The plane picked: a wide ring in the ink round a halo, outside a watched plane's own.
       const int across = (o.marker == ap::PLANE && p.heading != ap::NO_HEADING ? size : d) + 8 * s.halo + 4 * s.line;
       ring(layer, c, across + 2 * s.halo, 2 * s.line + 2 * s.halo, halo);
-      ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 1.0f) : lv_color_hex(cl::INK));
+      ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 1.0f) : lv_color_hex(cl::palette(o.light).ink));
     }
     if (p.watch) {
       // A ring in its colour round a halo of the card's, a little beyond the marker.

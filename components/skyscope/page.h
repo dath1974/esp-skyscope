@@ -27,6 +27,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <form id="f">
 <section><h2>Where</h2>
 <label for="q">Find a place</label><div class="row"><input id="q" placeholder="An airport, a town, an address"><button type="button" class="plain" id="find">Search</button></div>
+<input type="hidden" id="place" name="place">
 <p class="hint">An airport code (KJFK, JFK) is looked up in the FAA's airport data first; anything else, and airports outside the United States, in OpenStreetMap. The search goes from this browser; the screen only stores the coordinates.</p>
 <p id="used"></p><div id="found"></div>
 <div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" step="any" min="-85" max="85" required></div>
@@ -34,21 +35,22 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="250">
 </section>
 <section><h2>Map</h2>
-<label for="map">Background</label><select id="map" name="map">
-<option value="radar">Radar scope (nothing downloaded)</option><option value="dark_gray">Streets, dark gray (Esri)</option>
-<option value="light_gray">Streets, light gray (Esri)</option><option value="osm">OpenStreetMap</option>
-<option value="satellite">Satellite (Esri)</option><option value="topo">Topographic (USGS, United States)</option>
-<option value="sectional">FAA VFR sectional (United States)</option><option value="ifr_low">FAA IFR low enroute (United States)</option>
-<option value="ifr_high">FAA IFR high enroute (United States)</option><option value="custom">Custom tile server</option></select>
-<div id="custom"><label for="custom_url">Tile URL</label><input id="custom_url" name="custom_url" placeholder="https://example.com/tiles/{z}/{x}/{y}.png">
-<p class="hint">256-pixel PNG or JPEG tiles with {z}, {x} and {y}. Follow the server's terms of use.</p></div>
-<div class="row"><div><label for="filter">Colours</label><select id="filter" name="filter"><option value="none">As drawn</option><option value="dim">Dimmed</option><option value="invert">Inverted (night)</option></select></div>
-<div><label for="dim">Dimmed to (%)</label><input id="dim" name="dim" type="number" min="10" max="100"></div></div>
-<div class="row"><div><label for="tile_scale">Map text size</label><select id="tile_scale" name="tile_scale"><option value="0">The screen's default</option><option value="1">Small (1:1)</option><option value="2">Large (2x)</option></select></div>
-<div><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
-<label class="check"><input type="checkbox" id="place_names" name="place_names"> Place names (Esri's gray maps and satellite)</label>
+<div class="row"><div><label for="map">Background</label><select id="map" name="map">
+<option value="radar">Radar scope (nothing downloaded)</option><option value="streets">Streets (Esri)</option>
+<option value="osm">OpenStreetMap</option><option value="satellite">Satellite (Esri)</option>
+<option value="topo">Topographic (USGS, United States)</option><option value="sectional">FAA VFR sectional (United States)</option>
+<option value="ifr_low">FAA IFR area charts, low (busy terminal areas)</option><option value="ifr_high">FAA IFR high enroute (United States)</option>
+<option value="custom">Custom tile server</option></select></div>
+<div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="theme">Appearance</label><select id="theme" name="theme"><option value="dark">Dark</option><option value="light">Light</option></select></div></div>
+<p class="hint" data-for="osm topo sectional ifr_low ifr_high">This map has no dark version of its own: dark, its paper is turned dark (the sectional is dimmed instead, so its colours stay true).</p>
+<div data-for="custom"><label for="custom_url">Tile URL</label><input id="custom_url" name="custom_url" placeholder="https://example.com/tiles/{z}/{x}/{y}.png">
+<p class="hint">256-pixel PNG or JPEG tiles with {z}, {x} and {y}, shown as they are. Follow the server's terms of use.</p></div>
+<div class="row"><div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="map_brightness">Map brightness (%)</label><input id="map_brightness" name="map_brightness" type="number" min="10" max="100"></div>
+<div data-for="streets osm satellite topo custom"><label for="tile_scale">Map text size</label><select id="tile_scale" name="tile_scale"><option value="0">The screen's default</option><option value="1">Small (1:1)</option><option value="2">Large (2x)</option></select></div>
+<div data-for="radar"><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
+<label class="check" data-for="streets satellite"><input type="checkbox" id="place_names" name="place_names"> Place names</label>
 <label class="check"><input type="checkbox" id="rings" name="rings"> Range rings and compass rose</label>
-<label class="check"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
+<label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
 </section>
 <section><h2>Aircraft</h2>
 <div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option></select></div>
@@ -79,15 +81,20 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','dim','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
+const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation'];
 const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names'];
-const TXT=['map','custom_url','filter','tint','feed','marker','label'];
+const TXT=['map','custom_url','theme','tint','feed','marker','label','place'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');
- if(!s.located){$('lat').value='';$('lon').value=''}custom()}
-function custom(){$('custom').style.display=$('map').value==='custom'?'':'none'}
-$('map').onchange=custom;
+ $('q').value=s.place||'';
+ if(!s.located){$('lat').value='';$('lon').value=''}relevant()}
+// Only what applies to the map chosen: each part names its maps in data-for.
+function relevant(){const m=$('map').value;document.querySelectorAll('[data-for]').forEach(e=>{
+ e.style.display=e.dataset.for.split(' ').includes(m)?'':'none'})}
+$('map').onchange=relevant;
+// Coordinates typed by hand are no longer the place found.
+['lat','lon'].forEach(k=>$(k).addEventListener('input',()=>{$('place').value='';$('q').value=''}));
 async function load(){const r=await fetch('api/settings');show(await r.json())}
 f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value!=='')s[k]=Number($(k).value)});
  BOOL.forEach(k=>s[k]=$(k).checked);TXT.forEach(k=>s[k]=$(k).value);s.metric=$('metric').value==='true';
@@ -95,7 +102,7 @@ f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
-function place(p){$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);
+function place(p){$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);$('place').value=p.short;$('q').value=p.short;
  $('used').textContent='Using '+p.display_name+' ('+p.source+'). Press Save to keep it.'}
 // The FAA's own airport data (NASR, through its open data service) for something that looks like an airport code.
 const FAA='https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/US_Airport/FeatureServer/0/query';
@@ -103,10 +110,13 @@ async function faa(q){const id=q.toUpperCase();if(!/^[A-Z0-9]{2,5}$/.test(id))re
  const where="ICAO_ID='"+id+"' OR IDENT='"+id+"'";
  const r=await fetch(FAA+'?f=json&outSR=4326&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where='+encodeURIComponent(where));
  const f=((await r.json()).features||[])[0];if(!f||!f.geometry)return null;const a=f.attributes;
- return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',display_name:(a.ICAO_ID||a.IDENT)+' '+a.NAME+', '+a.SERVCITY+', '+a.STATE}}
+ return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',short:(a.ICAO_ID||a.IDENT).toUpperCase(),display_name:(a.ICAO_ID||a.IDENT)+' '+a.NAME+', '+a.SERVCITY+', '+a.STATE}}
 async function find(){const q=$('q').value.trim();if(!q)return;$('found').textContent='';$('used').textContent='Searching...';
  try{const hit=await faa(q);if(hit){place(hit);return}}catch(e){}
- try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q='+encodeURIComponent(q));const list=(await r.json()).map(p=>Object.assign(p,{source:'OpenStreetMap'}));
+ try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q='+encodeURIComponent(q));// A place's short name: an airport found by its code keeps the code, in capitals; else the first part of its name.
+ const code=/^[A-Za-z0-9]{3,4}$/.test(q)?q.toUpperCase():'';
+ const list=(await r.json()).map(p=>Object.assign(p,{source:'OpenStreetMap',
+  short:(code&&(p.type==='aerodrome'||p.class==='aeroway'))?code:p.display_name.split(',')[0].trim().slice(0,40)}));
  if(!list.length){$('used').textContent='Nothing found';return}
  // An airport when the search found one (a code such as EGLL or KJFK), else the best match.
  const best=list.find(p=>p.type==='aerodrome'||p.class==='aeroway')||list[0];place(best);

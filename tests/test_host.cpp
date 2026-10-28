@@ -62,6 +62,8 @@ static void test_settings() {
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "map" && s.range_nm == 30);
   deserializeJson(bad, R"({"alt_min":20000,"alt_max":10000})");
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "alt_min");
+  deserializeJson(bad, R"({"place":"KJFK"})");
+  CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.place == "KJFK");
   deserializeJson(bad, R"({"rotation":45})");
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "rotation");
   deserializeJson(bad, R"({"rotation":270})");
@@ -126,7 +128,7 @@ static void test_tiles() {
   s.lon = -73.78;
   s.located = true;
   s.range_nm = 20;
-  s.map = DARK_GRAY;
+  s.map = STREETS;
   tiles::Plan p = tiles::plan(s, 600, 450, 2);
   CHECK(p.view.zoom == std::floor(p.view.zoom));
   CHECK(p.tile_z == (int) p.view.zoom - 1);
@@ -170,14 +172,24 @@ static void test_tiles() {
   s.place_names = false;
   CHECK(tiles::credit(s) == "Esri, Vantor, Earthstar Geographics");
   s.place_names = true;
-  s.map = DARK_GRAY;
+  s.map = STREETS;
   CHECK(tiles::credit(s) == "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap");
   // A screen that kept CARTO's style takes Esri's in its place.
   Settings old;
   JsonDocument carto;
   deserializeJson(carto, R"({"map":"carto_light"})");
   std::string why;
-  CHECK(apply(carto.as<JsonObjectConst>(), old, why) && old.map == LIGHT_GRAY);
+  CHECK(apply(carto.as<JsonObjectConst>(), old, why) && old.map == STREETS && old.theme == LIGHT);
+  JsonDocument gray;
+  deserializeJson(gray, R"({"map":"dark_gray"})");
+  CHECK(apply(gray.as<JsonObjectConst>(), old, why) && old.map == STREETS && old.theme == DARK);
+  // Streets is Esri's dark or light gray by the appearance; the tiles of each are their own in the cache.
+  Settings st;
+  st.map = STREETS;
+  CHECK(tiles::source_id(st) == tiles::SRC_GRAY_DARK);
+  st.theme = LIGHT;
+  CHECK(tiles::source_id(st) == tiles::SRC_GRAY_LIGHT);
+  CHECK(tiles::url(st, {tiles::SRC_GRAY_LIGHT, 3, 1, 2}).find("World_Light_Gray_Base") != std::string::npos);
   // A chart is drawn from its sharpest zoom, enlarged, and not at all far out.
   s.map = SECTIONAL;
   s.range_nm = 3;
@@ -203,13 +215,33 @@ static void test_tiles() {
   CHECK(p.keys.empty() && near(20 * geo::NM / p.view.metres_per_px(), 225, 0.5));
   s.map = CUSTOM;
   s.custom_url = "https://t.example/{z}/{x}/{y}.png";
-  CHECK(tiles::url(s, {CUSTOM, 3, 1, 2}) == "https://t.example/3/1/2.png");
+  CHECK(tiles::url(s, {tiles::SRC_CUSTOM, 3, 1, 2}) == "https://t.example/3/1/2.png");
   const uint8_t png[] = {0x89, 'P', 'N', 'G', 13, 10, 26, 10}, jpg[] = {0xFF, 0xD8, 0xFF};
   CHECK(tiles::format_of(png, 8) == tiles::PNG && tiles::format_of(jpg, 3) == tiles::JPEG);
   CHECK(tiles::rgb565(255, 255, 255) == 0xFFFF && tiles::rgb565(255, 0, 0) == 0xF800);
-  // Inverted, white paper goes black and black ink white.
-  const tiles::Filter night{FILTER_INVERT, 256};
-  CHECK(tiles::paint(night, 255, 255, 255) == 0 && tiles::paint(night, 0, 0, 0) == 0xFFFF);
+  // The night rules. Turned round: white paper dark, black ink light, both within the dark screen's ground and ink.
+  const tiles::Filter invert{tiles::NIGHT_INVERT, 256};
+  CHECK(tiles::paint(invert, 255, 255, 255) == tiles::rgb565(tiles::NIGHT_LOW, tiles::NIGHT_LOW, tiles::NIGHT_LOW));
+  CHECK(tiles::paint(invert, 0, 0, 0) == tiles::rgb565(tiles::NIGHT_HIGH, tiles::NIGHT_HIGH, tiles::NIGHT_HIGH));
+  // Paper and ink only: white paper dark as above, a chart's blue keeps its hue and stays bright.
+  const tiles::Filter colours{tiles::NIGHT_COLOURS, 256};
+  CHECK(tiles::paint(colours, 255, 255, 255) == tiles::rgb565(tiles::NIGHT_LOW, tiles::NIGHT_LOW, tiles::NIGHT_LOW));
+  const tiles::Rgb blue = tiles::night_colours(0, 60, 160);
+  CHECK(blue.b > blue.g && blue.g > blue.r && blue.b >= tiles::COLOUR_VALUE);
+  // Dimmed to 60 %, and the map brightness after any rule.
+  CHECK(tiles::paint({tiles::NIGHT_DIM, 256}, 200, 200, 200) == tiles::rgb565(120, 120, 120));
+  CHECK(tiles::paint({tiles::NIGHT_NONE, 128}, 200, 100, 50) == tiles::rgb565(100, 50, 25));
+  // Which rule each map takes in the dark, and none in the light or on a server of one's own.
+  Settings n;
+  for (const auto &[map, rule] : {std::pair{SECTIONAL, tiles::NIGHT_DIM}, {IFR_LOW, tiles::NIGHT_COLOURS},
+                                  {IFR_HIGH, tiles::NIGHT_COLOURS}, {TOPO, tiles::NIGHT_INVERT}, {OSM, tiles::NIGHT_INVERT},
+                                  {SATELLITE, tiles::NIGHT_NONE}, {STREETS, tiles::NIGHT_NONE}, {CUSTOM, tiles::NIGHT_NONE}}) {
+    n.map = map;
+    n.theme = DARK;
+    CHECK(tiles::filter_of(n).night == rule);
+    n.theme = LIGHT;
+    CHECK(tiles::filter_of(n).night == tiles::NIGHT_NONE);
+  }
 }
 
 static void test_overlay() {

@@ -24,11 +24,13 @@ template<size_t N> struct Names {
   const char *operator[](int i) const { return names[i >= 0 && i < (int) N ? i : 0]; }
 };
 
-enum MapStyle : uint8_t { RADAR, OSM, LIGHT_GRAY, DARK_GRAY, SATELLITE, TOPO, SECTIONAL, IFR_LOW, IFR_HIGH, CUSTOM };
-inline constexpr Names<10> MAP_STYLES{{"radar", "osm", "light_gray", "dark_gray", "satellite", "topo", "sectional",
-                                       "ifr_low", "ifr_high", "custom"}};
-enum MapFilter : uint8_t { FILTER_NONE, FILTER_DIM, FILTER_INVERT };
-inline constexpr Names<3> MAP_FILTERS{{"none", "dim", "invert"}};
+// The maps a person chooses from. `streets` is Esri's gray canvas, dark or light by the appearance; every other map is
+// one map, made dark by tiles.h's night rules where it has no dark one of its own.
+enum MapStyle : uint8_t { RADAR, OSM, STREETS, SATELLITE, TOPO, SECTIONAL, IFR_LOW, IFR_HIGH, CUSTOM };
+inline constexpr Names<9> MAP_STYLES{{"radar", "osm", "streets", "satellite", "topo", "sectional", "ifr_low", "ifr_high",
+                                      "custom"}};
+enum Theme : uint8_t { DARK, LIGHT };
+inline constexpr Names<2> THEMES{{"dark", "light"}};
 enum Feed : uint8_t { ADSB_LOL, ADSB_FI };
 inline constexpr Names<2> FEEDS{{"adsb_lol", "adsb_fi"}};
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
@@ -55,10 +57,11 @@ struct Settings {
   double lat = 0, lon = 0;
   int range_nm = 20;
   // The map under the planes.
+  std::string place;       // what the place was found as, an airport's code in capitals ("KJFK"), else a short name
   MapStyle map = RADAR;
   std::string custom_url;  // {z} {x} {y} template, PNG or JPEG
-  MapFilter filter = FILTER_NONE;
-  int dim = 60;            // percent of the map's light kept by FILTER_DIM
+  Theme theme = DARK;      // the map's variant or night rendering, and the screen's own colours
+  int map_brightness = 100;  // percent of a map's light kept, in either appearance
   int tile_scale = 0;      // 1 or 2 screen pixels per tile pixel; 0 the board's default
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`
   bool place_names = true; // a map's layer of place names over it, where it has one (Esri's gray maps and imagery)
@@ -99,11 +102,12 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["located"] = s.located;
   o["lat"] = s.lat;
   o["lon"] = s.lon;
+  o["place"] = s.place;
   o["range_nm"] = s.range_nm;
   o["map"] = MAP_STYLES[s.map];
   o["custom_url"] = s.custom_url;
-  o["filter"] = MAP_FILTERS[s.filter];
-  o["dim"] = s.dim;
+  o["theme"] = THEMES[s.theme];
+  o["map_brightness"] = s.map_brightness;
   o["tile_scale"] = s.tile_scale;
   o["rings"] = s.rings;
   o["place_names"] = s.place_names;
@@ -173,12 +177,22 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   }
   if (!flag("located", n.located)) return fail("located");
   if (!number("range_nm", n.range_nm, MIN_RANGE_NM, MAX_RANGE_NM)) return fail("range_nm");
-  // CARTO's basemaps, which went behind an API key (their tiles say so), are Esri's gray canvas maps now.
+  // Older names: CARTO's basemaps (behind an API key now) and the two gray canvas maps are `streets`, in their look.
   if (!o["map"].isNull()) {
     const char *m = o["map"].as<const char *>();
-    if (m && std::strcmp(m, "carto_dark") == 0) n.map = DARK_GRAY;
-    else if (m && std::strcmp(m, "carto_light") == 0) n.map = LIGHT_GRAY;
-    else if (!choice("map", n.map, MAP_STYLES)) return fail("map");
+    const bool dark = m && (!std::strcmp(m, "carto_dark") || !std::strcmp(m, "dark_gray"));
+    const bool light = m && (!std::strcmp(m, "carto_light") || !std::strcmp(m, "light_gray"));
+    if (dark || light) {
+      n.map = STREETS;
+      if (o["theme"].isNull()) n.theme = light ? LIGHT : DARK;
+    } else if (!choice("map", n.map, MAP_STYLES)) {
+      return fail("map");
+    }
+  }
+  if (!o["place"].isNull()) {
+    const char *p = o["place"].as<const char *>();
+    if (!p || std::strlen(p) > 40) return fail("place");
+    n.place = p;
   }
   if (!o["custom_url"].isNull()) {
     const char *url = o["custom_url"].as<const char *>();
@@ -187,8 +201,8 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
     if (!n.custom_url.empty() && (n.custom_url.rfind("http", 0) != 0 || n.custom_url.find("{z}") == std::string::npos))
       return fail("custom_url");
   }
-  if (!choice("filter", n.filter, MAP_FILTERS)) return fail("filter");
-  if (!number("dim", n.dim, 10, 100)) return fail("dim");
+  if (!choice("theme", n.theme, THEMES)) return fail("theme");
+  if (!number("map_brightness", n.map_brightness, 10, 100)) return fail("map_brightness");
   if (!number("tile_scale", n.tile_scale, 0, 2)) return fail("tile_scale");
   if (!flag("rings", n.rings)) return fail("rings");
   if (!flag("place_names", n.place_names)) return fail("place_names");

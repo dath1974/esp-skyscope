@@ -195,7 +195,8 @@ void Skyscope::use_settings_(const Settings &s) {
   }
   const bool frame_changed = s.lat != settings_.lat || s.lon != settings_.lon || s.range_nm != settings_.range_nm ||
                              s.map != settings_.map || s.custom_url != settings_.custom_url ||
-                             s.filter != settings_.filter || s.dim != settings_.dim || s.tile_scale != settings_.tile_scale ||
+                             s.theme != settings_.theme || s.map_brightness != settings_.map_brightness ||
+                             s.tile_scale != settings_.tile_scale ||
                              s.rings != settings_.rings || s.tint != settings_.tint || s.located != settings_.located ||
                              s.place_names != settings_.place_names;
   if (s.lat != settings_.lat || s.lon != settings_.lon) tracks_.clear();
@@ -214,7 +215,10 @@ void Skyscope::use_settings_(const Settings &s) {
 }
 
 Skyscope::Chrome Skyscope::chrome_() const {
-  if (settings_.map != RADAR) return {colours::INK, colours::MUTED, colours::CARD};
+  if (settings_.map != RADAR) {
+    const colours::Palette &p = colours::palette(settings_.theme == LIGHT);
+    return {p.ink, p.muted, p.card};
+  }
   const colours::Tint &t = colours::tint(settings_.tint);
   return {t.glow, colours::glow_share(t, 0.6f), t.ground};
 }
@@ -490,7 +494,7 @@ void Skyscope::update_frame_() {
   if (settings_.rings || radar) {
     lv_layer_t layer;
     lv_canvas_init_layer(canvas_, &layer);
-    scope::draw(&layer, plan_.view, {radar, settings_.tint});
+    scope::draw(&layer, plan_.view, {radar, settings_.tint, settings_.theme == LIGHT});
     lv_canvas_finish_layer(canvas_, &layer);
   }
   if (radar && settings_.sweep) {
@@ -535,6 +539,7 @@ void Skyscope::update_planes_(uint32_t now) {
   seen_flights_rev_ = rev;
   const bool radar = settings_.map == RADAR;
   plan::Overlay o = overlay::build(flights_, settings_, plan_.view, tracks_, lv_tick_get(), ui::px_per_mm, radar);
+  o.light = settings_.theme == LIGHT && !radar;
   if (radar) {
     o.radar.on = true;
     o.radar.tint = settings_.tint;
@@ -650,7 +655,9 @@ void Skyscope::update_status_(uint32_t now) {
   } else if (feed_at == 0) {
     status = "Finding aircraft...";
   } else {
-    status = std::to_string(shown_count_) + " aircraft";
+    // The place first, as it was found ("KJFK"), where it was found by a search.
+    status = (settings_.place.empty() ? std::string() : settings_.place + "  \xC2\xB7  ") + std::to_string(shown_count_) +
+             " aircraft";
     // While the preferred exchange waits, how long it still waits. Where the planes come from is in the credits.
     if (first.blocked && providers::before(now, first.until))
       status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);

@@ -67,7 +67,7 @@ int jpeg_draw(JPEGDRAW *j) {
       if (px < 0 || px >= TILE) continue;
       const uint16_t c = j->pPixels[y * j->iWidth + x];
       scratch.colour[py * TILE + px] =
-          d.filter.kind == FILTER_NONE
+          d.filter.night == tiles::NIGHT_NONE && d.filter.keep >= 256
               ? c
               : tiles::paint(d.filter, (c >> 8 & 0xF8) | c >> 13, (c >> 3 & 0xFC) | (c >> 9 & 0x3), (c << 3 & 0xF8) | (c >> 2 & 0x7));
       scratch.alpha[py * TILE + px] = 255;

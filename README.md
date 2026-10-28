@@ -4,10 +4,12 @@ Live aircraft over a map on a small ESP32-S3 touch screen, entirely on its own: 
 public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself. No Home Assistant,
 no server, no app on a PC.
 
-- **Maps**: a radar scope drawn on the screen (nothing downloaded), street maps (Esri dark or light gray, OpenStreetMap),
-  satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional and IFR low and high enroute charts,
-  or any 256-pixel PNG/JPEG tile server of your own. Place names over Esri's gray maps and the satellite imagery
-  (optional, from Esri's own label layers). Range rings and a compass rose over any of them.
+- **Maps**: a radar scope drawn on the screen (nothing downloaded), streets (Esri's gray maps, dark or light),
+  OpenStreetMap, satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional, IFR area (low) and
+  IFR high enroute charts, or any 256-pixel PNG/JPEG tile server of your own. One **appearance** switch, dark or light:
+  maps without a dark version of their own are drawn dark by rules made for each (the IFR charts turn only their paper
+  and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
+  kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
 - **Aircraft**: from adsb.fi or adsb.lol, every few seconds, switching to the other while one is unavailable. Plane, arrow or dot markers, coloured by
   altitude; labels kept apart from each other; tracks of the last seconds; planes glide between reports; a radar beam
   that paints them as it passes. Watched aircraft (by registration, callsign or ICAO address) always show, in a

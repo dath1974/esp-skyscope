@@ -4,6 +4,7 @@
 
 #include "decode.h"
 #include "http.h"
+#include "colours.h"
 #include "ui.h"
 
 #include "esphome/core/hal.h"
@@ -202,7 +203,9 @@ void Skyscope::worker_() {
       for (size_t i = 0; i < plan.keys.size(); ++i) pending.push_back({i});
       {
         std::lock_guard<std::mutex> frame(frame_lock_);
-        std::fill(base_frame_, base_frame_ + width * height, (uint16_t) 0);
+        // The ground where no tile is (yet): black in the dark appearance, a pale gray in the light one.
+        const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
+        std::fill(base_frame_, base_frame_ + width * height, tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF));
       }
       std::lock_guard<std::mutex> guard(lock_);
       shared_.frame_rev++;

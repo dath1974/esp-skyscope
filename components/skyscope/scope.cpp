@@ -93,8 +93,11 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
   const bool radar = look.radar;
   const int thin = std::max(1, ui::px(1));
   // A map's rings in ink, see-through, each over a dark line so it reads on light and dark maps alike.
-  const uint32_t ring_colour = radar ? colours::glow_share(tint, colours::share::RING) : colours::INK;
-  const uint32_t rose_colour = radar ? colours::glow_share(tint, colours::share::ROSE) : colours::INK;
+  const colours::Palette &pal = colours::palette(look.light);
+  const uint32_t ring_colour = radar ? colours::glow_share(tint, colours::share::RING) : pal.ink;
+  const uint32_t rose_colour = radar ? colours::glow_share(tint, colours::share::ROSE) : pal.ink;
+  // Under each ring on a map, a wider line of the other end of the palette, so it reads on light and dark parts alike.
+  const uint32_t under = look.light ? pal.card : colours::BACKGROUND;
   const lv_opa_t opa = radar ? LV_OPA_COVER : LV_OPA_60;
   if (radar) {
     // The glow of a lit tube, strongest in the middle.
@@ -107,7 +110,7 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
   char label[24];
   for (int n = 1; n < 64 && step * n * px_per_nm < far; ++n) {
     const double r = step * n * px_per_nm;
-    if (!radar) circle(layer, cx, cy, r, colours::BACKGROUND, thin + 2, LV_OPA_30);
+    if (!radar) circle(layer, cx, cy, r, under, thin + 2, LV_OPA_30);
     circle(layer, cx, cy, r, ring_colour, thin, opa);
     // The miles of each ring where it crosses the bearing 105, between the rose's figures, the first with its unit.
     if (std::fabs(r - rose) < ui::px(20)) continue;
@@ -120,7 +123,7 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
     // Ticks every 10 degrees, longer every 30, inward from the circle; bearings in three figures on a large rose, the
     // four quarters alone on a small one.
     const bool large = rose >= ui::px(110);
-    if (!radar) circle(layer, cx, cy, rose, colours::BACKGROUND, thin + 2, LV_OPA_30);
+    if (!radar) circle(layer, cx, cy, rose, under, thin + 2, LV_OPA_30);
     circle(layer, cx, cy, rose, rose_colour, thin, opa);
     for (int bearing = 0; bearing < 360; bearing += large ? 5 : 10) {
       const int length = ui::px(bearing % 30 == 0 ? 9 : bearing % 10 == 0 ? 5 : 3);
@@ -134,7 +137,7 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
     }
   }
   const int arm = ui::px(5);
-  const uint32_t cross = radar ? tint.hot : colours::INK;
+  const uint32_t cross = radar ? tint.hot : pal.ink;
   line(layer, {(lv_value_precise_t) (cx - arm), (lv_value_precise_t) cy}, {(lv_value_precise_t) (cx + arm), (lv_value_precise_t) cy}, cross, thin, LV_OPA_COVER);
   line(layer, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy - arm)}, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy + arm)}, cross, thin, LV_OPA_COVER);
 }

@@ -9,6 +9,7 @@ namespace sky::scope {
 struct Look {
   bool radar = false;  // the scope's own phosphor and bearing lines, else thin ink over a map
   int tint = 0;        // colours.h TINTS
+  bool light = false;  // over a map in the light appearance: dark ink over a light halo
 };
 // Draws into `layer` (the map's canvas) for the frame `v`, round its middle.
 void draw(lv_layer_t *layer, const geo::View &v, const Look &look);

@@ -13,6 +13,13 @@ constexpr uint32_t WARNING = 0xFFB000;
 constexpr uint32_t ERROR = 0xFF5A4E;
 constexpr uint32_t EMERGENCY = 0xFF2D2D;
 
+// The screen's own colours over the map, by the appearance (settings.h Theme): the ground where no map is, the panels
+// and pills (status, labels, a plane's card), their ink and their quieter ink.
+struct Palette { uint32_t ground, card, ink, muted; };
+inline constexpr Palette DARK_PALETTE{BACKGROUND, CARD, INK, MUTED};
+inline constexpr Palette LIGHT_PALETTE{0xE9EBEE, 0xFAFBFC, 0x1B1F24, 0x5D6670};
+inline const Palette &palette(bool light) { return light ? LIGHT_PALETTE : DARK_PALETTE; }
+
 // By band of altitude (overlay.h BANDS): on the ground, low, middle, high, top.
 inline constexpr uint32_t BANDS[] = {0x9AA2AA, 0xFF9533, 0x4CC764, 0x5A9BEF, 0xB27BEB};
 // Watched planes, in the order of settings.h WATCH_COLOURS.
