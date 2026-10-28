@@ -100,4 +100,15 @@ async def to_code(config):
     cg.add_library("pngle", "1.1.0")
     cg.add_library("JPEGDEC", "1.8.4", "https://github.com/bitbank2/JPEGDEC#1.8.4")
     esp32.add_idf_component(name="espressif/esp-dsp", ref="1.8.2")
+    # Ordinary allocations of 4 KB and more in PSRAM: ESPHome leaves PSRAM to code that asks for it by name, so every
+    # list, string and decoder's state shared some 300 KB of internal RAM, and with 35 planes on a map an allocation
+    # failed and aborted the screen. Smaller allocations stay internal (fast); task stacks, Wi-Fi, lwIP and TLS allocate
+    # internal RAM by name and keep it, and 32 KB of it is held back for them.
+    esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_USE_CAPS_ALLOC", False)
+    esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_USE_MALLOC", True)
+    esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL", 4096)
+    esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL", 32768)
+    # TLS in PSRAM too: some 40 KB a connection, which internal RAM had to hold for every connection kept open.
+    esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC", False)
+    esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC", True)
     cg.add_define("SKYSCOPE_VERSION", VERSION)

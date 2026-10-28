@@ -3,6 +3,7 @@
 #include <esp_crt_bundle.h>
 #include <esp_heap_caps.h>
 #include <esp_http_client.h>
+#include <esp_timer.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -79,6 +80,7 @@ std::string server_of(const std::string &url) {
 struct Client {
   esp_http_client_handle_t handle = nullptr;
   Fill fill{nullptr, 0};
+  uint32_t used = 0;  // millis() of its last request
 };
 std::map<std::string, Client> clients;
 constexpr size_t MOST_CLIENTS = 3;
@@ -118,6 +120,14 @@ Client *client_for(const std::string &url, const std::string &agent) {
 }
 }  // namespace
 
+void close_idle(uint32_t now, uint32_t idle_ms) {
+  for (auto it = clients.begin(); it != clients.end();) {
+    if (now - it->second.used < idle_ms) { ++it; continue; }
+    esp_http_client_cleanup(it->second.handle);
+    it = clients.erase(it);
+  }
+}
+
 Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept) {
   Result r;
   for (int attempt = 0; attempt < 2; ++attempt) {
@@ -128,6 +138,7 @@ Result get(const std::string &url, Body &body, size_t most, const std::string &a
       return r;
     }
     c->fill = Fill{&body, most};
+    c->used = (uint32_t) (esp_timer_get_time() / 1000);
     esp_http_client_set_url(c->handle, url.c_str());
     esp_http_client_set_header(c->handle, "Accept", accept ? accept : "*/*");
     const esp_err_t err = esp_http_client_perform(c->handle);

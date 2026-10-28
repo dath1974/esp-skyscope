@@ -5,6 +5,8 @@
 // draws the mask in the plane's colour, which LVGL blends in one pass over its few hundred pixels.
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -12,10 +14,30 @@
 
 #include "plan.h"
 
+#if __has_include(<esp_heap_caps.h>)
+#include <esp_heap_caps.h>
+#endif
+
 namespace sky::sprites {
 // Headings are drawn in steps of this many degrees: at the largest symbol a step moves its nose by under 2 pixels.
 constexpr int HEADING_STEP = 4;
 constexpr int SAMPLES = 4;  // a side, so 16 a pixel
+
+// Scratch memory for the sample grid: PSRAM on the screen, the heap on a PC; nullptr when there is none.
+inline void *scratch(size_t bytes) {
+#if __has_include(<esp_heap_caps.h>)
+  return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+  return std::malloc(bytes);
+#endif
+}
+inline void release(void *p) {
+#if __has_include(<esp_heap_caps.h>)
+  heap_caps_free(p);
+#else
+  std::free(p);
+#endif
+}
 
 struct Mask {
   int size = 0;                // width and height, the shape's middle at size / 2
@@ -35,10 +57,15 @@ inline bool inside(const plan::Triangle &t, float x, float y) {
 // milliseconds a mask, where testing every sample against every triangle took some 145 ms on the ESP32-S3.
 inline Mask render(float length, int step) {
   Mask m;
-  m.size = (int) std::ceil(length) + 3;
+  const int size = (int) std::ceil(length) + 3;
+  const int fine = size * SAMPLES;
+  // The sample grid is the one large allocation here (a watched plane's at full size: some 80 KB): from PSRAM where the
+  // screen has it, and checked, so a screen short of memory skips a symbol for a frame instead of stopping.
+  std::unique_ptr<uint8_t, void (*)(void *)> hit(static_cast<uint8_t *>(scratch((size_t) fine * fine)), release);
+  if (!hit) return m;
+  std::memset(hit.get(), 0, (size_t) fine * fine);
+  m.size = size;
   m.alpha.assign((size_t) m.size * m.size, 0);
-  const int fine = m.size * SAMPLES;
-  std::vector<uint8_t> hit((size_t) fine * fine, 0);
   const float mid = m.size / 2.0f * SAMPLES;
   for (const auto &t : plan::plane_shape({mid, mid}, length * SAMPLES, step * HEADING_STEP)) {
     const float x0 = std::min({t.p[0].x, t.p[1].x, t.p[2].x}), x1 = std::max({t.p[0].x, t.p[1].x, t.p[2].x});
@@ -46,7 +73,7 @@ inline Mask render(float length, int step) {
     const int sx0 = std::max(0, (int) std::floor(x0)), sx1 = std::min(fine - 1, (int) std::ceil(x1));
     const int sy0 = std::max(0, (int) std::floor(y0)), sy1 = std::min(fine - 1, (int) std::ceil(y1));
     for (int y = sy0; y <= sy1; ++y) {
-      uint8_t *row = hit.data() + (size_t) y * fine;
+      uint8_t *row = hit.get() + (size_t) y * fine;
       for (int x = sx0; x <= sx1; ++x)
         if (!row[x] && inside(t, x + 0.5f, y + 0.5f)) row[x] = 1;
     }
@@ -55,7 +82,7 @@ inline Mask render(float length, int step) {
     for (int x = 0; x < m.size; ++x) {
       int hits = 0;
       for (int sy = 0; sy < SAMPLES; ++sy) {
-        const uint8_t *row = hit.data() + (size_t) (y * SAMPLES + sy) * fine + x * SAMPLES;
+        const uint8_t *row = hit.get() + (size_t) (y * SAMPLES + sy) * fine + x * SAMPLES;
         for (int sx = 0; sx < SAMPLES; ++sx) hits += row[sx];
       }
       m.alpha[(size_t) y * m.size + x] = (uint8_t) (hits * 255 / (SAMPLES * SAMPLES));
@@ -93,6 +120,7 @@ template<typename Extra> class Cache {
     ++made_;
     auto entry = std::make_unique<Entry>();
     entry->mask = render((float) length, step);
+    if (entry->mask.size == 0) return nullptr;  // no memory for it now: nothing drawn, asked again next frame
     return (entries_[key(length, step)] = std::move(entry)).get();
   }
   size_t size() const { return entries_.size(); }

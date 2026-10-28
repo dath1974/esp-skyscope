@@ -27,6 +27,9 @@ struct Result {
   int rate_reset_s = 0;
 };
 
+// Closes the connections no request used for `idle_ms`: the feed's stays open (it is asked every few seconds), a tile
+// server's goes once the map is drawn.
+void close_idle(uint32_t now, uint32_t idle_ms);
 // GETs `url` into `body`, at most `most` bytes, sending `agent` as its User-Agent.
 Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept = nullptr);
 }  // namespace sky::http

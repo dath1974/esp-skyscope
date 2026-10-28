@@ -10,6 +10,7 @@
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 
 #include <algorithm>
 #include <cstring>
@@ -172,6 +173,9 @@ void Skyscope::worker_() {
       std::lock_guard<std::mutex> guard(lock_);
       shared_.providers = providers;
     }
+
+    // Connections idle for half a minute are closed: each holds its TLS session's memory.
+    http::close_idle((uint32_t) (esp_timer_get_time() / 1000), 30000);
 
     // ---- The map, one tile a turn, so the planes keep coming while it fills.
     if (painting_rev != plan_rev) {

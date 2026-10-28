@@ -104,6 +104,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["version"] = version_;
     out["uptime_s"] = millis() / 1000;
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    // The largest piece of it in one block: what the largest allocation from internal RAM can have.
+    out["heap_largest"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
     out["psram_free"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     out["glass"] = std::to_string(width_) + "x" + std::to_string(height_);
     // The panel's own way up (rotation 0, nothing turned) and the rotation now.
