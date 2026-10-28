@@ -36,7 +36,16 @@ lv_obj_t *text(lv_obj_t *parent, const lv_font_t *font, uint32_t colour, const c
 void Skyscope::open_menu_() {
   if (menu_) return;
   menu_settings_ = settings_;
-  const Chrome c = chrome_();
+  build_menu_();
+  // The planes stop being drawn under it.
+  view::set_hidden(view_, true);
+  ESP_LOGI(TAG, "Opened");
+}
+
+void Skyscope::build_menu_() {
+  // In the colours of what is being chosen: another appearance or phosphor shows on the menu at once, and on the map
+  // only with Done.
+  const Chrome c = chrome_for_(menu_settings_);
   const int tall = ui::mm(8);
   menu_ = plain(lv_screen_active());
   lv_obj_set_size(menu_, width_, height_);
@@ -104,14 +113,11 @@ void Skyscope::open_menu_() {
   lv_obj_set_flex_grow(key_(foot_keys, "Up", MENU_UP, 0, 0, tall), 1);
   lv_obj_set_flex_grow(key_(foot_keys, "Down", MENU_DOWN, 0, 0, tall), 1);
 
-  // The planes stop being drawn under it.
-  view::set_hidden(view_, true);
   refresh_menu_();
-  ESP_LOGI(TAG, "Opened");
 }
 
 lv_obj_t *Skyscope::key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height) {
-  const Chrome c = chrome_();
+  const Chrome c = chrome_for_(menu_settings_);
   lv_obj_t *b = plain(parent);
   lv_obj_set_size(b, width, height);
   if (width == LV_SIZE_CONTENT) lv_obj_set_style_pad_hor(b, ui::mm(2.5f), 0);
@@ -135,7 +141,24 @@ lv_obj_t *Skyscope::key_(lv_obj_t *parent, const char *label, int row, int step,
 void Skyscope::menu_step_(int index, int step) {
   const auto &rows = menu::rows();
   if (index < 0 || index >= (int) rows.size()) return;
-  if (menu::stepped(rows[index], menu_settings_, step)) refresh_menu_();
+  const Chrome before = chrome_for_(menu_settings_);
+  if (!menu::stepped(rows[index], menu_settings_, step)) return;
+  const Chrome after = chrome_for_(menu_settings_);
+  if (before.ink == after.ink && before.card == after.card && before.muted == after.muted) {
+    refresh_menu_();
+    return;
+  }
+  // Other colours (the appearance, the phosphor, or the radar against a map): the menu built again in them, where it
+  // was scrolled to. After this event, as the key pressed is part of what goes. Nothing else changes until Done.
+  const int32_t scrolled = lv_obj_get_scroll_y(menu_list_);
+  this->defer([this, scrolled]() {
+    if (!menu_) return;
+    lv_obj_delete(menu_);
+    menu_ = nullptr;
+    build_menu_();
+    lv_obj_update_layout(menu_);
+    lv_obj_scroll_to_y(menu_list_, scrolled, LV_ANIM_OFF);
+  });
 }
 
 void Skyscope::menu_action_(int action) {

@@ -107,6 +107,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   void show_level_(int percent);
   // The settings menu (menu.cpp): a long press on the map opens it.
   void open_menu_();
+  void build_menu_();  // the menu's objects, in the colours of the settings it is editing
   void close_menu_();
   void refresh_menu_();
   void menu_step_(int index, int step);
@@ -117,6 +118,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card; };
   Chrome chrome_() const;
+  static Chrome chrome_for_(const Settings &s);
   void restyle_();
   void set_status_colour_(uint32_t colour);
   // settings

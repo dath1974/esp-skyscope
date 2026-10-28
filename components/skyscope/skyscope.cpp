@@ -224,12 +224,14 @@ void Skyscope::use_settings_(const Settings &s) {
   save_at_ = millis() + SAVE_DELAY_MS;
 }
 
-Skyscope::Chrome Skyscope::chrome_() const {
-  if (settings_.map != RADAR) {
-    const colours::Palette &p = colours::palette(settings_.theme == LIGHT);
+Skyscope::Chrome Skyscope::chrome_() const { return chrome_for_(settings_); }
+
+Skyscope::Chrome Skyscope::chrome_for_(const Settings &s) {
+  if (s.map != RADAR) {
+    const colours::Palette &p = colours::palette(s.theme == LIGHT);
     return {p.ink, p.muted, p.card};
   }
-  const colours::Tint &t = colours::tint(settings_.tint);
+  const colours::Tint &t = colours::tint(s.tint);
   return {t.glow, colours::glow_share(t, 0.6f), t.ground};
 }
 
