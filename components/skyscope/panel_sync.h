@@ -47,10 +47,16 @@ inline bool wait() {
   return true;
 }
 
+// Microseconds spent waiting for the pulse, summed (for /api/status).
+inline volatile int64_t waited_us = 0;
+
 inline void flush_start(lv_event_t *) {
   if (!on || !armed) return;
   armed = false;
-  if (wait()) {
+  const int64_t from = esp_timer_get_time();
+  const bool came = wait();
+  waited_us = waited_us + (esp_timer_get_time() - from);
+  if (came) {
     missed = 0;
     ++synced;
     return;

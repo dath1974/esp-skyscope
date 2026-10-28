@@ -17,6 +17,16 @@ inline void set_dpi(float dpi) {
   px_per_mm = dpi / 25.4f;
 }
 
+// Frames of the glass LVGL has started, and how long they took (skyscope.cpp counts them): what /api/status reports.
+inline uint32_t frame = 0;
+struct FrameStats {
+  uint32_t frames = 0;
+  float per_second = 0, average_ms = 0, longest_ms = 0;
+  // Of an average frame: drawing it, waiting for the panel's tearing signal, turning and sending it, and its pixels.
+  float draw_ms = 0, wait_ms = 0, send_ms = 0, pixels = 0;
+};
+inline FrameStats frame_stats;  // of the last five seconds
+
 struct Fonts {
   const lv_font_t *small = nullptr;  // planes' labels on a small glass, credits
   const lv_font_t *label = nullptr;  // planes' labels, status

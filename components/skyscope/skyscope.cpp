@@ -15,6 +15,7 @@
 #endif
 
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 
 #include <cmath>
 #include <cstring>
@@ -36,6 +37,53 @@ constexpr uint32_t ADDRESS_MS = 6000;
 constexpr int PICK_REACH = 36;
 // A part of the map comes at most this often while its tiles arrive; the last one at once.
 constexpr uint32_t FRAME_EVERY_MS = 600;
+// Planes that glide move this often, each in a small part of the glass.
+constexpr uint32_t GLIDE_FRAME_MS = 200;
+
+// Frame timing: when LVGL starts a frame and when the last of it has gone to the panel (its wait for the panel's
+// tearing signal included), summed over five seconds for /api/status.
+int64_t frame_started_us = 0, window_started_us = 0, flush_started_us = 0;
+int64_t window_send_us = 0, window_wait_from_us = 0;
+uint64_t window_pixels = 0;
+uint32_t window_frames = 0;
+float window_ms = 0, window_longest_ms = 0;
+void frame_start(lv_event_t *) {
+  ++ui::frame;
+  frame_started_us = esp_timer_get_time();
+}
+// Registered after panel_sync's own, so its wait for the pulse is not counted as sending.
+void flush_start(lv_event_t *e) {
+  flush_started_us = esp_timer_get_time();
+  if (auto *area = static_cast<lv_area_t *>(lv_event_get_param(e))) window_pixels += lv_area_get_size(area);
+}
+void flush_finish(lv_event_t *) {
+  if (flush_started_us) window_send_us += esp_timer_get_time() - flush_started_us;
+  flush_started_us = 0;
+}
+void frame_ready(lv_event_t *) {
+  const int64_t now = esp_timer_get_time();
+  if (!frame_started_us) return;
+  const float ms = (now - frame_started_us) / 1000.0f;
+  frame_started_us = 0;
+  ++window_frames;
+  window_ms += ms;
+  window_longest_ms = std::max(window_longest_ms, ms);
+  if (!window_started_us) window_started_us = now;
+  if (now - window_started_us >= 5000000) {
+    const float seconds = (now - window_started_us) / 1e6f;
+    const int64_t waited = panel_sync::waited_us;
+    const float n = window_frames;
+    const float wait_ms = (waited - window_wait_from_us) / 1000.0f / n, send_ms = window_send_us / 1000.0f / n;
+    ui::frame_stats = {window_frames, n / seconds, window_ms / n, window_longest_ms,
+                       window_ms / n - wait_ms - send_ms, wait_ms, send_ms, (float) window_pixels / n};
+    window_started_us = now;
+    window_frames = 0;
+    window_ms = window_longest_ms = 0;
+    window_send_us = 0;
+    window_pixels = 0;
+    window_wait_from_us = waited;
+  }
+}
 
 lv_obj_t *panel(lv_obj_t *parent) {
   lv_obj_t *o = lv_obj_create(parent);
@@ -125,10 +173,39 @@ void Skyscope::use_settings_(const Settings &s) {
     shared_.settings_rev++;
   }
   if (frame_changed) replan_();
+  restyle_();
   // The planes again, in the new style.
   seen_flights_rev_ = 0;
   save_pending_ = true;
   save_at_ = millis() + SAVE_DELAY_MS;
+}
+
+Skyscope::Chrome Skyscope::chrome_() const {
+  if (settings_.map != RADAR) return {colours::INK, colours::MUTED, colours::CARD};
+  const colours::Tint &t = colours::tint(settings_.tint);
+  return {t.glow, colours::glow_share(t, 0.6f), t.ground};
+}
+
+void Skyscope::set_status_colour_(uint32_t colour) {
+  // Set only when it changes: LVGL draws a label again whenever a style is set, the same value or not.
+  if (colour == status_colour_) return;
+  status_colour_ = colour;
+  lv_obj_set_style_text_color(status_, lv_color_hex(colour), 0);
+}
+
+void Skyscope::restyle_() {
+  if (!ui_built_) return;
+  const Chrome c = chrome_();
+  lv_obj_set_style_bg_color(status_, lv_color_hex(c.card), 0);
+  status_colour_ = 0xFFFFFFFF;
+  lv_obj_set_style_text_color(credit_, lv_color_hex(c.muted), 0);
+  lv_obj_set_style_bg_color(card_, lv_color_hex(c.card), 0);
+  lv_obj_set_style_border_color(card_, lv_color_hex(c.muted), 0);
+  lv_obj_set_style_border_width(card_, settings_.map == RADAR ? std::max(1, ui::px(1)) : 0, 0);
+  lv_obj_set_style_radius(card_, settings_.map == RADAR ? 0 : ui::px(8), 0);
+  for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
+  last_status_ = 0;
+  update_card_();
 }
 
 void Skyscope::replan_() {
@@ -189,7 +266,7 @@ void Skyscope::loop() {
   }
   update_frame_();
   update_planes_(now);
-  if (now - last_tick_ >= 1000) {
+  if (now - last_tick_ >= GLIDE_FRAME_MS) {
     last_tick_ = now;
     view::tick(view_, lv_tick_get());
   }
@@ -214,8 +291,8 @@ void Skyscope::build_ui_() {
     return;
   }
   lv_obj_t *screen = lv_screen_active();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(colours::BACKGROUND), 0);
-  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+  // The map's canvas covers the whole screen: a background under it would be filled and covered again in every frame.
+  lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
   lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
   canvas_ = lv_canvas_create(screen);
@@ -285,8 +362,14 @@ void Skyscope::build_ui_() {
   lv_obj_set_width(setup_body_, lv_pct(100));
 
   ui_built_ = true;
+  restyle_();
   ESP_LOGI(TAG, "Glass %d x %d", width_, height_);
   if (panel_te_pin_ >= 0) panel_sync::start(panel_te_pin_);
+  view::set_beam_painter(view_, [this](float was, float now, const plan::Box &box) { painter_.paint(was, now, box); });
+  lv_display_add_event_cb(display, frame_start, LV_EVENT_REFR_START, nullptr);
+  lv_display_add_event_cb(display, frame_ready, LV_EVENT_REFR_READY, nullptr);
+  lv_display_add_event_cb(display, flush_start, LV_EVENT_FLUSH_START, nullptr);
+  lv_display_add_event_cb(display, flush_finish, LV_EVENT_FLUSH_FINISH, nullptr);
   replan_();
   // Its stack in internal RAM: a TLS handshake needs some 8 KB of it. Core 0, beside Wi-Fi, away from LVGL.
   if (xTaskCreatePinnedToCore(worker_main, "skyscope", 16384, this, 3, &worker_task_, 0) != pdPASS)
@@ -347,6 +430,22 @@ void Skyscope::update_frame_() {
     scope::draw(&layer, plan_.view, {radar, settings_.tint});
     lv_canvas_finish_layer(canvas_, &layer);
   }
+  if (radar && settings_.sweep) {
+    const size_t bytes = (size_t) width_ * height_ * 2;
+    if (!scope_background_)
+      scope_background_ = static_cast<uint16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (scope_background_) std::memcpy(scope_background_, canvas_buffer_, bytes);
+    painter_.canvas = canvas_buffer_;
+    painter_.background = scope_background_;
+    painter_.width = width_;
+    painter_.height = height_;
+    painter_.cx = width_ / 2.0f;
+    painter_.cy = height_ / 2.0f;
+    // To the rose, where the beam turns (as view.cpp's scope_reach).
+    painter_.reach = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0) + 2;
+    painter_.beam_width = std::max(2, ui::px(3));
+    painter_.set_tint(colours::tint(settings_.tint));
+  }
   lv_obj_invalidate(canvas_);
   if (new_plan) {
     framed_plan_rev_ = plan_rev_;
@@ -398,7 +497,7 @@ void Skyscope::update_card_() {
   }
   const bool metric = settings_.metric;
   set_text(card_title_, overlay::name_of(*f) + (f->emergency ? "  SQUAWK " + f->squawk : ""));
-  lv_obj_set_style_text_color(card_title_, lv_color_hex(f->emergency ? colours::EMERGENCY : colours::INK), 0);
+  lv_obj_set_style_text_color(card_title_, lv_color_hex(f->emergency ? colours::EMERGENCY : chrome_().ink), 0);
   auto join = [](std::initializer_list<std::string> parts) {
     std::string out;
     for (const auto &p : parts) {
@@ -455,10 +554,11 @@ void Skyscope::update_status_(uint32_t now) {
     done = shared_.tiles_done;
     total = shared_.tiles_total;
   }
-  uint32_t colour = colours::INK;
+  const uint32_t ink = chrome_().ink;
+  uint32_t colour = ink;
   if (address_until_ && (int32_t) (now - address_until_) < 0) {
     set_text(status_, "http://" + own_address() + "/  \xC2\xB7  " + std::to_string(settings_.range_nm) + " NM");
-    lv_obj_set_style_text_color(status_, lv_color_hex(colours::INK), 0);
+    set_status_colour_(chrome_().ink);
     return;
   }
   address_until_ = 0;
@@ -479,12 +579,12 @@ void Skyscope::update_status_(uint32_t now) {
       status += "  \xC2\xB7  no map at this range";
     } else if (!tile_error.empty()) {
       status += "  \xC2\xB7  map: " + tile_error;
-      colour = colour == colours::INK ? colours::WARNING : colour;
+      colour = colour == ink ? colours::WARNING : colour;
     } else if (done < total) {
       status += "  \xC2\xB7  map " + std::to_string(done) + "/" + std::to_string(total);
     }
   }
   set_text(status_, status);
-  lv_obj_set_style_text_color(status_, lv_color_hex(colour), 0);
+  set_status_colour_(colour);
 }
 }  // namespace esphome::skyscope

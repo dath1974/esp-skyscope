@@ -59,6 +59,8 @@ output:
     write_action:
       - lambda: 'id(panel)->set_brightness(state <= 0.0f ? 0 : 20 + (int) (state * 235.0f));'
 
+# ESPHome's driver reads the chip's id at once after its reset, before the FT6336 answers, and logs "FT6336U touch
+# driver failed to start"; it reads the touches all the same.
 touchscreen:
   - platform: ft63x6
     id: touch

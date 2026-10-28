@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "lvgl.h"
+#include "beam.h"
 #include "feed.h"
 #include "overlay.h"
 #include "settings.h"
@@ -89,6 +90,11 @@ class Skyscope : public Component, public AsyncWebHandler {
   void update_status_(uint32_t now);
   void update_card_();
   void on_tap_(lv_event_t *e);
+  // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
+  struct Chrome { uint32_t ink, muted, card; };
+  Chrome chrome_() const;
+  void restyle_();
+  void set_status_colour_(uint32_t colour);
   // settings
   void load_settings_();
   void save_settings_();
@@ -116,6 +122,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   overlay::Tracks tracks_;
   std::string picked_;
   size_t shown_count_{0};
+  uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool ui_built_{false};
   float applied_brightness_{-1};
@@ -124,6 +131,9 @@ class Skyscope : public Component, public AsyncWebHandler {
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
   uint16_t *canvas_buffer_{nullptr};
+  // The radar's scope as drawn, without its beam: what the beam painter (beam.h) puts back where the trail has passed.
+  uint16_t *scope_background_{nullptr};
+  beam::Painter painter_;
   view::View *view_{nullptr};
 
   // Shared with the worker.

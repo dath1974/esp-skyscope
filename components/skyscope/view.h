@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "plan.h"
 
+#include <functional>
 #include <string>
 
 namespace sky::view {
@@ -11,13 +12,17 @@ struct View;  // the object over the map and the planes it shows
 void show(View *&view, lv_obj_t *parent, const plan::Overlay &o);
 // The map under the planes changed (another range, a new picture): a sweeping scope paints its planes anew.
 void new_frame(View *view);
+// What paints a sweeping scope's beam and its afterglow into the map under the planes, from bearing `was` to `now`,
+// within `box` (beam.h): called by the sweep before it draws that box again.
+using BeamPainter = std::function<void(float was, float now, const plan::Box &box)>;
+void set_beam_painter(View *&view, BeamPainter painter);
 void set_hidden(View *view, bool hidden);
 void release(View *&view);
 // The id of the plane nearest a finger at `x`, `y` on the glass, within `reach` pixels of it; "" for none.
 std::string pick(View *view, int x, int y, int reach);
 // The plane picked, ringed; "" for none.
 void set_picked(View *view, const std::string &id);
-// Every second: planes that glide are drawn where they are now.
+// Every 200 ms: planes that glide are drawn where they are now, each in the small part of the glass it covers.
 void tick(View *view, uint32_t now);
 // A radar scope's colours: its phosphor at `light` (0 the ground, 1 the glow, 2 the hottest light), and its ground.
 lv_color_t phosphor(const plan::Overlay &o, float light);

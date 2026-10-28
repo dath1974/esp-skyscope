@@ -11,6 +11,9 @@
 // owns them.
 #include "skyscope.h"
 #include "page.h"
+#include "ui.h"
+
+#include <cmath>
 
 #include "esphome/components/wifi/wifi_component.h"
 #include "esphome/core/application.h"
@@ -103,13 +106,21 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     out["psram_free"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     out["glass"] = std::to_string(width_) + "x" + std::to_string(height_);
+    // Frames of the last five seconds: how many a second, and how long one took on average and at most.
+    out["frames_per_s"] = std::round(ui::frame_stats.per_second * 10) / 10;
+    out["frame_ms_avg"] = std::round(ui::frame_stats.average_ms * 10) / 10;
+    out["frame_ms_max"] = std::round(ui::frame_stats.longest_ms * 10) / 10;
+    out["frame_draw_ms"] = std::round(ui::frame_stats.draw_ms * 10) / 10;
+    out["frame_wait_ms"] = std::round(ui::frame_stats.wait_ms * 10) / 10;
+    out["frame_send_ms"] = std::round(ui::frame_stats.send_ms * 10) / 10;
+    out["frame_pixels"] = (uint32_t) ui::frame_stats.pixels;
     if (wifi::global_wifi_component) {
       out["wifi_rssi"] = wifi::global_wifi_component->wifi_rssi();
       out["ip"] = own_address();
     }
     std::lock_guard<std::mutex> guard(lock_);
     out["aircraft"] = shared_.flights.size();
-    out["feed_age_s"] = shared_.feed_at ? (millis() - shared_.feed_at) / 1000 : -1;
+    out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
     out["feed_error"] = shared_.feed_error;
     out["tiles_done"] = shared_.tiles_done;
     out["tiles_total"] = shared_.tiles_total;

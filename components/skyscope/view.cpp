@@ -22,7 +22,10 @@ struct View {
   std::map<std::string, int> spot_of;  // the same by a plane's id, where it has one: a plane come or gone moves no other
   std::string picked;      // the plane a finger picked, ringed
   lv_timer_t *sweeping = nullptr;  // a radar scope's beam turning, every ap::SWEEP_FRAME_MS
-  float beam_drawn = -1;           // the bearing it was drawn at last
+  // The bearing the beam is drawn at, which only the sweep moves: every area drawn in between (a label, a plane) draws
+  // the beam where the rest of the glass shows it, so no piece of an older beam is left behind.
+  float beam_drawn = -1;
+  BeamPainter painter;  // paints the beam into the map under the layer
   // A sweeping scope paints each plane as the beam last passed it, as a radar does (`painted`: the report's style, its
   // planes as they were then, standing still): a plane moves, takes its new label or goes only when the beam crosses it,
   // so whatever else draws a piece of the glass again draws the same pixels there. `drawn`: the box each plane was last
@@ -31,6 +34,15 @@ struct View {
   bool latched = false;
   std::map<std::string, ap::Box> drawn;
   std::vector<ap::Box> again;  // planes whose labels moved in a draw, to draw again whole on the next frame
+  // The labels as laid out for one frame of the glass (ui::frame): LVGL draws a frame in several areas, and each asks
+  // for the planes again; the layout, which measures every label and keeps them apart, is worked out once.
+  uint32_t layout_frame = UINT32_MAX;
+  std::vector<std::vector<std::string>> rows;
+  std::vector<ap::Label> labels;
+  std::vector<ap::Placed> placed;
+  std::vector<int> kept;
+  std::vector<ap::Point> laid_at;  // where each plane was when laid out, on the glass
+  std::vector<ap::Box> boxes;      // what each plane took then, marker, track and label: what a glide draws again
 };
 
 // What the layer shows: a sweeping scope's planes as painted, else the report's.
@@ -110,14 +122,6 @@ static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, lv_co
   }
 }
 
-static void triangle(lv_layer_t *layer, ap::Point a, ap::Point b, ap::Point c, lv_color_t colour, lv_opa_t opa) {
-  lv_draw_triangle_dsc_t dsc;
-  lv_draw_triangle_dsc_init(&dsc);
-  dsc.color = colour; dsc.opa = opa;
-  dsc.p[0] = precise(a); dsc.p[1] = precise(b); dsc.p[2] = precise(c);
-  lv_draw_triangle(layer, &dsc);
-}
-
 // The middle of a scope on the glass, and how far its beam reaches: to its rose, else the farthest corner.
 static ap::Point scope_middle(const View *view, const lv_area_t &a) {
   return {a.x1 + view->overlay.radar.x * view->sx, a.y1 + view->overlay.radar.y * view->sy};
@@ -128,32 +132,6 @@ static float scope_reach(const View *view, ap::Point c, const lv_area_t &a) {
   for (const float x : {(float) a.x1, (float) a.x2}) for (const float y : {(float) a.y1, (float) a.y2})
     far = std::max(far, std::hypot(x - c.x, y - c.y));
   return far + 2;
-}
-// The beam and its afterglow, a fan of slices fading behind it, under every plane.
-// The trail fades in four slices, each a quarter dimmer than the one before. Every slice costs about as much as the rows it
-// spans (some 6 ms out to the corner of the AMOLED 2.41), so the beam ends at the rose.
-static constexpr int TRAIL_SLICES = 4;
-// Each slice is drawn in pieces SEGMENT_PX long from the middle out: LVGL works out a triangle over the whole box round
-// it, and the box of one long thin slice across a diagonal is most of a quarter of the glass.
-static constexpr float SEGMENT_PX = 80.0f;
-static void draw_beam(lv_layer_t *layer, const ap::Overlay &o, ap::Point c, float reach, float beam, int width) {
-  auto at = [&](float b, float r) {
-    const float a = b * 3.14159265f / 180.0f;
-    return ap::Point{c.x + std::sin(a) * r, c.y - std::cos(a) * r};
-  };
-  const lv_color_t glow = phosphor(o, 1.0f);
-  const int pieces = std::max(1, (int) std::ceil(reach / SEGMENT_PX));
-  for (int k = 0; k < TRAIL_SLICES; ++k) {
-    const float to = beam - ap::SWEEP_TRAIL * k / TRAIL_SLICES, from = beam - ap::SWEEP_TRAIL * (k + 1) / TRAIL_SLICES;
-    const lv_opa_t opa = (lv_opa_t) (110 * (TRAIL_SLICES - k) / TRAIL_SLICES);
-    triangle(layer, c, at(from, reach / pieces), at(to, reach / pieces), glow, opa);
-    for (int n = 1; n < pieces; ++n) {
-      const float r0 = reach * n / pieces, r1 = reach * (n + 1) / pieces;
-      triangle(layer, at(from, r0), at(to, r0), at(to, r1), glow, opa);
-      triangle(layer, at(from, r0), at(to, r1), at(from, r1), glow, opa);
-    }
-  }
-  line(layer, c, at(beam, reach), phosphor(o, 1.6f), width, LV_OPA_COVER);
 }
 // The box a plane's marker, its glow and rings, its vector and its track take on the glass, at `c`; its label beside.
 static ap::Box plane_box(const View *view, const ap::Plane &p, ap::Point c) {
@@ -169,7 +147,7 @@ static ap::Box plane_box(const View *view, const ap::Plane &p, ap::Point c) {
   return box;
 }
 // How lit a plane is by the beam, in steps, so a plane is drawn again only when it changes a step.
-static constexpr int GLOW_STEPS = 12;
+static constexpr int GLOW_STEPS = 6;
 static int glow_step(const View *view, ap::Point c, ap::Point plane, float beam) {
   if (!latches(view->overlay)) return 0;
   return (int) std::lround(ap::afterglow(ap::behind(beam, ap::bearing(c, plane))) * GLOW_STEPS);
@@ -188,11 +166,9 @@ static void draw(lv_event_t *e) {
   // On a scope the halo is its ground, so every mark reads as lit phosphor on the dark tube.
   const lv_color_t halo = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::CARD);
   const ap::Point middle = radar ? scope_middle(view, a) : ap::Point{0, 0};
-  const float beam = radar && o.radar.sweep ? ap::beam(now) : 0;
-  if (radar && o.radar.sweep) {
-    draw_beam(layer, o, middle, scope_reach(view, middle, a), beam, std::max(2, s.line * 3 / 2));
-    view->beam_drawn = beam;
-  }
+  const float beam = radar && o.radar.sweep ? (view->beam_drawn >= 0 ? view->beam_drawn : ap::beam(now)) : 0;
+  // The beam itself is in the map's canvas (beam.h), painted by the sweep.
+  if (radar && o.radar.sweep && view->beam_drawn < 0) view->beam_drawn = beam;
   auto on_glass = [&](float x, float y) { return ap::Point{a.x1 + x * view->sx, a.y1 + y * view->sy}; };
   std::vector<ap::Point> places;
   places.reserve(o.planes.size());
@@ -200,17 +176,32 @@ static void draw(lv_event_t *e) {
     const ap::Point at = ap::at(o, p, now, view->sx, view->sy);
     places.push_back({a.x1 + at.x, a.y1 + at.y});
   }
+  // Only the planes that reach the part of the glass being drawn: a sweep's frame is a thin wedge of it, and a plane
+  // outside it would cost its draw tasks (two dozen triangles for a plane marker) for nothing.
+  const lv_area_t &clip = layer->_clip_area;
+  const ap::Box clip_box{clip.x1, clip.y1, clip.x2 - clip.x1 + 1, clip.y2 - clip.y1 + 1};
+  std::vector<uint8_t> reaches(o.planes.size());
+  for (size_t i = 0; i < o.planes.size(); ++i) reaches[i] = ap::overlaps(plane_box(view, o.planes[i], places[i]), clip_box);
   // The tracks first, under every marker: from the oldest place to where the plane is now. On a scope its history,
   // a dot at each place it was, the older ones fainter, as a radar keeps a plane's last returns.
   for (size_t i = 0; i < o.planes.size(); ++i) {
     const auto &track = o.planes[i].track;
-    if (track.size() < 4) continue;
+    if (track.size() < 4 || !reaches[i]) continue;
     const lv_color_t colour = colour_of(o, o.planes[i]);
     const size_t points = track.size() / 2;
     if (radar) {
+      // Small squares: at a few pixels across they look the same as circles, and cost no circle's mask.
       const int d = std::max(2, s.line + 1);
-      for (size_t n = 0; n + 1 < points; ++n)
-        dot(layer, on_glass(track[2 * n], track[2 * n + 1]), d, colour, 0, colour, (lv_opa_t) (60 + 140 * (n + 1) / points));
+      for (size_t n = 0; n + 1 < points; ++n) {
+        const ap::Point p = on_glass(track[2 * n], track[2 * n + 1]);
+        lv_draw_rect_dsc_t dsc;
+        lv_draw_rect_dsc_init(&dsc);
+        dsc.bg_color = colour;
+        dsc.bg_opa = (lv_opa_t) (60 + 140 * (n + 1) / points);
+        const int x = (int) std::lround(p.x) - d / 2, y = (int) std::lround(p.y) - d / 2;
+        lv_area_t box{x, y, x + d - 1, y + d - 1};
+        lv_draw_rect(layer, &dsc, &box);
+      }
       continue;
     }
     for (size_t n = 0; n + 1 < points; ++n) {
@@ -221,6 +212,7 @@ static void draw(lv_event_t *e) {
   }
   // The watched planes come last, so they lie over the others.
   for (size_t i = 0; i < o.planes.size(); ++i) {
+    if (!reaches[i]) continue;
     const auto &p = o.planes[i];
     lv_color_t colour = colour_of(o, p);
     const ap::Point c = places[i];
@@ -236,7 +228,7 @@ static void draw(lv_event_t *e) {
       // The plane picked: a wide ring in the ink round a halo, outside a watched plane's own.
       const int across = (o.marker == ap::PLANE && p.heading != ap::NO_HEADING ? size : d) + 8 * s.halo + 4 * s.line;
       ring(layer, c, across + 2 * s.halo, 2 * s.line + 2 * s.halo, halo);
-      ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 2.0f) : lv_color_hex(cl::INK));
+      ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 1.0f) : lv_color_hex(cl::INK));
     }
     if (p.watch) {
       // A ring in its colour round a halo of the card's, a little beyond the marker.
@@ -267,55 +259,64 @@ static void draw(lv_event_t *e) {
   if (!font) return;
   const int line_h = lv_font_get_line_height(font);
   const int frame_w = lv_area_get_width(&a), frame_h = lv_area_get_height(&a);
-  std::vector<std::vector<std::string>> rows(o.planes.size());
-  std::vector<ap::Label> labels(o.planes.size());
-  for (size_t i = 0; i < o.planes.size(); ++i) {
-    const bool watched = o.planes[i].watch != 0;
-    ap::Label &l = labels[i];
-    l.c = {places[i].x - a.x1, places[i].y - a.y1};
-    l.reach = (int) std::lround((o.marker == ap::PLANE ? s.plane : s.dot) * (watched ? ap::WATCH_SCALE : 1.0f) / 2) +
-              (watched ? 2 * s.halo + s.line : 0);
-    l.watched = watched;
-    rows[i] = ap::lines(o.planes[i].label);
-    if (rows[i].empty()) continue;
-    int w = 0;
-    for (const auto &row : rows[i]) w = std::max(w, ui::text_width(row, font));
-    l.w = w + 2 * s.pad;
-    l.h = (int) rows[i].size() * line_h + s.pad;
+  if (view->layout_frame != ui::frame || view->placed.size() != o.planes.size()) {
+    view->layout_frame = ui::frame;
+    auto &rows = view->rows;
+    auto &labels = view->labels;
+    rows.assign(o.planes.size(), {});
+    labels.assign(o.planes.size(), {});
+    for (size_t i = 0; i < o.planes.size(); ++i) {
+      const bool watched = o.planes[i].watch != 0;
+      ap::Label &l = labels[i];
+      l.c = {places[i].x - a.x1, places[i].y - a.y1};
+      l.reach = (int) std::lround((o.marker == ap::PLANE ? s.plane : s.dot) * (watched ? ap::WATCH_SCALE : 1.0f) / 2) +
+                (watched ? 2 * s.halo + s.line : 0);
+      l.watched = watched;
+      rows[i] = ap::lines(o.planes[i].label);
+      if (rows[i].empty()) continue;
+      int w = 0;
+      for (const auto &row : rows[i]) w = std::max(w, ui::text_width(row, font));
+      l.w = w + 2 * s.pad;
+      l.h = (int) rows[i].size() * line_h + s.pad;
+    }
+    auto &kept = view->kept;
+    kept.assign(o.planes.size(), ap::NO_SPOT);
+    for (size_t i = 0; i < o.planes.size(); ++i) {
+      const auto &id = o.planes[i].id;
+      const auto found = id.empty() ? view->spot_of.end() : view->spot_of.find(id);
+      kept[i] = found != view->spot_of.end() ? found->second : id.empty() && i < view->spots.size() ? view->spots[i] : ap::NO_SPOT;
+    }
+    const std::vector<ap::Box> before = view->placed.size() == o.planes.size() ? view->boxes : std::vector<ap::Box>();
+    view->placed = ap::place_labels(labels, frame_w, frame_h, s.gap, line_h, kept);
+    view->spots.assign(view->placed.size(), ap::NO_SPOT);
+    view->laid_at = places;
+    view->boxes.assign(o.planes.size(), {0, 0, 0, 0});
+    for (size_t i = 0; i < view->placed.size(); ++i) {
+      const ap::Placed &pl = view->placed[i];
+      view->spots[i] = pl.spot;
+      if (!o.planes[i].id.empty()) view->spot_of[o.planes[i].id] = pl.spot;
+      ap::Box box = plane_box(view, o.planes[i], places[i]);
+      if (pl.shown) box = ap::join(box, {a.x1 + pl.box.x - 1, a.y1 + pl.box.y - 1, pl.box.w + 2, pl.box.h + 2});
+      view->boxes[i] = box;
+      // A label that took another spot is drawn again whole on the next frame, where it was and where it is.
+      if (pl.spot != kept[i] && kept[i] != ap::NO_SPOT)
+        view->again.push_back(i < before.size() && before[i].w > 0 ? ap::join(before[i], box) : box);
+    }
   }
-  std::vector<int> kept(o.planes.size(), ap::NO_SPOT);
-  for (size_t i = 0; i < o.planes.size(); ++i) {
-    const auto &id = o.planes[i].id;
-    const auto found = id.empty() ? view->spot_of.end() : view->spot_of.find(id);
-    kept[i] = found != view->spot_of.end() ? found->second : id.empty() && i < view->spots.size() ? view->spots[i] : ap::NO_SPOT;
-  }
-  const std::vector<ap::Placed> placed = ap::place_labels(labels, frame_w, frame_h, s.gap, line_h, kept);
-  view->spots.assign(placed.size(), ap::NO_SPOT);
-  for (size_t i = 0; i < placed.size(); ++i) {
-    view->spots[i] = placed[i].spot;
-    if (!o.planes[i].id.empty()) view->spot_of[o.planes[i].id] = placed[i].spot;
-  }
-  // Where each plane of a sweeping scope stands whole, kept from a draw that held all of it: what the glass shows. A
-  // label that took another spot is drawn again whole on the next frame, where it was and where it is.
+  const auto &rows = view->rows;
+  const auto &labels = view->labels;
+  const auto &placed = view->placed;
+  // Where each plane of a sweeping scope stands whole, kept from a draw that held all of it: what the glass shows.
   if (latches(view->overlay)) {
-    const lv_area_t &clip = layer->_clip_area;
-    const ap::Box drawn_area{clip.x1, clip.y1, clip.x2 - clip.x1 + 1, clip.y2 - clip.y1 + 1};
     for (size_t i = 0; i < o.planes.size(); ++i) {
       if (o.planes[i].id.empty()) continue;
-      ap::Box box = plane_box(view, o.planes[i], places[i]);
-      if (placed[i].shown) {
-        const ap::Box &l = placed[i].box;
-        box = ap::join(box, {a.x1 + l.x - 1, a.y1 + l.y - 1, l.w + 2, l.h + 2});
-      }
       auto &was = view->drawn[o.planes[i].id];
-      const bool moved_label = placed[i].spot != kept[i] && kept[i] != ap::NO_SPOT;
-      if (moved_label) view->again.push_back(was.w > 0 ? ap::join(was, box) : box);
-      if (ap::holds(drawn_area, box)) was = box;
+      if (ap::holds(clip_box, view->boxes[i])) was = view->boxes[i];
     }
   }
   // The leaders under every label: a halo of the card's colour, then the plane's own.
   for (size_t i = 0; i < placed.size(); ++i) {
-    if (!placed[i].shown || !placed[i].leader) continue;
+    if (!placed[i].shown || !placed[i].leader || !ap::overlaps(view->boxes[i], clip_box)) continue;
     const auto ends = ap::leader(labels[i], placed[i].box);
     const ap::Point from{a.x1 + ends[0].x, a.y1 + ends[0].y}, to{a.x1 + ends[1].x, a.y1 + ends[1].y};
     line(layer, from, to, halo, s.line + 2 * s.halo, LV_OPA_80);
@@ -324,6 +325,7 @@ static void draw(lv_event_t *e) {
   for (size_t i = 0; i < placed.size(); ++i) {
     if (!placed[i].shown) continue;
     const ap::Box &box = placed[i].box;
+    if (!ap::overlaps({a.x1 + box.x, a.y1 + box.y, box.w, box.h}, clip_box)) continue;
     lv_draw_rect_dsc_t bg;
     lv_draw_rect_dsc_init(&bg);
     // On a scope a data block: square, the tube showing through, its text in the plane's own phosphor.
@@ -366,7 +368,10 @@ static void sweep(lv_timer_t *timer) {
     lv_area_t area{box.x, box.y, box.x + box.w - 1, box.y + box.h - 1};
     lv_obj_invalidate_area(view->layer, &area);
   };
-  invalidate(ap::wedge_box(c, scope_reach(view, c, a), was - ap::SWEEP_TRAIL - 2, beam + 2));
+  const ap::Box swept = ap::wedge_box(c, scope_reach(view, c, a), was - ap::SWEEP_TRAIL - 2, beam + 2);
+  if (view->painter) view->painter(was, beam, swept);
+  invalidate(swept);
+  view->beam_drawn = beam;
   for (const auto &box : view->again) invalidate(box);
   view->again.clear();
   auto on_glass = [&](const ap::Plane &p) { return ap::Point{a.x1 + p.x * view->sx, a.y1 + p.y * view->sy}; };
@@ -473,6 +478,11 @@ void show(View *&view, lv_obj_t *parent, const ap::Overlay &o) {
   if (!sweeps(view) || fresh) lv_obj_invalidate(view->layer);
 }
 
+void set_beam_painter(View *&view, BeamPainter painter) {
+  if (!view) view = new View();
+  view->painter = std::move(painter);
+}
+
 void new_frame(View *view) {
   if (view) ++view->frame;
 }
@@ -514,6 +524,26 @@ void tick(View *view, uint32_t now) {
   if (!view || !view->layer || view->hidden || !view->overlay.glide || view->overlay.planes.empty() || sweeps(view)) return;
   // Gliding until GLIDE_MS after the report, then once more where it stopped.
   if (now - view->overlay.at > ap::GLIDE_MS + 1000) return;
-  lv_obj_invalidate(view->layer);
+  const ap::Overlay &o = view->overlay;
+  if (view->boxes.size() != o.planes.size() || view->laid_at.size() != o.planes.size()) {
+    lv_obj_invalidate(view->layer);
+    return;
+  }
+  // Each plane where it was drawn and where it is now, its label with it: a few small boxes, never the whole glass,
+  // which takes a seventh of a second to draw again.
+  lv_area_t a;
+  lv_obj_get_coords(view->layer, &a);
+  auto invalidate = [&](const ap::Box &b) {
+    lv_area_t area{b.x, b.y, b.x + b.w - 1, b.y + b.h - 1};
+    lv_obj_invalidate_area(view->layer, &area);
+  };
+  for (size_t i = 0; i < o.planes.size(); ++i) {
+    const ap::Point at = ap::at(o, o.planes[i], now, view->sx, view->sy);
+    const float dx = a.x1 + at.x - view->laid_at[i].x, dy = a.y1 + at.y - view->laid_at[i].y;
+    if (std::fabs(dx) < 0.5f && std::fabs(dy) < 0.5f) continue;
+    invalidate(ap::join(view->boxes[i], ap::moved(view->boxes[i], dx, dy)));
+  }
+  for (const auto &box : view->again) invalidate(box);
+  view->again.clear();
 }
 }  // namespace sky::view

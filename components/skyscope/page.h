@@ -12,7 +12,8 @@ static const char PAGE[] = R"HTML(<!doctype html>
 main{max-width:720px;margin:0 auto;padding:16px}h1{font-size:22px;margin:4px 0 2px}h2{font-size:15px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0}
 label{display:block;margin:8px 0 2px;font-weight:600;font-size:14px}.hint{color:var(--muted);font-size:13px;margin:2px 0 0}
-input,select,textarea{width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+select option{background:var(--card);color:var(--ink)}
 textarea{min-height:70px;font-family:ui-monospace,Menlo,monospace}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .check{display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:600}.check input{width:auto}
@@ -26,8 +27,8 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <form id="f">
 <section><h2>Where</h2>
 <label for="q">Find a place</label><div class="row"><input id="q" placeholder="An airport, a town, an address"><button type="button" class="plain" id="find">Search</button></div>
-<p class="hint">The search goes from this browser to OpenStreetMap's Nominatim; the screen only stores the coordinates.</p>
-<div id="found"></div>
+<p class="hint">An airport code (KJFK, JFK) is looked up in the FAA's airport data first; anything else, and airports outside the United States, in OpenStreetMap. The search goes from this browser; the screen only stores the coordinates.</p>
+<p id="used"></p><div id="found"></div>
 <div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" step="any" min="-85" max="85" required></div>
 <div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" step="any" min="-180" max="180" required></div></div>
 <label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="250">
@@ -88,11 +89,27 @@ f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
-$('find').onclick=async()=>{const q=$('q').value.trim();if(!q)return;$('found').textContent='Searching...';
- try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q='+encodeURIComponent(q));const list=await r.json();
- $('found').textContent=list.length?'':'Nothing found';list.forEach(p=>{const b=document.createElement('button');b.type='button';b.className='plain';
- b.textContent=p.display_name;b.onclick=()=>{$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);$('found').textContent=''};$('found').appendChild(b)})}
- catch(e){$('found').textContent='The search needs internet access in this browser'}};
+function place(p){$('lat').value=(+p.lat).toFixed(5);$('lon').value=(+p.lon).toFixed(5);
+ $('used').textContent='Using '+p.display_name+' ('+p.source+'). Press Save to keep it.'}
+// The FAA's own airport data (NASR, through its open data service) for something that looks like an airport code.
+const FAA='https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/US_Airport/FeatureServer/0/query';
+async function faa(q){const id=q.toUpperCase();if(!/^[A-Z0-9]{2,5}$/.test(id))return null;
+ const where="ICAO_ID='"+id+"' OR IDENT='"+id+"'";
+ const r=await fetch(FAA+'?f=json&outSR=4326&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where='+encodeURIComponent(where));
+ const f=((await r.json()).features||[])[0];if(!f||!f.geometry)return null;const a=f.attributes;
+ return{lat:f.geometry.y,lon:f.geometry.x,source:'FAA',display_name:(a.ICAO_ID||a.IDENT)+' '+a.NAME+', '+a.SERVCITY+', '+a.STATE}}
+async function find(){const q=$('q').value.trim();if(!q)return;$('found').textContent='';$('used').textContent='Searching...';
+ try{const hit=await faa(q);if(hit){place(hit);return}}catch(e){}
+ try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q='+encodeURIComponent(q));const list=(await r.json()).map(p=>Object.assign(p,{source:'OpenStreetMap'}));
+ if(!list.length){$('used').textContent='Nothing found';return}
+ // An airport when the search found one (a code such as EGLL or KJFK), else the best match.
+ const best=list.find(p=>p.type==='aerodrome'||p.class==='aeroway')||list[0];place(best);
+ list.filter(p=>p!==best).forEach(p=>{const b=document.createElement('button');b.type='button';b.className='plain';
+ b.textContent=p.display_name;b.onclick=()=>place(p);$('found').appendChild(b)});
+ if(list.length>1)$('found').insertAdjacentHTML('afterbegin','<p class="hint">Not it? Pick another:</p>')}
+ catch(e){$('used').textContent='The search needs internet access in this browser'}}
+$('find').onclick=find;
+$('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};
 async function status(){try{const s=await(await fetch('api/status')).json();
  let t=s.name+' · '+s.aircraft+' aircraft';if(s.feed_error)t+=' · feed: '+s.feed_error;
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
