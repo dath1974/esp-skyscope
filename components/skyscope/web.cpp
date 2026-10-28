@@ -5,6 +5,8 @@
 //   POST /api/settings     a JSON object of the settings to change; 400 {"error": key} names the first that is wrong
 //   GET  /api/status       Wi-Fi, memory, the feed and the map
 //   GET  /api/aircraft     the planes of the last report
+//   GET  /api/firmware     the firmware running and the newest on the update server
+//   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware
 //   POST /api/reboot
 //
 // These run in the HTTP server's task: they read a copy of the settings and hand new ones to the loop (defer), which
@@ -226,11 +228,104 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     request->send(200, "application/json", shown ? "{\"planes\":true}" : "{\"planes\":false}");
     return;
   }
+  if (url == "/api/firmware") {
+#ifdef USE_UPDATE
+    if (post && firmware_) {
+      JsonDocument in;
+      const std::string text = std::move(body_);
+      body_.clear();
+      if (deserializeJson(in, text) || !(in["check"].as<bool>() || in["install"].as<bool>())) {
+        request->send(400, "application/json", "{\"error\":\"body\"}");
+        return;
+      }
+      if (in["install"].as<bool>()) {
+        this->defer([this]() { this->install_firmware_(); });
+      } else {
+        this->defer([this]() { firmware_->check(); });
+      }
+    }
+#endif
+    JsonDocument out;
+    out["version"] = version_;
+#ifdef USE_UPDATE
+    out["updates"] = firmware_ != nullptr;
+#else
+    out["updates"] = false;
+#endif
+    std::lock_guard<std::mutex> guard(lock_);
+    const Shared::Firmware &f = shared_.firmware;
+    out["known"] = f.known;
+    if (f.known) out["latest"] = f.latest;
+    out["available"] = f.available;
+    out["installing"] = f.installing || shared_.updating;
+    if (f.installing) out["progress"] = std::round(f.progress);
+    if (!f.summary.empty()) out["summary"] = f.summary;
+    if (!f.release_url.empty()) out["release_url"] = f.release_url;
+    if (!f.error.empty()) out["error"] = f.error;
+    send_json(request, 200, out);
+    return;
+  }
   if (url == "/api/reboot" && post) {
     request->send(200, "application/json", "{\"ok\":true}");
     this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });
     return;
   }
   request->send(404, "text/plain", "Not found");
+}
+
+// On the loop: what the update entity knows, for the page. While firmware is flashing the loop stands still, but the
+// entity still reports its progress here, and the web server (its own task) still answers.
+void Skyscope::firmware_changed_() {
+#ifdef USE_UPDATE
+  if (!firmware_) return;
+  const update::UpdateState state = firmware_->state;
+  const update::UpdateInfo &info = firmware_->update_info;
+  const bool installing = state == update::UPDATE_STATE_INSTALLING;
+  std::string error;
+  if (installing) firmware_flashing_ = true;
+  if (updating_ && firmware_flashing_ && !installing) {
+    // Not restarted, so the install failed: the screen keeps the firmware it has, and goes on as before.
+    updating_ = false;
+    firmware_flashing_ = false;
+    ESP_LOGW(TAG, "The firmware update failed");
+    error = "The install failed; the screen keeps the firmware it has.";
+  } else if (firmware_->status_has_error()) {
+    error = "The update server could not be read.";
+  }
+  std::lock_guard<std::mutex> guard(lock_);
+  Shared::Firmware &f = shared_.firmware;
+  f.known = !info.latest_version.empty();
+  f.latest = info.latest_version;
+  f.available = state == update::UPDATE_STATE_AVAILABLE;
+  f.installing = installing;
+  f.progress = info.has_progress ? info.progress : 0;
+  f.summary = info.summary;
+  f.release_url = info.release_url;
+  // A failed install's word stays until the next one starts.
+  if (!error.empty()) {
+    f.error = error;
+  } else if (f.error.rfind("The install", 0) != 0) {
+    f.error.clear();
+  }
+  shared_.updating = updating_;
+#endif
+}
+
+// On the loop: the screen says it is updating, the worker rests, and a moment later (the screen drawn, the worker's
+// request done) the firmware is downloaded into the other half of the flash, checked and booted. Nothing is written
+// over the running firmware, so a broken download leaves it as it is.
+void Skyscope::install_firmware_() {
+#ifdef USE_UPDATE
+  if (!firmware_ || updating_ || firmware_->state != update::UPDATE_STATE_AVAILABLE) return;
+  ESP_LOGI(TAG, "Installing firmware %s", firmware_->update_info.latest_version.c_str());
+  updating_ = true;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.updating = true;
+    shared_.firmware.error.clear();
+  }
+  update_status_(millis());
+  this->set_timeout(1500, [this]() { firmware_->perform(false); });
+#endif
 }
 }  // namespace esphome::skyscope

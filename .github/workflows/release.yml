@@ -1,0 +1,77 @@
+# A release: push a tag v<version> whose version is the one in skyscope.yaml (substitutions: version). This builds the
+# firmware, makes a GitHub release with it, and publishes it on GitHub Pages, where the screens look for it
+# (skyscope.yaml: update:). The tag's message (git tag -a) is the release's summary on the screens' page.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # the GitHub release
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the tag's message
+
+      - name: The tag and skyscope.yaml name the same version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          yaml=$(sed -nE 's/^  version: "?([^"]+)"?$/\1/p' skyscope.yaml | head -1)
+          if [ "$tag" != "$yaml" ]; then
+            echo "::error::The tag is v$tag but skyscope.yaml says version $yaml"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME" > summary.txt
+          echo "summary=$(cat summary.txt)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
+          restore-keys: platformio-${{ runner.os }}-
+
+      - name: Build
+        run: |
+          pip install esphome==2026.9.1
+          esphome compile skyscope.yaml
+
+      - name: The files for the screens
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SUMMARY: ${{ steps.version.outputs.summary }}
+        run: |
+          python3 tools/release_site.py "$VERSION" .esphome/build/skyscope/build site --summary "$SUMMARY" \
+            --release-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" site/*.bin --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

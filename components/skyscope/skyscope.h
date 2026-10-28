@@ -17,6 +17,9 @@
 #ifdef USE_TIME
 #include "esphome/components/time/real_time_clock.h"
 #endif
+#ifdef USE_UPDATE
+#include "esphome/components/http_request/update/http_request_update.h"
+#endif
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -59,6 +62,9 @@ class Skyscope : public Component, public AsyncWebHandler {
   void set_brightness_output(output::FloatOutput *out) { brightness_ = out; }
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
+#ifdef USE_UPDATE
+  void set_firmware(http_request::HttpRequestUpdate *firmware) { firmware_ = firmware; }
+#endif
 
   void setup() override;
   void loop() override;
@@ -80,6 +86,7 @@ class Skyscope : public Component, public AsyncWebHandler {
     uint32_t plan_rev = 0;
     bool online = false;
     bool asleep = false;  // the screen is off: no planes or tiles are asked for
+    bool updating = false;  // new firmware is on its way in: nothing else is asked for
     // worker -> loop
     std::vector<feed::Flight> flights;
     uint32_t flights_rev = 0;
@@ -93,6 +100,13 @@ class Skyscope : public Component, public AsyncWebHandler {
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
     uint32_t feed_every_ms = 0;
     size_t cached_tiles = 0;  // the worker's tile cache, entries  // how often the feed is asked: refresh_s, or less often when its limits say so
+    // loop -> web: the firmware on the update server (web.cpp), as the update entity last told it.
+    struct Firmware {
+      bool known = false;  // a manifest was read
+      bool available = false, installing = false;
+      std::string latest, summary, release_url, error;
+      float progress = 0;  // percent, while installing
+    } firmware;
   };
 
   // worker.cpp
@@ -136,6 +150,9 @@ class Skyscope : public Component, public AsyncWebHandler {
   void save_settings_();
   void use_settings_(const Settings &s);  // on the loop
   void replan_();
+  // Firmware from the update server (web.cpp): its state to the page, and the install.
+  void firmware_changed_();
+  void install_firmware_();
 
   web_server_base::WebServerBase *base_{nullptr};
   lvgl::LvglComponent *lvgl_{nullptr};
@@ -176,6 +193,11 @@ class Skyscope : public Component, public AsyncWebHandler {
   uint32_t status_colour_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool asleep_{false};
+  bool updating_{false};  // the screen says so, and the worker rests, until the screen restarts or the install fails
+#ifdef USE_UPDATE
+  http_request::HttpRequestUpdate *firmware_{nullptr};
+  bool firmware_flashing_{false};  // the entity has said it is installing
+#endif
   uint32_t taps_from_{0};  // taps before this (the one that woke the screen) do nothing
   // A drag on the brightness strip: where it started, the brightness then, whether it moved, and the level shown.
   int32_t drag_y_{0};

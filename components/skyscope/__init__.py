@@ -5,12 +5,14 @@ from esphome.components import esp32, font, output, time
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
+from esphome.core import CORE
 
 CODEOWNERS = []
 DEPENDENCIES = ["esp32", "lvgl", "wifi", "psram"]
 AUTO_LOAD = ["json", "web_server_base", "font"]
 
-VERSION = "0.1.0"
+# A build without `esphome: project: version:` (skyscope.yaml sets it, and the update check compares it).
+DEV_VERSION = "dev"
 
 CONF_DPI = "dpi"
 CONF_TILE_SCALE = "tile_scale"
@@ -22,6 +24,7 @@ CONF_SETUP_NETWORK = "setup_network"
 CONF_BRIGHTNESS_OUTPUT = "brightness_output"
 CONF_PANEL_TE_PIN = "panel_te_pin"
 CONF_TIME_ID = "time_id"
+CONF_UPDATE_ID = "update_id"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
@@ -32,6 +35,9 @@ CONF_LVGL_ID = "lvgl_id"
 
 web_server_base_ns = cg.esphome_ns.namespace("web_server_base")
 WebServerBase = web_server_base_ns.class_("WebServerBase")
+
+http_request_ns = cg.esphome_ns.namespace("http_request")
+HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -46,8 +52,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_FONT_SMALL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_LABEL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_TITLE): cv.use_id(font.Font),
-        # Tile servers and ADS-B exchanges ask that a client says who it is.
-        cv.Optional(CONF_USER_AGENT, default=f"esp-skyscope/{VERSION}"): cv.string_strict,
+        # Tile servers and ADS-B exchanges ask that a client says who it is; esp-skyscope/<version> unless set.
+        cv.Optional(CONF_USER_AGENT): cv.string_strict,
         # The name of the Wi-Fi network the screen opens to be set up (wifi: ap: ssid), for the screen to show.
         cv.Optional(CONF_SETUP_NETWORK, default=""): cv.string,
         cv.Optional(CONF_BRIGHTNESS_OUTPUT): cv.use_id(output.FloatOutput),
@@ -56,6 +62,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_PANEL_TE_PIN, default=-1): cv.int_range(min=-1, max=48),
         # The clock bedtime goes by (an sntp time with `timezone: UTC0`; the zone is a setting, applied at any time).
         cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+        # Firmware from the internet (an http_request update): the web page shows it and installs it.
+        cv.Optional(CONF_UPDATE_ID): cv.use_id(HttpRequestUpdate),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -74,7 +82,12 @@ def _final_validate(config):
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 
+def _version():
+    return CORE.config.get("esphome", {}).get("project", {}).get("version", DEV_VERSION)
+
+
 async def to_code(config):
+    version = _version()
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     base = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
@@ -86,12 +99,14 @@ async def to_code(config):
     cg.add(var.set_fonts(small, label, title))
     cg.add(var.set_dpi(config[CONF_DPI]))
     cg.add(var.set_tile_scale(config[CONF_TILE_SCALE]))
-    cg.add(var.set_user_agent(config[CONF_USER_AGENT]))
+    cg.add(var.set_user_agent(config.get(CONF_USER_AGENT, f"esp-skyscope/{version}")))
     cg.add(var.set_setup_network(config[CONF_SETUP_NETWORK]))
-    cg.add(var.set_version(VERSION))
+    cg.add(var.set_version(version))
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
     if CONF_TIME_ID in config:
         cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
+    if CONF_UPDATE_ID in config:
+        cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
     if CONF_BRIGHTNESS_OUTPUT in config:
         out = await cg.get_variable(config[CONF_BRIGHTNESS_OUTPUT])
         cg.add(var.set_brightness_output(out))
@@ -116,4 +131,4 @@ async def to_code(config):
     # TLS in PSRAM too: some 40 KB a connection, which internal RAM had to hold for every connection kept open.
     esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC", False)
     esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC", True)
-    cg.add_define("SKYSCOPE_VERSION", VERSION)
+    cg.add_define("SKYSCOPE_VERSION", version)

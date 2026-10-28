@@ -95,6 +95,11 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
 </section>
+<section id="fw" style="display:none"><h2>Firmware</h2>
+<p id="fw_text">Asking the update server...</p>
+<div class="bar" style="position:static;padding:0"><button type="button" id="fw_install" style="display:none">Install</button><button type="button" class="plain" id="fw_check">Check now</button></div>
+<p class="hint">Releases are published on GitHub. Installing downloads the new firmware into the other half of the screen's flash and restarts into it, a minute or two; the settings are kept. A download that breaks off changes nothing.</p>
+</section>
 <div class="bar"><button type="submit">Save</button><button type="button" class="plain" id="reboot">Restart</button><span id="msg"></span></div>
 </form></main>
 <script>
@@ -175,6 +180,26 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  if(s.time)$('clock').textContent=s.time;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
-load();status();setInterval(status,5000);
+// Firmware: the running version, the newest release, and its install (the screen restarts into it).
+let fw_was='',fw_now='',fw_timer=0;
+async function firmware(body){clearTimeout(fw_timer);let next=5000;
+ try{const r=await fetch('api/firmware',body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
+  const s=await r.json();if(!s.updates)return;$('fw').style.display='';fw_now=s.version;
+  if(fw_was&&s.version!==fw_was&&!s.installing){fw_was='';say('Now running '+s.version)}
+  let t='Running '+s.version+'.';
+  if(s.installing){t+=' Installing '+s.latest+(s.progress!==undefined?': '+s.progress+'%':'')+'...';fw_was=s.version;next=1000}
+  else if(s.available)t+=' '+s.latest+' is available.';else if(s.known)t+=' This is the latest release.';
+  else if(!s.error)t+=' The update server has not been asked yet.';
+  $('fw_text').textContent=t;
+  if(s.summary&&s.available){const p=document.createElement('span');p.className='hint';p.textContent=' '+s.summary;$('fw_text').appendChild(p)}
+  if(s.release_url&&(s.available||s.installing)){const a=document.createElement('a');a.href=s.release_url;a.target='_blank';a.rel='noopener';a.textContent=' Release notes';$('fw_text').appendChild(a)}
+  if(s.error){const e=document.createElement('div');e.className='bad';e.textContent=s.error;$('fw_text').appendChild(e)}
+  $('fw_install').style.display=s.available&&!s.installing?'':'none';$('fw_install').textContent='Install '+(s.latest||'');
+  $('fw_check').disabled=s.installing}
+ catch(e){if(fw_was){$('fw_text').textContent='Restarting with the new firmware...';next=2000}}
+ fw_timer=setTimeout(firmware,next)}
+$('fw_check').onclick=()=>{$('fw_text').textContent='Asking the update server...';firmware({check:true})};
+$('fw_install').onclick=()=>{if(confirm('Install '+$('fw_install').textContent.slice(8)+'? The screen restarts when it is done.')){fw_was=fw_now;firmware({install:true})}};
+load();status();setInterval(status,5000);firmware();
 </script></body></html>)HTML";
 }  // namespace esphome::skyscope

@@ -1,5 +1,6 @@
 # Skyscope on a Waveshare ESP32-S3-Touch-AMOLED-2.41. Flash it once over USB (esphome run skyscope.yaml, or the
-# prebuilt firmware with ESPHome Web); after that it updates over Wi-Fi.
+# prebuilt firmware with ESPHome Web); after that it updates over Wi-Fi, from a build of your own (esphome run) or from
+# the project's releases, which its web page offers when a new one is out.
 #
 # First start: the screen opens a Wi-Fi network named after it ("Skyscope ...") and shows how to join it. Join it with
 # a phone, choose your own network on the page that opens, and the screen joins that network. Then open the address it
@@ -7,12 +8,21 @@
 substitutions:
   name: skyscope
   friendly_name: Skyscope
+  # The firmware's version: a release sets it to its tag (without the v), and the screen offers a release whose
+  # version differs from its own.
+  version: "0.2.0"
+  # Where the releases are published (GitHub Pages, by .github/workflows/release.yml). A build that should never be
+  # offered them: remove the update: block and the skyscope: block's update_id.
+  releases: https://dath1974.github.io/esp-skyscope
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   # Each screen gets its own name (skyscope-1a2b3c), so two on one network do not clash.
   name_add_mac_suffix: true
+  project:
+    name: dath1974.esp-skyscope
+    version: ${version}
 
 external_components:
   - source:
@@ -40,6 +50,21 @@ improv_serial:
 ota:
   - platform: esphome
     id: ota_esphome
+  # Firmware downloaded by the screen itself, into the half of the flash it is not running from.
+  - platform: http_request
+    id: ota_web
+
+http_request:
+  useragent: esp-skyscope/${version}
+  timeout: 15s
+
+# The newest release, asked for every few hours; the web page shows it and installs it on a press, never by itself.
+update:
+  - platform: http_request
+    id: firmware
+    name: Firmware
+    source: ${releases}/manifest.json
+    update_interval: 6h
 
 # The time of day, for bedtime. The time zone is a setting on the screen's web page; UTC0 here only builds the time
 # zone support in (and keeps the build machine's own zone out of the firmware).
@@ -51,3 +76,4 @@ time:
 skyscope:
   setup_network: "Skyscope Setup"
   time_id: sntp_clock
+  update_id: firmware

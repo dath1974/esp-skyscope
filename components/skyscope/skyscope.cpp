@@ -320,6 +320,9 @@ void Skyscope::setup() {
     base_->init();
     base_->add_handler(this);
   }
+#ifdef USE_UPDATE
+  if (firmware_) firmware_->add_on_state_callback([this]() { this->firmware_changed_(); });
+#endif
 }
 
 void Skyscope::dump_config() {
@@ -383,6 +386,8 @@ void Skyscope::loop() {
   if (now - last_status_ >= 500) {
     last_status_ = now;
     update_status_(now);
+    // A failed check publishes nothing: looked at here too.
+    firmware_changed_();
   }
 }
 
@@ -817,7 +822,10 @@ void Skyscope::update_status_(uint32_t now) {
 #ifdef USE_CAPTIVE_PORTAL
   portal = captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
 #endif
-  if (portal) {
+  if (updating_) {
+    title = "Updating";
+    body = "New firmware is being installed. The screen restarts by itself when it is done.";
+  } else if (portal) {
     title = "Set up Wi-Fi";
     body = "On a phone or computer, join the Wi-Fi network \"" + (setup_network_.empty() ? App.get_name() : setup_network_) +
            "\". A page opens to choose your network (or go to http://192.168.4.1).";
