@@ -134,6 +134,10 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_USE_MALLOC", True)
     esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL", 4096)
     esp32.add_idf_sdkconfig_option("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL", 32768)
+    # Sockets: ESPHome's 10 are shared by the web server's sessions, OTA, mDNS, SNTP, the feed's and tiles' kept
+    # connections and the update check, and with one more open (an ESPHome firmware download that failed leaves its
+    # connection open until a restart) every new connection, the page's too, was turned away for minutes.
+    esp32.add_idf_sdkconfig_option("CONFIG_LWIP_MAX_SOCKETS", 16)
     # TLS in PSRAM too: some 40 KB a connection, which internal RAM had to hold for every connection kept open.
     esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC", False)
     esp32.add_idf_sdkconfig_option("CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC", True)

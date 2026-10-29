@@ -89,7 +89,10 @@ inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &
       continue;
     }
     if (f.on_ground && !s.ground) continue;
-    if (!f.on_ground && f.has_altitude && (f.altitude < s.alt_min || f.altitude > s.alt_max)) continue;
+    // A limit at its end is none: a plane below sea level (a low airport, a high pressure) shows with no floor set.
+    if (!f.on_ground && f.has_altitude && ((s.alt_min > 0 && f.altitude < s.alt_min) ||
+                                           (s.alt_max < ALTITUDE_CEILING && f.altitude > s.alt_max)))
+      continue;
     // A plane without an altitude is shown only when every altitude is.
     if (!f.on_ground && !f.has_altitude && (s.alt_min > 0 || s.alt_max < ALTITUDE_CEILING)) continue;
     if (!inside(p)) continue;

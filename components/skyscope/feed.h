@@ -74,7 +74,10 @@ inline const char *credit(Feed feed) {
 inline std::string trimmed(const char *s, size_t most = 24) {
   if (!s) return "";
   while (*s == ' ') ++s;
-  std::string out(s, std::min(std::strlen(s), most));
+  size_t n = std::min(std::strlen(s), most);
+  // Cut before a character, never inside one: the label and the API take UTF-8.
+  while (n > 0 && ((unsigned char) s[n] & 0xC0) == 0x80) --n;
+  std::string out(s, n);
   while (!out.empty() && out.back() == ' ') out.pop_back();
   return out;
 }
@@ -114,72 +117,155 @@ inline std::string countdown(uint32_t at, uint32_t now) {
 // A plane whose position is older than this is left out: the exchange still lists it for a while after it was heard.
 constexpr double STALE_POSITION_S = 60;
 
-// The fields read, so a reply of two hundred planes with fifty fields each costs the memory of the ones we draw.
-inline JsonDocument filter() {
+// The fields read of a plane, so one with fifty fields costs the memory of the ones we draw.
+constexpr const char *FIELDS[] = {"hex", "flight", "r", "t", "desc", "ownOp", "alt_baro", "gs", "track", "true_heading",
+                                  "baro_rate", "geom_rate", "squawk", "category", "lat", "lon", "seen_pos", "emergency"};
+inline JsonDocument plane_filter() {
   JsonDocument f;
-  for (const char *list : {"ac", "aircraft"}) {
-    JsonObject p = f[list].add<JsonObject>();
-    for (const char *key : {"hex", "flight", "r", "t", "desc", "ownOp", "alt_baro", "gs", "track", "true_heading",
-                            "baro_rate", "geom_rate", "squawk", "category", "lat", "lon", "seen_pos", "emergency"})
-      p[key] = true;
-  }
+  for (const char *key : FIELDS) f[key] = true;
+  return f;
+}
+// Of a reply that has no list, its word on why.
+inline JsonDocument message_filter() {
+  JsonDocument f;
   f["msg"] = true;
   return f;
 }
 
-// The planes of a reply, or false with `error` set when it is not one.
-template<typename Doc> bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, std::string &error) {
-  static const JsonDocument keep = filter();
-  const DeserializationError e = deserializeJson(doc, text, length, DeserializationOption::Filter(keep));
-  if (e) {
-    error = std::string("JSON: ") + e.c_str();
-    return false;
+namespace scan {
+// A JSON value's extent, without reading it: what the reply is cut into before each plane is read on its own.
+inline const char *space(const char *p, const char *end) {
+  while (p < end && (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')) ++p;
+  return p;
+}
+// Past the string that starts at `p` (a quote), or null when it does not end.
+inline const char *string(const char *p, const char *end) {
+  for (++p; p < end; ++p) {
+    if (*p == '\\') ++p;
+    else if (*p == '"') return p + 1;
   }
-  JsonArrayConst list = doc["ac"].template as<JsonArrayConst>();
-  if (list.isNull()) list = doc["aircraft"].template as<JsonArrayConst>();
-  if (list.isNull()) {
-    const char *msg = doc["msg"] | "no aircraft list";
-    error = msg;
+  return nullptr;
+}
+// Past the value that starts at `p`, or null when it does not end.
+inline const char *value(const char *p, const char *end) {
+  if (p >= end) return nullptr;
+  if (*p == '"') return string(p, end);
+  if (*p == '{' || *p == '[') {
+    int depth = 0;
+    while (p < end) {
+      const char c = *p;
+      if (c == '"') {
+        p = string(p, end);
+        if (!p) return nullptr;
+        continue;
+      }
+      if (c == '{' || c == '[') ++depth;
+      else if ((c == '}' || c == ']') && --depth == 0) return p + 1;
+      ++p;
+    }
+    return nullptr;
+  }
+  while (p < end && *p != ',' && *p != '}' && *p != ']' && *p != ' ' && *p != '\n' && *p != '\r' && *p != '\t') ++p;
+  return p;
+}
+}  // namespace scan
+
+// One plane of a reply, or false when it is not one to show (no address, no place, a place too old or off the earth).
+inline bool flight_of(JsonObjectConst p, Flight &f) {
+  if (!p["lat"].template is<double>() || !p["lon"].template is<double>()) return false;
+  if ((p["seen_pos"] | 0.0) > STALE_POSITION_S) return false;
+  f.hex = trimmed(p["hex"] | "", 8);
+  if (f.hex.empty()) return false;
+  for (auto &c : f.hex) if (c >= 'A' && c <= 'Z') c += 32;
+  f.lat = p["lat"].template as<double>();
+  f.lon = p["lon"].template as<double>();
+  if (!std::isfinite(f.lat) || !std::isfinite(f.lon) || std::fabs(f.lat) > 90 || std::fabs(f.lon) > 180) return false;
+  f.callsign = trimmed(p["flight"] | "", 10);
+  f.registration = trimmed(p["r"] | "", 12);
+  f.type = trimmed(p["t"] | "", 6);
+  f.description = trimmed(p["desc"] | "", 40);
+  f.operator_name = trimmed(p["ownOp"] | "", 40);
+  f.squawk = trimmed(p["squawk"] | "", 4);
+  f.category = trimmed(p["category"] | "", 2);
+  JsonVariantConst alt = p["alt_baro"];
+  if (alt.template is<const char *>() && std::strcmp(alt.template as<const char *>(), "ground") == 0) {
+    f.on_ground = true;
+  } else if (alt.template is<double>()) {
+    f.has_altitude = true;
+    f.altitude = (int) std::lround(alt.template as<double>());
+  }
+  if (p["gs"].template is<double>()) { f.has_speed = true; f.speed = p["gs"].template as<float>(); }
+  JsonVariantConst heading = p["track"].template is<double>() ? p["track"] : p["true_heading"];
+  if (heading.template is<double>()) {
+    f.has_heading = true;
+    f.heading = std::fmod(heading.template as<float>() + 360.0f, 360.0f);
+  }
+  JsonVariantConst climb = p["baro_rate"].template is<double>() ? p["baro_rate"] : p["geom_rate"];
+  if (climb.template is<double>()) { f.has_climb = true; f.climb = (int) std::lround(climb.template as<double>()); }
+  const char *emergency = p["emergency"] | "none";
+  f.emergency = std::strcmp(emergency, "none") != 0 || f.squawk == "7500" || f.squawk == "7600" || f.squawk == "7700";
+  return true;
+}
+
+// The planes of a reply, or false with `error` set when it is not one. Each plane is read on its own into `doc`: read
+// whole, ArduinoJson looks through every string it holds for each new one, and a list of a thousand planes took
+// seconds (4500 took over a minute, and then ran out of the slots a document has on a 32-bit chip).
+template<typename Doc> bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, std::string &error) {
+  static const JsonDocument keep = plane_filter();
+  const char *end = text + length, *p = scan::space(text, end);
+  const char *list = nullptr, *list_end = nullptr;
+  auto broken = [&](const char *at) {
+    error = at ? "JSON: InvalidInput" : "JSON: IncompleteInput";
+    return false;
+  };
+  if (p >= end) return broken(nullptr);
+  if (*p != '{') return broken(p);
+  // The reply's members: the list (`ac`, or `aircraft` as readsb names it) found, the rest stepped over.
+  p = scan::space(p + 1, end);
+  while (p < end && *p != '}') {
+    if (*p != '"') return broken(p);
+    const char *key = p + 1, *after = scan::string(p, end);
+    if (!after) return broken(nullptr);
+    const std::string name(key, after - 1 - key);
+    p = scan::space(after, end);
+    if (p >= end) return broken(nullptr);
+    if (*p != ':') return broken(p);
+    p = scan::space(p + 1, end);
+    const char *value_end = scan::value(p, end);
+    if (!value_end) return broken(nullptr);
+    if ((name == "ac" || (name == "aircraft" && !list)) && p < end && *p == '[') {
+      list = p;
+      list_end = value_end;
+    }
+    p = scan::space(value_end, end);
+    if (p < end && *p == ',') p = scan::space(p + 1, end);
+    else if (p < end && *p != '}') return broken(p);
+  }
+  if (p >= end) return broken(nullptr);
+  if (!list) {
+    static const JsonDocument only_msg = message_filter();
+    const DeserializationError e = deserializeJson(doc, text, length, DeserializationOption::Filter(only_msg));
+    error = e ? std::string("JSON: ") + e.c_str() : std::string(doc["msg"] | "no aircraft list");
     return false;
   }
   out.clear();
-  out.reserve(list.size());
-  for (JsonObjectConst p : list) {
-    if (!p["lat"].template is<double>() || !p["lon"].template is<double>()) continue;
-    if ((p["seen_pos"] | 0.0) > STALE_POSITION_S) continue;
-    Flight f;
-    f.hex = trimmed(p["hex"] | "", 8);
-    if (f.hex.empty()) continue;
-    for (auto &c : f.hex) if (c >= 'A' && c <= 'Z') c += 32;
-    f.lat = p["lat"].template as<double>();
-    f.lon = p["lon"].template as<double>();
-    if (!std::isfinite(f.lat) || !std::isfinite(f.lon) || std::fabs(f.lat) > 90 || std::fabs(f.lon) > 180) continue;
-    f.callsign = trimmed(p["flight"] | "", 10);
-    f.registration = trimmed(p["r"] | "", 12);
-    f.type = trimmed(p["t"] | "", 6);
-    f.description = trimmed(p["desc"] | "", 40);
-    f.operator_name = trimmed(p["ownOp"] | "", 40);
-    f.squawk = trimmed(p["squawk"] | "", 4);
-    f.category = trimmed(p["category"] | "", 2);
-    JsonVariantConst alt = p["alt_baro"];
-    if (alt.template is<const char *>() && std::strcmp(alt.template as<const char *>(), "ground") == 0) {
-      f.on_ground = true;
-    } else if (alt.template is<double>()) {
-      f.has_altitude = true;
-      f.altitude = (int) std::lround(alt.template as<double>());
+  for (p = scan::space(list + 1, list_end); p < list_end && *p != ']';) {
+    const char *item_end = scan::value(p, list_end);
+    if (!item_end) return broken(nullptr);
+    if (*p == '{') {  // anything else in the list is no plane
+      const DeserializationError e = deserializeJson(doc, p, item_end - p, DeserializationOption::Filter(keep));
+      if (e) {
+        error = std::string("JSON: ") + e.c_str();
+        return false;
+      }
+      Flight f;
+      if (flight_of(doc.template as<JsonObjectConst>(), f)) out.push_back(std::move(f));
     }
-    if (p["gs"].template is<double>()) { f.has_speed = true; f.speed = p["gs"].template as<float>(); }
-    JsonVariantConst heading = p["track"].template is<double>() ? p["track"] : p["true_heading"];
-    if (heading.template is<double>()) {
-      f.has_heading = true;
-      f.heading = std::fmod(heading.template as<float>() + 360.0f, 360.0f);
-    }
-    JsonVariantConst climb = p["baro_rate"].template is<double>() ? p["baro_rate"] : p["geom_rate"];
-    if (climb.template is<double>()) { f.has_climb = true; f.climb = (int) std::lround(climb.template as<double>()); }
-    const char *emergency = p["emergency"] | "none";
-    f.emergency = std::strcmp(emergency, "none") != 0 || f.squawk == "7500" || f.squawk == "7600" || f.squawk == "7700";
-    out.push_back(std::move(f));
+    p = scan::space(item_end, list_end);
+    if (p < list_end && *p == ',') p = scan::space(p + 1, list_end);
+    else if (p < list_end && *p != ']') return broken(p);
   }
+  doc.clear();
   return true;
 }
 }  // namespace sky::feed

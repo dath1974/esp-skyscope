@@ -127,6 +127,8 @@ class Providers {
     note_pace(s, now, a);
     return wait;
   }
+  // `f` is another server now (a receiver at a new address): what the old one said is forgotten.
+  void forget(Feed f) { states_[f] = State{}; }
   const State &state(Feed f) const { return states_[f]; }
   // Whether every exchange that may be asked is waiting.
   bool all_blocked(uint32_t now) const {

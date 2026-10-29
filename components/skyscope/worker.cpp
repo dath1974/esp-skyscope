@@ -21,14 +21,6 @@ namespace esphome::skyscope {
 static const char *const TAG = "skyscope.worker";
 
 namespace {
-// ArduinoJson's memory in PSRAM: a reply of two hundred planes takes some 100 KB while it is read.
-struct SpiRam : ArduinoJson::Allocator {
-  void *allocate(size_t n) override { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
-  void deallocate(void *p) override { heap_caps_free(p); }
-  void *reallocate(void *p, size_t n) override { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
-};
-SpiRam spiram;
-
 // Tiles as they came (PNG or JPEG bytes), in PSRAM, the least recently drawn going first. A tile the server has none
 // of (a chart outside its country) is kept as empty, so it is not asked for again and again.
 constexpr size_t CACHE_BYTES = 3 * 1024 * 1024;
@@ -112,6 +104,7 @@ void Skyscope::worker_() {
   std::vector<Pending> pending;  // the plan's tiles not drawn yet, in its order (nearest the middle first)
   uint32_t feed_due = 0;
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
+  std::string receiver_url;  // the receiver's address the last request was for
   providers::Providers providers;
   const int width = width_, height = height_;
   while (true) {
@@ -148,6 +141,11 @@ void Skyscope::worker_() {
       feed_key = key;
       feed_due = now;
     }
+    if (settings.receiver_url != receiver_url) {
+      // A corrected address is asked at once, not after the wait the old one earned.
+      receiver_url = settings.receiver_url;
+      providers.forget(RECEIVER);
+    }
     if ((int32_t) (now - feed_due) >= 0) {
       Feed source;
       uint32_t wait = 0;
@@ -165,7 +163,7 @@ void Skyscope::worker_() {
         std::string error = r.error;
         bool ok = r.status == 200;
         if (ok) {
-          JsonDocument doc(&spiram);
+          JsonDocument doc;  // one plane at a time (feed.h): a kilobyte or two
           ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
         }

@@ -6,7 +6,8 @@
 //   GET  /api/status       Wi-Fi, memory, the feed and the map
 //   GET  /api/aircraft     the planes of the last report
 //   GET  /api/firmware     the firmware running and the newest on the update server
-//   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware
+//   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware;
+//                          with the test API, {"source": url} asks another update server until a restart
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //
@@ -25,9 +26,20 @@
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
+#include <fcntl.h>
+#include <lwip/sockets.h>
 
 namespace esphome::skyscope {
 static const char *const TAG = "skyscope.web";
+
+// The sockets open of the CONFIG_LWIP_MAX_SOCKETS there are: when none is left, every new connection, the page's and
+// the screen's own, is turned away.
+static int sockets_open() {
+  int open = 0;
+  for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd)
+    if (lwip_fcntl(fd, F_GETFL, 0) >= 0) ++open;
+  return open;
+}
 
 namespace {
 constexpr size_t MOST_BODY = 6000;
@@ -121,6 +133,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["heap_free"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     // The largest piece of it in one block: what the largest allocation from internal RAM can have.
     out["heap_largest"] = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    out["sockets"] = sockets_open();
+    out["sockets_most"] = CONFIG_LWIP_MAX_SOCKETS;
     {
       // The records that grow as the screen runs, by entries.
       const view::Counts c = view::counts(view_);
@@ -235,11 +249,27 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       JsonDocument in;
       const std::string text = std::move(body_);
       body_.clear();
-      if (deserializeJson(in, text) || !(in["check"].as<bool>() || in["install"].as<bool>())) {
+      const bool broken = (bool) deserializeJson(in, text);
+      bool source = false;
+#ifdef SKYSCOPE_TEST_API
+      source = !broken && in["source"].is<const char *>();  // another update server, for tests/device_test.py's mock
+#endif
+      if (broken || !(source || in["check"].as<bool>() || in["install"].as<bool>())) {
         request->send(400, "application/json", "{\"error\":\"body\"}");
         return;
       }
-      if (in["install"].as<bool>()) {
+      if (source) {
+        // Asked at once, and until the screen restarts.
+        std::string url = in["source"].as<std::string>();
+        if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
+          request->send(400, "application/json", "{\"error\":\"source\"}");
+          return;
+        }
+        this->defer([this, url]() {
+          firmware_->set_source_url(url);
+          firmware_->check();
+        });
+      } else if (in["install"].as<bool>()) {
         this->defer([this]() { this->install_firmware_(); });
       } else {
         this->defer([this]() { firmware_->check(); });

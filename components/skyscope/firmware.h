@@ -34,6 +34,7 @@ struct Tracker {
   bool updating = false;  // asked to install, until the screen restarts or the install fails
   bool flashing = false;  // the entity has said it is installing
   std::string error;      // for the page, "" for none
+  State failed_in = UNKNOWN;  // what the entity said as the last install failed
 
   // An install asked for: the page's word goes, and the screen says it is updating.
   bool start(State state) {
@@ -46,7 +47,7 @@ struct Tracker {
 
   // What the entity says now. An install that began and is no longer installing failed (a good one restarts the
   // screen before saying anything else); a failed check is said until a check works. A failed install's word stays
-  // until the next install starts. True when an install has just failed.
+  // until the next install starts, or until a check finds nothing to install. True when an install has just failed.
   bool seen(State state, bool check_failed) {
     const bool installing = state == INSTALLING;
     if (installing) flashing = true;
@@ -54,9 +55,11 @@ struct Tracker {
       updating = false;
       flashing = false;
       error = INSTALL_FAILED;
+      failed_in = state;
       return true;
     }
-    if (error == INSTALL_FAILED) return false;  // the entity's own error after it is the install's, not the server's
+    // The entity's own error after it is the install's, not the server's; once nothing is offered it no longer matters.
+    if (error == INSTALL_FAILED && !(state == NO_UPDATE && failed_in != NO_UPDATE)) return false;
     error = check_failed ? SERVER_FAILED : "";
     return false;
   }
