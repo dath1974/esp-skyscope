@@ -85,12 +85,14 @@ void Skyscope::describe_ui_(JsonObject out) {
     for (lv_obj_t *r : card_rows_) rows.add(text_of(r));
   }
   JsonArray planes = out["planes"].to<JsonArray>();
-  for (const auto &p : shown_planes_) {
-    if (p.second.x < 0 || p.second.y < 0 || p.second.x >= width_ || p.second.y >= height_) continue;
+  // Where a finger finds each now (view.h spots): on a sweeping scope, only the planes its beam has painted.
+  for (const auto &p : view::spots(view_)) {
+    if (p.x < 0 || p.y < 0 || p.x >= width_ || p.y >= height_) continue;
     JsonObject o = planes.add<JsonObject>();
-    o["id"] = p.first;
-    o["x"] = p.second.x;
-    o["y"] = p.second.y;
+    o["id"] = p.id;
+    o["x"] = p.x;
+    o["y"] = p.y;
+    o["kind"] = shapes::NAMES[p.kind < shapes::KINDS ? p.kind : 0];
   }
   if (!menu_) return;
   JsonObject menu = out["menu"].to<JsonObject>();

@@ -781,8 +781,6 @@ void Skyscope::update_planes_(uint32_t now) {
     o.radar.sweep = settings_.sweep;
   }
   shown_count_ = o.planes.size();
-  shown_planes_.clear();
-  for (const auto &p : o.planes) shown_planes_.push_back({p.id, lv_point_t{p.x, p.y}});
   view::show(view_, planes_, o);
   view::set_picked(view_, picked_);
   update_card_();

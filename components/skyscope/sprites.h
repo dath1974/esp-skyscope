@@ -1,8 +1,8 @@
 #pragma once
-// Plane symbols drawn once and stamped many times. plan::plane_shape is twelve triangles, and LVGL drew each one (with
-// its halo, twenty-four) through a mask every time a plane was drawn: some 25 ms of a radar frame. Here the shape is
-// rasterised once per size and heading step into an alpha mask (anti-aliased, 4 x 4 samples a pixel), and view.cpp
-// draws the mask in the plane's colour, which LVGL blends in one pass over its few hundred pixels.
+// Plane symbols drawn once and stamped many times. A plane was a dozen triangles, and LVGL drew each one (with its halo,
+// twenty-four) through a mask every time a plane was drawn: some 25 ms of a radar frame. Here a kind's outline
+// (shapes.h) is rasterised once per kind, size and heading step into an alpha mask (anti-aliased, 4 x 4 samples a
+// pixel), and view.cpp draws the mask in the plane's colour, which LVGL blends in one pass over its few hundred pixels.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -12,7 +12,7 @@
 #include <memory>
 #include <vector>
 
-#include "plan.h"
+#include "shapes.h"
 
 #if __has_include(<esp_heap_caps.h>)
 #include <esp_heap_caps.h>
@@ -46,16 +46,24 @@ struct Mask {
 
 inline int heading_step(int heading) { return ((heading < 0 ? 0 : heading) % 360 + HEADING_STEP / 2) / HEADING_STEP % (360 / HEADING_STEP); }
 
-inline bool inside(const plan::Triangle &t, float x, float y) {
-  auto edge = [&](const plan::Point &a, const plan::Point &b) { return (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x); };
-  const float e0 = edge(t.p[0], t.p[1]), e1 = edge(t.p[1], t.p[2]), e2 = edge(t.p[2], t.p[0]);
-  return (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0);
+// Whether `x`, `y` is inside a convex part of `n` corners, wound either way.
+inline bool inside(const shapes::Point *p, int n, float x, float y) {
+  bool left = false, right = false;
+  for (int i = 0; i < n; ++i) {
+    const shapes::Point &a = p[i], &b = p[(i + 1) % n];
+    const float e = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (e > 0) left = true;
+    else if (e < 0) right = true;
+    if (left && right) return false;
+  }
+  return true;
 }
 
-// The plane symbol `length` pixels nose to tail, turned to heading step `step`. Each triangle marks the samples inside
-// its own box on a grid SAMPLES times finer than the mask, and each pixel is the share of its samples marked: a few
-// milliseconds a mask, where testing every sample against every triangle took some 145 ms on the ESP32-S3.
-inline Mask render(float length, int step) {
+// The symbol of `kind`, `length` pixels nose to tail, turned to heading step `step`. Each part marks the samples inside
+// its own box on a grid SAMPLES times finer than the mask with its ink, the darkest of the parts over a sample winning,
+// and each pixel is its samples' ink together: a few milliseconds a mask, where testing every sample against every
+// part took some 145 ms on the ESP32-S3.
+inline Mask render(float length, int step, shapes::Kind kind = shapes::AIRLINER) {
   Mask m;
   const int size = (int) std::ceil(length) + 3;
   const int fine = size * SAMPLES;
@@ -66,16 +74,25 @@ inline Mask render(float length, int step) {
   std::memset(hit.get(), 0, (size_t) fine * fine);
   m.size = size;
   m.alpha.assign((size_t) m.size * m.size, 0);
-  const float mid = m.size / 2.0f * SAMPLES;
-  for (const auto &t : plan::plane_shape({mid, mid}, length * SAMPLES, step * HEADING_STEP)) {
-    const float x0 = std::min({t.p[0].x, t.p[1].x, t.p[2].x}), x1 = std::max({t.p[0].x, t.p[1].x, t.p[2].x});
-    const float y0 = std::min({t.p[0].y, t.p[1].y, t.p[2].y}), y1 = std::max({t.p[0].y, t.p[1].y, t.p[2].y});
+  const float mid = m.size / 2.0f * SAMPLES, scale = length * SAMPLES;
+  // In the kind's own frame (x right, y forward), then turned: forward is north at heading 0, up on the glass.
+  const float a = (shapes::TURNS[kind] ? step * HEADING_STEP : 0) * 3.14159265f / 180.0f, sn = std::sin(a), k = std::cos(a);
+  const shapes::Outline outline = shapes::outline(kind);
+  for (int i = 0; i < outline.count; ++i) {
+    const shapes::Part &part = outline.parts[i];
+    shapes::Point p[shapes::MOST_CORNERS];
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (int c = 0; c < part.corners; ++c) {
+      const float x = part.p[c].x * scale, y = part.p[c].y * scale;
+      p[c] = {mid + x * k + y * sn, mid + x * sn - y * k};
+      x0 = std::min(x0, p[c].x), x1 = std::max(x1, p[c].x), y0 = std::min(y0, p[c].y), y1 = std::max(y1, p[c].y);
+    }
     const int sx0 = std::max(0, (int) std::floor(x0)), sx1 = std::min(fine - 1, (int) std::ceil(x1));
     const int sy0 = std::max(0, (int) std::floor(y0)), sy1 = std::min(fine - 1, (int) std::ceil(y1));
     for (int y = sy0; y <= sy1; ++y) {
       uint8_t *row = hit.get() + (size_t) y * fine;
       for (int x = sx0; x <= sx1; ++x)
-        if (!row[x] && inside(t, x + 0.5f, y + 0.5f)) row[x] = 1;
+        if (row[x] < part.ink && inside(p, part.corners, x + 0.5f, y + 0.5f)) row[x] = part.ink;
     }
   }
   for (int y = 0; y < m.size; ++y)
@@ -85,14 +102,14 @@ inline Mask render(float length, int step) {
         const uint8_t *row = hit.get() + (size_t) (y * SAMPLES + sy) * fine + x * SAMPLES;
         for (int sx = 0; sx < SAMPLES; ++sx) hits += row[sx];
       }
-      m.alpha[(size_t) y * m.size + x] = (uint8_t) (hits * 255 / (SAMPLES * SAMPLES));
+      m.alpha[(size_t) y * m.size + x] = (uint8_t) (hits / (SAMPLES * SAMPLES));
     }
   return m;
 }
 
-// Masks made as they are first needed, by length (whole pixels) and heading step, kept for as long as the screen runs:
-// a few lengths (plain, watched, each with its halo, larger off the radar) times 90 headings. Each length is one table
-// of 90 entries, and each entry is made in PSRAM as its mask is: internal RAM holds only the short list of lengths, so
+// Masks made as they are first needed, by kind, length (whole pixels) and heading step, kept for as long as the screen
+// runs: a few lengths (plain, watched, each with its halo, larger off the radar) of the kinds in the sky times 90
+// headings (one, for a kind that does not turn). Each kind and length is one table of 90 entries, and each entry is made in PSRAM as its mask is: internal RAM holds only the short list of lengths, so
 // it does not shrink as the headings come (one small allocation an entry, some 260 bytes with the map's, used it up).
 template<typename Extra> class Cache {
  public:
@@ -116,9 +133,9 @@ template<typename Extra> class Cache {
   }
   // The mask of `length` and `heading`. At most `budget` masks are made by the calls of one `frame`: past that, a mask
   // not made yet is the nearest heading of that length already made (for a frame or two), so no frame waits for many.
-  Entry *get(int length, int heading, uint32_t frame = 0, int budget = 1 << 30) {
-    const int step = heading_step(heading);
-    Entry **steps = table(length);
+  Entry *get(int length, int heading, uint32_t frame = 0, int budget = 1 << 30, shapes::Kind kind = shapes::AIRLINER) {
+    const int step = shapes::TURNS[kind] ? heading_step(heading) : 0;
+    Entry **steps = table(length, kind);
     if (!steps) return nullptr;
     if (steps[step]) return steps[step];
     if (frame != frame_) {
@@ -132,7 +149,7 @@ template<typename Extra> class Cache {
       // None of this length yet: this one is made all the same.
     }
     ++made_;
-    Mask mask = render((float) length, step);
+    Mask mask = render((float) length, step, kind);
     if (mask.size == 0) return nullptr;  // no memory for it now: nothing drawn, asked again next frame
     void *room = scratch(sizeof(Entry));
     if (!room) return nullptr;
@@ -147,15 +164,16 @@ template<typename Extra> class Cache {
  private:
   struct Table {
     int length;
+    shapes::Kind kind;
     Entry **steps;  // STEPS of them, in PSRAM
   };
-  Entry **table(int length) {
+  Entry **table(int length, shapes::Kind kind) {
     for (auto &t : tables_)
-      if (t.length == length) return t.steps;
+      if (t.length == length && t.kind == kind) return t.steps;
     auto **steps = static_cast<Entry **>(scratch(sizeof(Entry *) * STEPS));
     if (!steps) return nullptr;
     std::memset(steps, 0, sizeof(Entry *) * STEPS);
-    tables_.push_back({length, steps});
+    tables_.push_back({length, kind, steps});
     return steps;
   }
   std::vector<Table> tables_;

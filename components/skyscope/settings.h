@@ -38,8 +38,9 @@ enum Feed : uint8_t { ADSB_LOL, ADSB_FI, RECEIVER };
 inline constexpr Names<3> FEEDS{{"adsb_lol", "adsb_fi", "receiver"}};
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
 inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
-enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE };
-inline constexpr Names<3> MARKERS{{"dot", "arrow", "plane"}};
+// "plane" is one airliner for every aircraft; "type" each drawn as its kind (shapes.h): a helicopter, a heavy, a drone.
+enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE, MARKER_TYPE };
+inline constexpr Names<4> MARKERS{{"dot", "arrow", "plane", "type"}};
 enum LabelKind : uint8_t { LABEL_AUTO, LABEL_NONE, LABEL_CALLSIGN, LABEL_ALTITUDE, LABEL_FULL };
 inline constexpr Names<5> LABELS{{"auto", "none", "callsign", "altitude", "full"}};
 inline constexpr Names<6> WATCH_COLOURS{{"red", "orange", "amber", "green", "blue", "purple"}};
@@ -82,7 +83,7 @@ struct Settings {
   int alt_min = 0, alt_max = ALTITUDE_CEILING;
   bool ground = false;
   int most = 30;
-  MarkerKind marker = MARKER_PLANE;
+  MarkerKind marker = MARKER_TYPE;
   LabelKind label = LABEL_AUTO;
   bool by_altitude = true;
   bool glide = true;

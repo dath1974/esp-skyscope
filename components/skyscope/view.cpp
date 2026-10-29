@@ -138,9 +138,10 @@ struct Image {
   lv_image_dsc_t dsc{};
 };
 static sprites::Cache<Image> symbols;
-static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, lv_color_t colour, lv_opa_t opa) {
+static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, shapes::Kind kind, lv_color_t colour,
+                  lv_opa_t opa) {
   // At most two masks made a frame (sprites.h): a plane that turned onto a new step takes the nearest one meanwhile.
-  auto *found = symbols.get((int) std::lround(size), heading, ui::frame, 2);
+  auto *found = symbols.get((int) std::lround(size), heading, ui::frame, 2, kind);
   if (!found) return;
   auto &entry = *found;
   Image &image = entry.extra;
@@ -183,11 +184,16 @@ static float scope_reach(const View *view, ap::Point c, const lv_area_t &a) {
     far = std::max(far, std::hypot(x - c.x, y - c.y));
   return far + 2;
 }
+// Whether a plane is drawn as its outline: by a plane marker, when it has a heading to turn to or its kind never turns.
+static bool outlined(const ap::Overlay &o, const ap::Plane &p) {
+  return o.marker == ap::PLANE && (p.heading != ap::NO_HEADING || !shapes::TURNS[p.kind]);
+}
 // The box a plane's marker, its glow and rings, its vector and its track take on the glass, at `c`; its label beside.
 static ap::Box plane_box(const View *view, const ap::Plane &p, ap::Point c) {
   const ap::Overlay &o = view->overlay;
   const Sizes s = sizes(o);
-  const int r = (int) std::lround((o.marker == ap::PLANE ? s.plane : s.dot) * ap::WATCH_SCALE) + 8 * s.halo + 4 * s.line;
+  const int r = (int) std::lround((o.marker == ap::PLANE ? s.plane * shapes::SCALE[p.kind] : s.dot) * ap::WATCH_SCALE) +
+                8 * s.halo + 4 * s.line;
   ap::Box box{(int) std::floor(c.x) - r, (int) std::floor(c.y) - r, 2 * r + 2, 2 * r + 2};
   auto take = [&](float x, float y, int pad) { box = ap::join(box, {(int) std::floor(x) - pad, (int) std::floor(y) - pad, 2 * pad + 2, 2 * pad + 2}); };
   if (p.vx || p.vy) take(c.x + p.vx * view->sx, c.y + p.vy * view->sy, s.line + 1);
@@ -367,7 +373,7 @@ static void draw(lv_event_t *e) {
     lv_color_t colour = colour_of(o, p);
     const ap::Point c = places[i];
     const float grow = p.watch ? ap::WATCH_SCALE : 1.0f;
-    const int d = (int) std::lround(s.dot * grow), size = (int) std::lround(s.plane * grow);
+    const int d = (int) std::lround(s.dot * grow), size = (int) std::lround(s.plane * grow * shapes::SCALE[p.kind]);
     if (radar && o.radar.sweep && !p.watch) {
       // A return: at full light as the beam passes, dimming over the turn to under half of its own until the next pass.
       const float lit = (float) glow_step(view, middle, c, beam) / GLOW_STEPS;
@@ -376,20 +382,21 @@ static void draw(lv_event_t *e) {
     }
     if (!view->picked.empty() && p.id == view->picked) {
       // The plane picked: a wide ring in the ink round a halo, outside a watched plane's own.
-      const int across = (o.marker == ap::PLANE && p.heading != ap::NO_HEADING ? size : d) + 8 * s.halo + 4 * s.line;
+      const int across = (outlined(o, p) ? size : d) + 8 * s.halo + 4 * s.line;
       ring(layer, c, across + 2 * s.halo, 2 * s.line + 2 * s.halo, halo);
       ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 1.0f) : lv_color_hex(cl::palette(o.light).ink));
     }
     if (p.watch) {
       // A ring in its colour round a halo of the card's, a little beyond the marker.
-      const int across = (o.marker == ap::PLANE && p.heading != ap::NO_HEADING ? size : d) + 4 * s.halo + 2 * s.line;
+      const int across = (outlined(o, p) ? size : d) + 4 * s.halo + 2 * s.line;
       ring(layer, c, across + 2 * s.halo, s.line + 2 * s.halo, halo);
       ring(layer, c, across, s.line, colour);
     }
-    if (o.marker == ap::PLANE && p.heading != ap::NO_HEADING) {
+    if (outlined(o, p)) {
       // A halo in the card's colour, so the plane reads on streets and on water alike.
-      shape(layer, c, size + 2 * s.halo, p.heading, halo, LV_OPA_80);
-      shape(layer, c, size, p.heading, colour, LV_OPA_COVER);
+      const auto kind = (shapes::Kind) p.kind;
+      shape(layer, c, size + 2 * s.halo, p.heading, kind, halo, LV_OPA_80);
+      shape(layer, c, size, p.heading, kind, colour, LV_OPA_COVER);
       continue;
     }
     if (radar && o.marker == ap::ARROW && (p.vx || p.vy)) {
@@ -418,7 +425,8 @@ static void draw(lv_event_t *e) {
       const bool watched = o.planes[i].watch != 0;
       ap::Label &l = labels[i];
       l.c = {places[i].x - a.x1, places[i].y - a.y1};
-      l.reach = (int) std::lround((o.marker == ap::PLANE ? s.plane : s.dot) * (watched ? ap::WATCH_SCALE : 1.0f) / 2) +
+      l.reach = (int) std::lround((o.marker == ap::PLANE ? s.plane * shapes::SCALE[o.planes[i].kind] : s.dot) *
+                                  (watched ? ap::WATCH_SCALE : 1.0f) / 2) +
                 (watched ? 2 * s.halo + s.line : 0);
       l.watched = watched;
       const auto image = view->label_images.find(label_key(o, o.planes[i], i));
@@ -682,6 +690,19 @@ std::string pick(View *view, int x, int y, int reach) {
   lv_area_t a;
   lv_obj_get_coords(view->layer, &a);
   return ap::pick(shown(view), (float) (x - a.x1), (float) (y - a.y1), (float) reach, lv_tick_get(), view->sx, view->sy);
+}
+
+std::vector<Spot> spots(View *view) {
+  std::vector<Spot> out;
+  if (!view || !view->layer || view->hidden) return out;
+  lv_area_t a;
+  lv_obj_get_coords(view->layer, &a);
+  const uint32_t now = lv_tick_get();
+  for (const auto &p : shown(view).planes) {
+    const ap::Point c = ap::at(shown(view), p, now, view->sx, view->sy);
+    out.push_back({p.id, a.x1 + (int) std::lround(c.x), a.y1 + (int) std::lround(c.y), p.kind});
+  }
+  return out;
 }
 
 Counts counts(const View *view) {

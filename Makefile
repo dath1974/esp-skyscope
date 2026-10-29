@@ -6,7 +6,7 @@ SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to catch what a change leaves behind.
 CHURN ?= 0
 
-.PHONY: test host python page device device-full device-mock soak firmware
+.PHONY: test host python page markers device device-full device-mock soak firmware
 
 test: host python page
 
@@ -21,6 +21,12 @@ python:
 # The web page's script (Node 18 or newer).
 page:
 	node --test tests/test_page.mjs
+
+# Every kind of aircraft as the screen draws it, on a sheet (tests/build/markers.png), to look at without a screen.
+markers:
+	mkdir -p tests/build
+	$${CXX:-c++} -std=c++20 -O2 tools/markers.cpp -o tests/build/markers
+	tests/build/markers tests/build/markers.png
 
 device:
 	@test -n "$(DEVICE)" || { echo "make device DEVICE=<the screen's address>"; exit 2; }

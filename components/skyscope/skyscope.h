@@ -200,7 +200,6 @@ class Skyscope : public Component, public AsyncWebHandler {
   overlay::Tracks tracks_;
   std::string picked_;
   size_t shown_count_{0};
-  std::vector<std::pair<std::string, lv_point_t>> shown_planes_;  // each plane drawn, where it was placed
   // How long the loop took over the last report (placing its planes, the plane layer's update), and the longest yet.
   float report_ms_{0}, report_ms_max_{0};
   // ESPHome's loop as this component sees it, over the last five seconds: passes a second and the longest gap.

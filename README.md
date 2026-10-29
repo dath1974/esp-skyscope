@@ -10,8 +10,11 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
   kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
 - **Aircraft**: from adsb.fi or adsb.lol, or a receiver of your own (readsb, tar1090, dump1090-fa: its
-  `aircraft.json`), every polling interval, switching to another if one is unavailable. Plane,
-  arrow or dot markers, coloured by altitude; labels kept apart from each other; tracks of the last seconds; planes
+  `aircraft.json`), every polling interval, switching to another if one is unavailable. Each
+  aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
+  helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
+  sends, else its description; `make markers` draws them all on a sheet), or as one plane, an arrow or a dot, coloured
+  by altitude; labels kept apart from each other; tracks of the last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a

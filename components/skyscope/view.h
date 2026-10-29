@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace sky::view {
 struct View;  // the object over the map and the planes it shows
@@ -20,6 +21,14 @@ void set_hidden(View *view, bool hidden);
 void release(View *&view);
 // The id of the plane nearest a finger at `x`, `y` on the glass, within `reach` pixels of it; "" for none.
 std::string pick(View *view, int x, int y, int reach);
+// The planes as a finger finds them now, on the glass: where each is drawn (on a sweeping scope, where the beam last
+// painted it; a plane it has not reached yet is not there).
+struct Spot {
+  std::string id;
+  int x, y;
+  uint8_t kind;
+};
+std::vector<Spot> spots(View *view);
 // The plane picked, ringed; "" for none.
 void set_picked(View *view, const std::string &id);
 // Every 200 ms: planes that glide are drawn where they are now, each in the small part of the glass it covers.

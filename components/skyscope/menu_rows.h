@@ -53,7 +53,7 @@ inline const std::vector<Row> &rows() {
       {"place_names", "Place names", FLAG, {}, NAMED},
       {"tile_scale", "Map text", NUMBER, {{"0", "Default"}, {"1", "Small"}, {"2", "Large"}}, DRAWN},
       {"rings", "Range rings", FLAG, {}},
-      {"marker", "Marker", TEXT, {{"plane", "Plane"}, {"arrow", "Arrow"}, {"dot", "Dot"}}},
+      {"marker", "Marker", TEXT, {{"type", "By type"}, {"plane", "Plane"}, {"arrow", "Arrow"}, {"dot", "Dot"}}},
       {"label", "Labels", TEXT,
        {{"auto", "Auto"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"}, {"full", "Full"}}},
       {"track_s", "Tracks", NUMBER, {{"0", "Off"}, {"30", "30 s"}, {"60", "1 min"}, {"120", "2 min"}, {"300", "5 min"}}},

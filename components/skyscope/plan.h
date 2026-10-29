@@ -36,6 +36,7 @@ struct Plane {
   std::vector<int16_t> track;  // x, y, x, y ... oldest first, ending where the plane is
   int watch = 0;               // 1 to WATCH_COLOURS for a watched plane, in its colour
   std::string id;              // the transponder's address: what a finger picks it by
+  uint8_t kind = 0;            // what it is drawn as (shapes.h Kind), AIRLINER unless the marker is by type
 };
 
 // A map drawn as a radar scope: its phosphor (colours.h TINTS), the middle of the scope on the frame, and whether its
@@ -72,32 +73,6 @@ inline Point at(const Overlay &o, const Plane &p, uint32_t now, float sx = 1, fl
   return {(p.x + p.vx * minutes) * sx, (p.y + p.vy * minutes) * sy};
 }
 
-// The triangles of an airliner seen from above, `size` pixels nose to tail, turned to `heading`: a nose cone, the
-// fuselage, a tail cone, swept wings and a tailplane, each rooted in the fuselage so the outline is one solid piece
-// even a few millimetres across. The first triangle is the nose cone, its tip first.
-struct Triangle { std::array<Point, 3> p; };
-constexpr size_t PLANE_TRIANGLES = 12;
-inline std::array<Triangle, PLANE_TRIANGLES> plane_shape(Point c, float size, int heading) {
-  const float a = (heading < 0 ? 0 : heading) * 3.14159265f / 180.0f, s = std::sin(a), k = std::cos(a);
-  const float h = size / 2, f = 0.07f * size, r = 0.9f * f;  // half the fuselage's width; where the wings take root
-  // In the plane's own frame (x right, y forward), then turned: forward is north at heading 0, up on the glass.
-  auto turn = [&](float x, float y) { return Point{c.x + x * k + y * s, c.y + x * s - y * k}; };
-  const float shoulder = 0.62f * h, tail_start = -0.72f * h;
-  std::array<Triangle, PLANE_TRIANGLES> out{};
-  size_t n = 0;
-  auto quad = [&](Point p0, Point p1, Point p2, Point p3) {
-    out[n++] = {{turn(p0.x, p0.y), turn(p1.x, p1.y), turn(p2.x, p2.y)}};
-    out[n++] = {{turn(p0.x, p0.y), turn(p2.x, p2.y), turn(p3.x, p3.y)}};
-  };
-  out[n++] = {{turn(0, h), turn(-f, shoulder), turn(f, shoulder)}};                       // nose cone
-  quad({-f, shoulder}, {f, shoulder}, {f, tail_start}, {-f, tail_start});                // fuselage
-  out[n++] = {{turn(-f, tail_start), turn(f, tail_start), turn(0, -h)}};                 // tail cone
-  for (const float side : {-1.0f, 1.0f}) {
-    quad({side * r, 0.30f * h}, {side * 0.50f * size, -0.22f * h}, {side * 0.50f * size, -0.34f * h}, {side * r, -0.08f * h});  // wing
-    quad({side * r, -0.60f * h}, {side * 0.19f * size, -0.86f * h}, {side * 0.19f * size, -0.96f * h}, {side * r, -0.80f * h});  // tailplane
-  }
-  return out;
-}
 // The short line an arrow marker points along: from the dot's edge out by `length`, toward `heading`.
 inline std::array<Point, 2> heading_tick(Point c, float radius, float length, int heading) {
   const float a = heading * 3.14159265f / 180.0f, s = std::sin(a), k = -std::cos(a);

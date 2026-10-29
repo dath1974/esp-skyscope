@@ -12,6 +12,7 @@
 #include "geo.h"
 #include "plan.h"
 #include "settings.h"
+#include "shapes.h"
 
 namespace sky::overlay {
 // Altitude bands a marker is coloured by (tar1090's rainbow): on the ground, below 5,000 ft, below 15,000, below
@@ -185,7 +186,7 @@ inline plan::Overlay build(const std::vector<feed::Flight> &flights, const Setti
   plan::Overlay o;
   o.width = view.width;
   o.height = view.height;
-  o.marker = static_cast<plan::Marker>(s.marker);
+  o.marker = s.marker == MARKER_TYPE ? plan::PLANE : static_cast<plan::Marker>(s.marker);
   o.by_altitude = s.by_altitude;
   o.glide = s.glide;
   o.at = now;
@@ -202,6 +203,7 @@ inline plan::Overlay build(const std::vector<feed::Flight> &flights, const Setti
     p.watch = watch_colour(*f, s.watch);
     p.label = label_of(*f, p.watch && kind == LABEL_NONE ? LABEL_CALLSIGN : kind, s.metric);
     p.id = f->hex;
+    p.kind = s.marker == MARKER_TYPE ? shapes::kind_of(f->category, f->type, f->description) : shapes::AIRLINER;
     if (s.track_s > 0) {
       for (const auto &place : thin(tracks.of(f->hex, s.track_s, now), TRACK_POINTS)) {
         const geo::Pixel q = view.point(place.lat, place.lon);
