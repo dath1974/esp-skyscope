@@ -33,6 +33,11 @@
 #   make release-tag MSG="What changed, in one line"
 #                         check, build and test, then tag v<version>
 #   make release          push main and the tag, which publishes it
+#
+# Housekeeping
+#   make clean            remove what the build and tests leave behind
+#                         (the ESPHome toolchain is kept)
+#   make help             print this list
 
 DEVICE ?=
 SOAK ?= 30
@@ -52,7 +57,7 @@ export MSG
 .PHONY: all firmware firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers \
 	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak \
-	release-version release-tag release
+	release-version release-tag release clean help
 
 all: firmware test $(if $(DEVICE),test-esp32)
 
@@ -71,6 +76,17 @@ firmware-esphome:
 
 firmware-esphome-version:
 	@echo $(ESPHOME_VERSION)
+
+# What the firmware build, the tests and Python leave behind. The toolchain
+# ESPHome fetched (.esphome/.espressif) and what it knows of the screen
+# (.esphome/storage) stay, so the next build need not download them again.
+clean:
+	rm -rf tests/build .esphome/build .esphome/idedata
+	find . -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# The comment at the top of this file, so the list has one home.
+help:
+	@sed -n '/^#/!q; s/^# \{0,1\}//p' $(firstword $(MAKEFILE_LIST))
 
 test: test-host test-python test-page
 

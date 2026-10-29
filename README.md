@@ -140,6 +140,8 @@ receiver's range, are missing, and positions may be late.
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
   `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
+  `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
+  ESPHome downloaded.
 - `make test` runs everything that needs no screen, as CI does on every push and before every release. A push also
   builds the firmware and draws the aircraft sheet (`make test-markers`), kept with the run as `markers`.
   `make test` covers:
