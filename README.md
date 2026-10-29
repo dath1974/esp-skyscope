@@ -9,6 +9,13 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   maps without a dark version of their own are drawn dark by rules made for each (the IFR charts turn only their paper
   and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
   kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
+- **Airspace** (optional, United States): the FAA's Class B, C and D airspace outlines and runways, with dashed
+  centerlines 10 NM out from the long runways of towered airports, over any map, the way a controller's scope draws
+  them: in the phosphor on the radar, in the charts' blue and magenta over a map. On the radar the scope itself (its
+  glow, bearing lines, range rings and rose, and the beam) can be switched off, leaving the planes and the airspace
+  alone on the dark ground in the chosen phosphor (green, amber, blue or white), like a controller's bare map. Asked
+  from the FAA once for each place and range (runways up to 80 NM). These are built from the FAA's public data, not
+  the maps real ATC scopes use: the FAA does not publish those.
 - **Aircraft**: from adsb.fi or adsb.lol, or a receiver of your own (readsb, tar1090, dump1090-fa: its
   `aircraft.json`), every polling interval, switching to another if one is unavailable. Each
   aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
@@ -92,7 +99,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -122,6 +129,7 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [Esri World Imagery](https://www.esri.com) | satellite | Esri's terms of use |
 | [USGS National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) | topographic | public domain, United States |
 | [FAA aeronautical charts](https://www.faa.gov/air_traffic/flight_info/aeronav) | sectional, IFR | public domain, United States; not for navigation |
+| [FAA ADDS](https://adds-faa.opendata.arcgis.com) | airspace and runways (optional) | public domain, United States; not for navigation |
 
 The screen asks for planes every 10 seconds by default (3 at the least). Each exchange sets its own limits and may change
 them with its load, so the screen keeps to what each one announces: never more often than its `x-ratelimit-limit` header
@@ -129,7 +137,8 @@ allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or
 time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the other
 exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status line
 and the page count down to the next try. Tiles are cached in memory for a day and asked again only when the place, range
-or map changes.
+or map changes. The airspace is asked once for each place and range while it is switched on; a request that fails waits
+30 seconds, then twice as long each time, up to 15 minutes, since the FAA's server is shared by everyone who uses it.
 
 **Not for navigation.** ADS-B exchanges show what volunteers' receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.

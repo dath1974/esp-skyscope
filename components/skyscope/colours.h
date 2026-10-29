@@ -26,6 +26,12 @@ inline constexpr uint32_t BANDS[] = {0x9AA2AA, 0xFF9533, 0x4CC764, 0x5A9BEF, 0xB
 // Watched planes, in the order of settings.h WATCH_COLOURS.
 inline constexpr uint32_t WATCH[] = {0xF44336, 0xFF9800, 0xFFC107, 0x4CAF50, 0x2196F3, 0x926BC7};
 
+// The FAA's airspace (airspace.h) over a map, as its charts colour it: Class B and D blue (D dashed), C magenta.
+struct AirspaceInk { uint32_t b, c, d; };
+inline constexpr AirspaceInk DARK_AIRSPACE{0x5A9BEF, 0xD86BD4, 0x5A9BEF};
+inline constexpr AirspaceInk LIGHT_AIRSPACE{0x1F5FBF, 0xA0309C, 0x1F5FBF};
+inline const AirspaceInk &airspace_ink(bool light) { return light ? LIGHT_AIRSPACE : DARK_AIRSPACE; }
+
 // A radar scope's phosphor: its ground, its glow and its hottest light, in the order of settings.h TINTS.
 struct Tint { uint32_t ground, glow, hot; };
 inline constexpr Tint TINTS[] = {
@@ -48,6 +54,8 @@ inline uint32_t mix(uint32_t first, uint32_t second, uint8_t amount) {
 // How much of the glow each part of a scope is, mixed into its ground.
 namespace share {
 constexpr float GRID = 0.16f, RING = 0.42f, ROSE = 0.6f, LABEL = 0.5f;
+// The airspace on the scope, all in its phosphor as a controller's map is in one colour: Class B the brightest.
+constexpr float CLASS_B = 0.55f, CLASS_C = 0.45f, CLASS_D = 0.36f, RUNWAY = 0.85f, CENTERLINE = 0.4f;
 }
 inline uint32_t glow_share(const Tint &t, float s) { return mix(t.glow, t.ground, (uint8_t) (s * 255 + 0.5f)); }
 }  // namespace sky::colours

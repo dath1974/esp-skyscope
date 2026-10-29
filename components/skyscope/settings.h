@@ -69,8 +69,12 @@ struct Settings {
   int tile_scale = 0;      // 1 or 2 screen pixels per tile pixel; 0 the board's default
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`
   bool place_names = true; // a map's layer of place names over it, where it has one (Esri's gray maps and imagery)
+  bool airspace = false;   // the FAA's Class B, C and D airspace and runways over any map (airspace.h), United States
   Tint tint = GREEN;
-  bool sweep = true;       // the radar's beam turns
+  // The radar's scope: its glow, bearing lines, range rings and rose. Off, the radar is the planes and the airspace
+  // alone on the dark ground, in its phosphor, as a controller's bare map.
+  bool scope = true;
+  bool sweep = true;       // the radar's beam turns, round the scope's rose
   // The aircraft.
   // adsb.fi first: adsb.lol's limits change with its load and went as low as 500 requests a day per address (one every
   // three minutes); providers.h keeps to whatever each one announces.
@@ -101,6 +105,11 @@ struct Settings {
   std::string timezone = "UTC0";
 };
 
+// Whether the radar's scope is drawn, and whether its beam turns: the beam goes round the scope's rose, so not without
+// it.
+inline bool scope_shown(const Settings &s) { return s.map == RADAR && s.scope; }
+inline bool sweeps(const Settings &s) { return scope_shown(s) && s.sweep; }
+
 inline std::string upper_id(const char *s) {
   std::string out;
   for (; s && *s; ++s) {
@@ -124,7 +133,9 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["tile_scale"] = s.tile_scale;
   o["rings"] = s.rings;
   o["place_names"] = s.place_names;
+  o["airspace"] = s.airspace;
   o["tint"] = TINTS[s.tint];
+  o["scope"] = s.scope;
   o["sweep"] = s.sweep;
   o["feed"] = FEEDS[s.feed];
   o["fallback"] = s.fallback;
@@ -226,7 +237,9 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!number("tile_scale", n.tile_scale, 0, 2)) return fail("tile_scale");
   if (!flag("rings", n.rings)) return fail("rings");
   if (!flag("place_names", n.place_names)) return fail("place_names");
+  if (!flag("airspace", n.airspace)) return fail("airspace");
   if (!choice("tint", n.tint, TINTS)) return fail("tint");
+  if (!flag("scope", n.scope)) return fail("scope");
   if (!flag("sweep", n.sweep)) return fail("sweep");
   if (!choice("feed", n.feed, FEEDS)) return fail("feed");
   if (!flag("fallback", n.fallback)) return fail("fallback");

@@ -17,6 +17,7 @@ inline double radians(double d) { return d * PI / 180.0; }
 inline double degrees(double r) { return r * 180.0 / PI; }
 
 struct Pixel { double x, y; };
+struct Place { double lat, lon; };
 
 // World pixels of a place at `zoom`.
 inline Pixel world(double lat, double lon, double zoom) {
@@ -62,6 +63,12 @@ struct View {
     if (x < -size / 2) x += size;
     if (x > size / 2) x -= size;
     return {x, p.y - top};
+  }
+  // The place at (x, y) on the frame: point() the other way.
+  Place place(double x, double y) const {
+    const double size = TILE_PX * std::pow(2.0, zoom);
+    const double wx = left + x, wy = top + y;
+    return {degrees(std::atan(std::sinh(PI * (1 - 2 * wy / size)))), wx / size * 360.0 - 180.0};
   }
   double metres_per_px() const { return metres_per_pixel(lat, zoom); }
   // The farthest corner from the middle, in metres: how far a feed must be asked to cover the frame.

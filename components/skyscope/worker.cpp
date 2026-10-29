@@ -85,6 +85,9 @@ class Cache {
 // A tile that did not come is asked again after 2 s, then 4, 8 ... at most 60, while the others go on loading; one
 // that came but could not be read is fetched again at most this many times.
 constexpr uint32_t TILE_RETRY_FIRST_MS = 2000, TILE_RETRY_MOST_MS = 60000;
+// The FAA's airspace server is shared by everyone who asks it: a request that failed waits 30 s, then twice as long
+// each time it fails again, at most 15 minutes.
+constexpr uint32_t AIRSPACE_RETRY_FIRST_MS = 30000, AIRSPACE_RETRY_MOST_MS = 15 * 60000;
 constexpr int TILE_UNREADABLE_MOST = 3;
 struct Pending {
   size_t index;          // into the plan's keys
@@ -106,6 +109,8 @@ void Skyscope::worker_() {
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
   std::string receiver_url;  // the receiver's address the last request was for
   providers::Providers providers;
+  std::string airspace_asked;  // the requests (airspace.h Ask) the airspace shown answered
+  uint32_t airspace_due = 0, airspace_wait = 0;
   const int width = width_, height = height_;
   while (true) {
     bool online;
@@ -195,6 +200,54 @@ void Skyscope::worker_() {
       }
       std::lock_guard<std::mutex> guard(lock_);
       shared_.providers = providers;
+    }
+
+    // ---- The airspace and runways (airspace.h), once for each place and range while they are shown.
+    if (settings.airspace) {
+      const airspace::Ask ask = airspace::ask(plan.view, settings.range_nm);
+      if (ask.airspace + ask.runways != airspace_asked && (int32_t) (now - airspace_due) >= 0) {
+        auto map = std::make_shared<airspace::Map>();
+        std::vector<uint32_t> airports;
+        std::string error;
+        uint32_t bytes = 0;
+        JsonDocument doc;  // one feature's attributes at a time
+        ui::worker_phase = ui::AIRSPACE;
+        http::Result r = http::get(ask.airspace, body, airspace::MOST_REPLY_BYTES, agent_, "application/json");
+        const char *text = reinterpret_cast<const char *>(body.data);
+        bool ok = r.status == 200 && airspace::read_airspace(text, body.size, doc, *map, airports, error);
+        bytes += body.size;
+        if (ok && !ask.runways.empty()) {
+          body.clear();
+          r = http::get(ask.runways, body, airspace::MOST_REPLY_BYTES, agent_, "application/json");
+          text = reinterpret_cast<const char *>(body.data);
+          ok = r.status == 200 && airspace::read_runways(text, body.size, doc, airports, *map, error);
+          bytes += body.size;
+        }
+        if (r.status != 200) error = r.error;
+        ui::worker_phase = ui::IDLE;
+        body.clear();
+        if (body.room > 256 * 1024) body.release();
+        if (ok) {
+          airspace_asked = ask.airspace + ask.runways;
+          airspace_wait = 0;
+          ESP_LOGI(TAG, "Airspace: %u areas (%u points), %u runways, %u bytes%s", (unsigned) map->areas.size(),
+                   (unsigned) map->points.size(), (unsigned) map->runways.size(), (unsigned) bytes,
+                   map->cut ? ", not all of it" : "");
+        } else {
+          airspace_wait = std::min(AIRSPACE_RETRY_MOST_MS, airspace_wait ? airspace_wait * 2 : AIRSPACE_RETRY_FIRST_MS);
+          airspace_wait = std::max<uint32_t>(airspace_wait, r.retry_after_s * 1000);
+          airspace_due = millis() + airspace_wait;
+          ESP_LOGW(TAG, "Airspace: %s (HTTP %d), again in %u s", error.c_str(), r.status,
+                   (unsigned) (airspace_wait / 1000));
+        }
+        std::lock_guard<std::mutex> guard(lock_);
+        if (ok) {
+          shared_.airspace = std::move(map);
+          shared_.airspace_rev++;
+        }
+        shared_.airspace_error = ok ? std::string() : error;
+        shared_.airspace_bytes = bytes;
+      }
     }
 
     // Connections idle for half a minute are closed: each holds its TLS session's memory.

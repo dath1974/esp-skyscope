@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
@@ -51,6 +52,170 @@ static void test_geo() {
   const geo::View r(40.64, -73.78, z, 600, 450);
   CHECK(near(20 * geo::NM / r.metres_per_px(), 225, 0.5));
   CHECK(near(geo::metres_between(51.47, -0.4543, 40.64, -73.78) / 1000, 5540, 15));
+  // place() is point() the other way.
+  const geo::Place back = r.place(17, 431);
+  const geo::Pixel there = r.point(back.lat, back.lon);
+  CHECK(near(there.x, 17, 1e-6) && near(there.y, 431, 1e-6));
+  CHECK(near(r.place(300, 225).lat, 40.64, 1e-9) && near(r.place(300, 225).lon, -73.78, 1e-9));
+}
+
+static void test_scope() {
+  // The radar's scope is on unless switched off, and its beam turns only round it, on the radar.
+  Settings s;
+  CHECK(s.scope && s.sweep && s.map == RADAR && scope_shown(s) && sweeps(s));
+  s.scope = false;
+  CHECK(!scope_shown(s) && !sweeps(s));
+  s.scope = true;
+  s.sweep = false;
+  CHECK(scope_shown(s) && !sweeps(s));
+  s.sweep = true;
+  s.map = STREETS;
+  CHECK(!scope_shown(s) && !sweeps(s));
+  JsonDocument in;
+  deserializeJson(in, R"({"scope":false})");
+  std::string error;
+  CHECK(apply(in.as<JsonObjectConst>(), s, error) && !s.scope);
+  deserializeJson(in, R"({"scope":"off"})");
+  CHECK(!apply(in.as<JsonObjectConst>(), s, error) && error == "scope");
+  JsonDocument out;
+  to_json(s, out.to<JsonObject>());
+  CHECK(out["scope"] == false);
+}
+
+static void test_airspace() {
+  // What a frame asks for: its box with a margin, Class B, C and D, and runways only up to RUNWAY_RANGE_NM.
+  Settings s;
+  s.lat = 42.36;
+  s.lon = -71.01;
+  s.range_nm = 30;
+  const tiles::Plan p = tiles::plan(s, 450, 600, 1);
+  const airspace::Box b = airspace::box_of(p.view);
+  CHECK(b.south < 42.36 - 0.5 && b.north > 42.36 + 0.5 && b.west < -71.01 - 0.5 && b.east > -71.01 + 0.5);
+  CHECK(b.north - b.south < 2.5);
+  const airspace::Ask ask = airspace::ask(p.view, s.range_nm);
+  CHECK(ask.airspace.find("Class_Airspace/FeatureServer/0/query?where=CLASS%20IN%20(%27B%27,%27C%27,%27D%27)") !=
+        std::string::npos);
+  CHECK(ask.airspace.find("&maxAllowableOffset=0.0") != std::string::npos);
+  CHECK(ask.airspace.find("&f=json") != std::string::npos);
+  CHECK(ask.runways.find("Runways/FeatureServer/0/query?where=LENGTH%3E%3D2500&") != std::string::npos);
+  CHECK(ask.runways.find("maxAllowableOffset") == std::string::npos);
+  CHECK(airspace::ask(p.view, 81).runways.empty());
+  // The same frame asks the same way: the address is what a reply is kept by.
+  CHECK(airspace::ask(tiles::plan(s, 450, 600, 1).view, s.range_nm).airspace == ask.airspace);
+
+  // A reply of airspace, as ADDS writes it (trimmed): a Class B with a hole, a Class D, and what is passed over: a
+  // Class E, a feature with no shape, a point with a height.
+  const std::string areas = R"({"objectIdFieldName":"OBJECTID","geometryType":"esriGeometryPolygon","fields":[{"name":"CLASS"}],
+    "features":[
+     {"attributes":{"CLASS":"B","ADHP_ID":"8A175D7D-C058-4D14-A55F-D354936393D2"},
+      "geometry":{"rings":[[[-71.2,42.2],[-70.8,42.2],[-70.8,42.5],[-71.2,42.5],[-71.2,42.2]],[[-71.1,42.3],[-71.0,42.3],[-71.0,42.4,0],[-71.1,42.3]]]}},
+     {"attributes":{"CLASS":"D","ADHP_ID":"518881FD-886B-407F-BEF1-E199641186ED"},
+      "geometry":{"rings":[[[-71.9,42.2],[-71.8,42.3],[-71.9,42.3],[-71.9,42.2]]]}},
+     {"attributes":{"CLASS":"E","ADHP_ID":"00000000-0000-0000-0000-000000000000"},"geometry":{"rings":[[[-71,42],[-70,42],[-71,42]]]}},
+     {"attributes":{"CLASS":"C"}}
+    ],"exceededTransferLimit":true})";
+  airspace::Map map;
+  std::vector<uint32_t> airports;
+  JsonDocument doc;
+  std::string error;
+  CHECK(airspace::read_airspace(areas.c_str(), areas.size(), doc, map, airports, error));
+  CHECK(map.areas.size() == 3 && map.points.size() == 13 && map.cut && airports.size() == 2);
+  CHECK(map.areas[0].cls == airspace::CLASS_B && map.areas[0].count == 5 && map.areas[1].first == 5);
+  CHECK(map.areas[2].cls == airspace::CLASS_D);
+  CHECK(near(map.points[9].lat, 42.2, 1e-5) && near(map.points[9].lon, -71.9, 1e-5));
+
+  // Runways: Boston's 15R/33L as its outline, the line down its middle from end to end; at an airport of the
+  // airspace's, so towered. Another airport's is not.
+  const std::string runways = R"({"features":[
+     {"attributes":{"AIRPORT_ID":"8A175D7D-C058-4D14-A55F-D354936393D2","LENGTH":10083},
+      "geometry":{"rings":[[[-70.99178,42.35451],[-71.01809,42.37413],[-71.0177,42.37442],[-70.99139,42.3548],[-70.99178,42.35451]]]}},
+     {"attributes":{"AIRPORT_ID":"20CEC5FA-A9B3-4C3A-AE66-654BD00F2200","LENGTH":3654},
+      "geometry":{"rings":[[[-71.3,42.1],[-71.3,42.11],[-71.2999,42.11],[-71.2999,42.1],[-71.3,42.1]]]}}]})";
+  CHECK(airspace::read_runways(runways.c_str(), runways.size(), doc, airports, map, error));
+  CHECK(map.runways.size() == 2);
+  const airspace::Runway &r = map.runways[0];
+  CHECK(r.towered && r.length_ft == 10083 && airspace::lengthened(r));
+  CHECK(near(geo::metres_between(r.a.lat, r.a.lon, r.b.lat, r.b.lon) / 0.3048, 10083, 60));
+  const double mid_lat = (r.a.lat + r.b.lat) / 2, mid_lon = (r.a.lon + r.b.lon) / 2;
+  CHECK(near(mid_lat, 42.364465, 1e-4) && near(mid_lon, -71.00474, 1e-4));
+  CHECK(std::min(r.a.lat, r.b.lat) < 42.3548 && std::max(r.a.lat, r.b.lat) > 42.3741);
+  CHECK(!map.runways[1].towered && !airspace::lengthened(map.runways[1]));
+  CHECK(near(geo::metres_between(map.runways[1].a.lat, map.runways[1].a.lon, map.runways[1].b.lat, map.runways[1].b.lon),
+             1112, 5));
+
+  // The server's own word for a bad query; a reply that is no JSON, or cut short.
+  const std::string refused = R"({"error":{"code":400,"message":"Cannot perform query. Invalid query parameters.","details":[]}})";
+  airspace::Map none;
+  CHECK(!airspace::read_airspace(refused.c_str(), refused.size(), doc, none, airports, error));
+  CHECK(error == "ADDS: Cannot perform query. Invalid query parameters.");
+  for (const std::string &bad : {std::string("<html>"), std::string(""), areas.substr(0, areas.size() / 2),
+                                std::string(R"({"features":[{"attributes":{"CLASS":"B"},"geometry":{"rings":[[["x",1]]]}}]})")}) {
+    error.clear();
+    CHECK(!airspace::read_airspace(bad.c_str(), bad.size(), doc, none, airports, error) && !error.empty());
+  }
+
+  // Lines straight into the frame: covered along the line and across its width, nothing past its ends or beside it,
+  // smoothed at its edges; a line far off the frame, or through it from far off, is cut to it.
+  {
+    const int w = 60, h = 40;
+    std::vector<uint16_t> f(w * h, 0);
+    const uint16_t white = pixels::rgb565(0xFFFFFF);
+    CHECK(white == 0xFFFF && pixels::rgb565(0xFF0000) == 0xF800 && pixels::rgb565(0x0000FF) == 0x001F);
+    pixels::line(f.data(), w, h, 10, 10, 40, 10, white, 2);
+    CHECK(f[10 * w + 25] == white && f[10 * w + 10] == white && f[10 * w + 40] == white);
+    CHECK(f[13 * w + 25] == 0 && f[10 * w + 43] == 0 && f[10 * w + 6] == 0);
+    CHECK(f[11 * w + 25] != 0 && f[12 * w + 25] != white);  // a smoothed edge, not a hard one
+    pixels::line(f.data(), w, h, 5, 30, 25, 20, white, 1);
+    CHECK(f[25 * w + 15] != 0);
+    std::fill(f.begin(), f.end(), 0);
+    pixels::line(f.data(), w, h, -1e9f, -5e8f, 1e9f, 5e8f, white, 3);
+    pixels::line(f.data(), w, h, -1e9f, 20, 1e9f, 20, white, 1);
+    pixels::line(f.data(), w, h, 1e6f, 1e6f, 2e6f, 2e6f, white, 1);
+    CHECK(f[20 * w + 0] == white && f[20 * w + 59] == white && f[0] == white && f[39 * w] == 0 && f[39 * w + 59] == 0);
+  }
+  // Dashes: as many as fit, the pattern carried from one piece to the next; never stuck, whatever the pattern's phase.
+  {
+    int count = 0;
+    double phase = 0, drawn = 0;
+    auto on = [&](geo::Pixel a, geo::Pixel b) { ++count, drawn += b.x - a.x; };
+    airspace::detail::dashes({0, 0}, {100, 0}, 6, 4, phase, on);
+    CHECK(count == 10 && near(drawn, 60, 1e-9) && near(phase, 0, 1e-9));
+    count = 0;
+    airspace::detail::dashes({0, 0}, {3, 0}, 6, 4, phase, on);
+    airspace::detail::dashes({3, 0}, {13, 0}, 6, 4, phase, on);
+    CHECK(count == 3 && near(phase, 3, 1e-9));  // 0-3, 3-6, then 10-13
+    for (int i = 0; i < 20000; ++i) {
+      double p = std::nextafter(6.0 * (i % 7), 0.0) + i * 1e-13;
+      airspace::detail::dashes({0, 0}, {900 + i * 0.37, 20 + i * 0.11}, 9, 6, p, [](geo::Pixel, geo::Pixel) {});
+    }
+  }
+  // The map drawn: the Class B's edge in its colour, the D's in dashes, the long towered runway and its centerline
+  // out past its end; nothing in the middle of an area.
+  {
+    Settings at;
+    at.lat = 42.36;
+    at.lon = -71.01;
+    at.range_nm = 30;
+    const geo::View v = tiles::plan(at, 450, 600, 1).view;
+    std::vector<uint16_t> f(450 * 600, 0);
+    const airspace::Ink ink{0xF800, 0x07E0, 0x001F, 0xFFFF, 0x8410, 1, 2, 9, 6};
+    airspace::draw(f.data(), v, map, ink);
+    auto at_place = [&](double lat, double lon) {
+      const geo::Pixel p = v.point(lat, lon);
+      return f[(int) std::lround(p.y) * 450 + (int) std::lround(p.x)];
+    };
+    CHECK(at_place(42.2, -71.0) == 0xF800);  // the Class B's south edge
+    CHECK(at_place(42.45, -70.95) == 0);     // inside it, between its edge and its hole
+    CHECK(at_place(42.364465, -71.00474) == 0xFFFF);  // the runway's middle
+    const geo::Pixel a = v.point(r.a.lat, r.a.lon), b = v.point(r.b.lat, r.b.lon);
+    const double len = std::hypot(b.x - a.x, b.y - a.y), nm = geo::NM / v.metres_per_px();
+    int lit = 0;
+    for (double d = 1; d < 9 * nm; d += 1) {
+      const int x = (int) std::lround(b.x + (b.x - a.x) / len * d), y = (int) std::lround(b.y + (b.y - a.y) / len * d);
+      if (x >= 0 && x < 450 && y >= 0 && y < 600) lit += f[y * 450 + x] != 0;
+    }
+    CHECK(lit > 3 * nm && lit < 6 * nm);  // dashed: about half of it
+  }
 }
 
 static void test_settings() {
@@ -833,6 +998,8 @@ static void test_firmware() {
 int main(int argc, char **argv) {
   test_geo();
   test_settings();
+  test_scope();
+  test_airspace();
   test_feed();
   test_tiles();
   test_overlay();

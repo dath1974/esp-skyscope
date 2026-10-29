@@ -13,7 +13,9 @@ stays for --restore to put back.
 It never prints the screen's place. Python's standard library only. Nothing here installs firmware but --install.
 
 - always: the page, the settings (round trip, wrong values refused and nothing changed), status, aircraft, firmware
-  check against the published manifest, the debug switch, unknown paths;
+  check against the published manifest, the debug switch, unknown paths; the FAA's airspace at a test place (New York
+  JFK): its areas and runways read near, the runways left out far, memory and the loop's longest gap after drawing it,
+  how long it takes to draw; the radar without its scope in each phosphor, and no beam turning then;
 - touches (unless --no-touch, or the firmware is built with `test_api: false`), through /api/touch and /api/ui: a
   long press opens the menu; its arrows step a value without applying it; Cancel drops it and Save applies it; the
   paging arrows scroll; another appearance rebuilds the menu in its colours; Check asks the update server, and
@@ -144,7 +146,7 @@ def test_basics(screen: Screen, run: Run, original: dict):
     run.check(screen.call("/api/nothing")[0] == 404, "an unknown path is 404")
 
     print("Settings")
-    for key in ("lat", "lon", "range_nm", "map", "feed", "timezone", "watch"):
+    for key in ("lat", "lon", "range_nm", "map", "feed", "timezone", "watch", "airspace"):
         run.check(key in original, f"settings have {key}")
     track = 60 if original.get("track_s") != 60 else 30
     status, changed = screen.json("/api/settings", {"track_s": track})
@@ -936,6 +938,51 @@ def test_maps(screen: Screen, run: Run, original: dict):
     screen.json("/api/settings", {"map": original["map"]})
 
 
+def test_airspace(screen: Screen, run: Run, original: dict):
+    print("Airspace (the FAA's, at a test place)")
+    base = {**TEST_PLACE, "place": "TEST", "map": "radar", "airspace": True}
+    for nm, runways in ((30, True), (250, False)):
+        # The screen's own airspace may be shown already (it keeps the last until the next comes): this place's is a
+        # reply after this change.
+        before = screen.json("/api/status")[1]["airspace_rev"]
+        status, _ = screen.json("/api/settings", {**base, "range_nm": nm})
+        if not run.check(status == 200, f"{nm} NM: taken"):
+            continue
+        # The worker asks once the new plan reaches it: the FAA's server takes a few seconds to answer.
+        def read():
+            s = screen.json("/api/status")[1]
+            fresh = s["airspace_rev"] != before
+            return s if fresh and s["airspace_areas"] > 0 and (s["airspace_runways"] > 0) == runways else None
+
+        s = wait_for(read, 60)
+        last = screen.json("/api/status")[1]
+        if not run.check(s is not None, f"{nm} NM: {last['airspace_areas']} areas, {last['airspace_runways']} runways "
+                         f"in {last['airspace_bytes'] // 1024} KB", last["airspace_error"] or "nothing came"):
+            continue
+        run.check(not last["airspace_error"], f"{nm} NM: no error", last["airspace_error"])
+        time.sleep(6)  # drawn, and a few seconds of the loop after it
+        last = screen.json("/api/status")[1]
+        run.check(last["heap_free"] >= HEAP_LEAST, f"{nm} NM: internal RAM free {last['heap_free'] // 1024} KB")
+        run.check(last["loop_gap_max_ms"] < 1000, f"{nm} NM: the loop's longest gap {last['loop_gap_max_ms']} ms")
+        run.check(last["airspace_draw_ms"] < 500, f"{nm} NM: drawn in {last['airspace_draw_ms']} ms")
+    # The radar without its scope: the airspace and the planes alone, in each phosphor.
+    for tint in ("green", "amber", "blue", "white"):
+        status, answer = screen.json("/api/settings", {"scope": False, "tint": tint})
+        run.check(status == 200 and answer["scope"] is False and answer["tint"] == tint, f"no scope, {tint}: taken")
+    time.sleep(11)  # the steps a second are counted over five, reported as each five ends
+    s = screen.json("/api/status")[1]
+    run.check(s["sweep_steps_per_s"] == 0, "and no beam turns without it", f"{s['sweep_steps_per_s']} steps a second")
+    status, answer = screen.json("/api/settings", {"scope": True})
+    run.check(status == 200 and answer["scope"] is True, "the scope back")
+    status, answer = screen.json("/api/settings", {"airspace": False})
+    run.check(status == 200 and answer["airspace"] is False, "switched off")
+    time.sleep(3)
+    s = screen.json("/api/status")[1]
+    run.check(s["loop_gap_max_ms"] < 1000 and s["heap_free"] >= HEAP_LEAST, "and the screen goes on without it")
+    screen.json("/api/settings", {k: original[k] for k in ("lat", "lon", "place", "range_nm", "map", "airspace", "scope",
+                                                          "tint")})
+
+
 def test_reboot(screen: Screen, run: Run, original: dict):
     print("Restart")
     screen.json("/api/reboot", {})
@@ -1058,6 +1105,7 @@ def main():
     try:
         test_basics(screen, run, original)
         test_firmware(screen, run)
+        test_airspace(screen, run, original)
         if not args.no_touch:
             test_touch(screen, run, original)
         if args.maps:

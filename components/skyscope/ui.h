@@ -29,8 +29,9 @@ inline FrameStats frame_stats;  // of the last five seconds
 
 // What the worker is doing, so a slow frame can be put down to it, and the slow frames (over SLOW_MS) by what it was
 // doing as they started, since the screen started: /api/status.
-enum Phase : uint8_t { IDLE, FEED_FETCH, FEED_PARSE, TILE_FETCH, TILE_DECODE, PHASES };
-inline const char *const PHASE_NAMES[PHASES] = {"idle", "feed_fetch", "feed_parse", "tile_fetch", "tile_decode"};
+enum Phase : uint8_t { IDLE, FEED_FETCH, FEED_PARSE, TILE_FETCH, TILE_DECODE, AIRSPACE, PHASES };
+inline const char *const PHASE_NAMES[PHASES] = {"idle", "feed_fetch", "feed_parse", "tile_fetch", "tile_decode",
+                                                "airspace"};
 inline volatile uint8_t worker_phase = IDLE;
 constexpr float SLOW_MS = 150;
 inline uint32_t slow_frames[PHASES] = {};

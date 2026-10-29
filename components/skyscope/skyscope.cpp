@@ -208,6 +208,7 @@ void Skyscope::use_settings_(const Settings &s) {
                              s.theme != settings_.theme || s.map_brightness != settings_.map_brightness ||
                              s.tile_scale != settings_.tile_scale ||
                              s.rings != settings_.rings || s.tint != settings_.tint || s.located != settings_.located ||
+                             s.scope != settings_.scope ||
                              s.place_names != settings_.place_names;
   if (s.lat != settings_.lat || s.lon != settings_.lon) tracks_.clear();
   const bool new_zone = s.timezone != settings_.timezone;
@@ -219,8 +220,10 @@ void Skyscope::use_settings_(const Settings &s) {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.settings = settings_;
     shared_.settings_rev++;
+    // The new frame in the same turn of the lock: the worker never sees the settings without the frame they make (it
+    // asked for the airspace of the old place once, with the airspace just switched on).
+    if (frame_changed) replan_locked_();
   }
-  if (frame_changed) replan_();
   restyle_();
   // The planes again, in the new style.
   seen_flights_rev_ = AGAIN;
@@ -267,10 +270,14 @@ void Skyscope::restyle_() {
 }
 
 void Skyscope::replan_() {
+  std::lock_guard<std::mutex> guard(lock_);
+  replan_locked_();
+}
+
+void Skyscope::replan_locked_() {
   if (width_ <= 0) return;
   const int scale = settings_.tile_scale ? settings_.tile_scale : tile_scale_;
   plan_ = tiles::plan(settings_, width_, height_, scale);
-  std::lock_guard<std::mutex> guard(lock_);
   shared_.plan = plan_;
   plan_rev_ = ++shared_.plan_rev;
 }
@@ -698,22 +705,28 @@ void Skyscope::on_dimmer_(lv_event_t *e) {
 }
 
 void Skyscope::update_frame_() {
-  uint32_t frame_rev, frame_plan_rev;
+  uint32_t frame_rev, frame_plan_rev, airspace_rev;
   int done, total;
+  std::shared_ptr<const airspace::Map> airspace;
   {
     std::lock_guard<std::mutex> guard(lock_);
     frame_rev = shared_.frame_rev;
     frame_plan_rev = shared_.frame_plan_rev;
     done = shared_.tiles_done;
     total = shared_.tiles_total;
+    airspace_rev = shared_.airspace_rev;
+    if (settings_.airspace) airspace = shared_.airspace;
   }
   const bool radar = settings_.map == RADAR;
   const bool new_plan = framed_plan_rev_ != plan_rev_;
+  // The airspace came, or was switched on or off: the frame again, with it or without.
+  const bool new_airspace =
+      settings_.airspace != drawn_airspace_ || (settings_.airspace && airspace_rev != drawn_airspace_rev_);
   // The radar draws itself; a map waits for its worker to start on the new plan.
-  if (!radar && (frame_plan_rev != plan_rev_ || frame_rev == seen_frame_rev_)) return;
-  if (radar && !new_plan) return;
+  if (!radar && (frame_plan_rev != plan_rev_ || (frame_rev == seen_frame_rev_ && !new_airspace))) return;
+  if (radar && !new_plan && !new_airspace) return;
   const uint32_t now = millis();
-  if (!radar && !new_plan && done < total && now - copied_at_ < FRAME_EVERY_MS) return;
+  if (!radar && !new_plan && !new_airspace && done < total && now - copied_at_ < FRAME_EVERY_MS) return;
   if (radar) {
     lv_canvas_fill_bg(canvas_, lv_color_hex(colours::tint(settings_.tint).ground), LV_OPA_COVER);
   } else {
@@ -723,13 +736,22 @@ void Skyscope::update_frame_() {
   }
   seen_frame_rev_ = frame_rev;
   copied_at_ = now;
-  if (settings_.rings || radar) {
+  const scope::Look look{radar, settings_.tint, settings_.theme == LIGHT};
+  if (airspace) {
+    const int64_t from = esp_timer_get_time();
+    airspace::draw(canvas_buffer_, plan_.view, *airspace, scope::airspace_ink(look));
+    airspace_draw_ms_ = (esp_timer_get_time() - from) / 1000.0f;
+  }
+  drawn_airspace_ = settings_.airspace;
+  drawn_airspace_rev_ = airspace_rev;
+  // The scope on the radar (unless it is switched off), the rings over a map.
+  if (radar ? scope_shown(settings_) : settings_.rings) {
     lv_layer_t layer;
     lv_canvas_init_layer(canvas_, &layer);
-    scope::draw(&layer, plan_.view, {radar, settings_.tint, settings_.theme == LIGHT});
+    scope::draw(&layer, plan_.view, look);
     lv_canvas_finish_layer(canvas_, &layer);
   }
-  if (radar && settings_.sweep) {
+  if (sweeps(settings_)) {
     const size_t bytes = (size_t) width_ * height_ * 2;
     if (!scope_background_)
       scope_background_ = static_cast<uint16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -778,7 +800,7 @@ void Skyscope::update_planes_(uint32_t now) {
     o.radar.x = width_ / 2;
     o.radar.y = height_ / 2;
     o.radar.rose = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0);
-    o.radar.sweep = settings_.sweep;
+    o.radar.sweep = sweeps(settings_);
   }
   shown_count_ = o.planes.size();
   view::show(view_, planes_, o);
@@ -849,7 +871,7 @@ void Skyscope::update_status_(uint32_t now) {
     set_text(setup_body_, body);
     return;
   }
-  std::string status, tile_error;
+  std::string status, tile_error, airspace_error;
   providers::Providers sources;
   Feed source = ADSB_FI;
   uint32_t feed_at;
@@ -859,6 +881,7 @@ void Skyscope::update_status_(uint32_t now) {
     sources = shared_.providers;
     source = shared_.feed_source;
     tile_error = shared_.tile_error;
+    airspace_error = shared_.airspace_error;
     feed_at = shared_.feed_at;
     done = shared_.tiles_done;
     total = shared_.tiles_total;
@@ -873,6 +896,8 @@ void Skyscope::update_status_(uint32_t now) {
   address_until_ = 0;
   // The credits: the map's, and the exchange the planes come from.
   std::string credit = tiles::credit(settings_);
+  if (settings_.airspace && credit.find("FAA") == std::string::npos)
+    credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "FAA";
   if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
   set_text(credit_, credit);
   const Feed preferred = settings_.feed;
@@ -914,6 +939,10 @@ void Skyscope::update_status_(uint32_t now) {
     } else if (done < total) {
       status += "  \xC2\xB7  map " + std::to_string(done) + "/" + std::to_string(total);
     }
+  }
+  if (settings_.airspace && !airspace_error.empty()) {
+    status += "  \xC2\xB7  airspace: " + airspace_error;
+    colour = colour == ink ? colours::WARNING : colour;
   }
   set_text(status_, status);
   set_status_colour_(colour);

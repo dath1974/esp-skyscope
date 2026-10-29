@@ -1,10 +1,12 @@
 // Range rings and a compass rose round the middle of the frame, drawn once into the map's canvas whenever the frame
 // changes. On the radar they are a lit phosphor on the dark tube, with bearing lines every 30 degrees; over a map of
-// tiles they are thin ink, so the map stays readable.
+// tiles they are thin ink, so the map stays readable. The airspace goes under them: in the phosphor on the radar, in
+// the charts' blue and magenta over a map.
 #include "scope.h"
 #include "colours.h"
 #include "ui.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -140,5 +142,25 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
   const uint32_t cross = radar ? tint.hot : pal.ink;
   line(layer, {(lv_value_precise_t) (cx - arm), (lv_value_precise_t) cy}, {(lv_value_precise_t) (cx + arm), (lv_value_precise_t) cy}, cross, thin, LV_OPA_COVER);
   line(layer, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy - arm)}, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy + arm)}, cross, thin, LV_OPA_COVER);
+}
+
+airspace::Ink airspace_ink(const Look &look) {
+  const colours::Tint &tint = colours::tint(look.tint);
+  const colours::AirspaceInk &ink = colours::airspace_ink(look.light);
+  const colours::Palette &pal = colours::palette(look.light);
+  auto pick = [&](float share, uint32_t on_map) {
+    return pixels::rgb565(look.radar ? colours::glow_share(tint, share) : on_map);
+  };
+  airspace::Ink out;
+  out.b = pick(colours::share::CLASS_B, ink.b);
+  out.c = pick(colours::share::CLASS_C, ink.c);
+  out.d = pick(colours::share::CLASS_D, ink.d);
+  out.runway = pick(colours::share::RUNWAY, pal.ink);
+  out.centerline = pick(colours::share::CENTERLINE, pal.muted);
+  out.thin = std::max(1.0f, ui::density);
+  out.wide = std::max(2.0f, 2 * ui::density);
+  out.dash = (float) ui::px(6);
+  out.gap = (float) ui::px(4);
+  return out;
 }
 }  // namespace sky::scope

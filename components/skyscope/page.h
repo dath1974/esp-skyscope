@@ -50,7 +50,10 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div data-for="radar"><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
 <label class="check" data-for="streets satellite"><input type="checkbox" id="place_names" name="place_names"> Place names</label>
 <label class="check"><input type="checkbox" id="rings" name="rings"> Range rings and compass rose</label>
-<label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
+<label class="check"><input type="checkbox" id="airspace" name="airspace"> Airspace and runways (FAA, United States)</label>
+<p class="hint">Class B, C and D airspace outlines and runways, with dashed centerlines at towered airports, as a controller's scope shows them. Asked from the FAA once for each place and range. Not for navigation.</p>
+<label class="check" data-for="radar"><input type="checkbox" id="scope" name="scope"> Radar scope: glow, bearing lines, range rings and rose (off: only the planes and the airspace)</label>
+<label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps (with the scope)</label>
 </section>
 <section><h2>Aircraft</h2>
 <div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">Your own receiver</option></select></div>
@@ -107,7 +110,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
-const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake'];
+const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake'];
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);

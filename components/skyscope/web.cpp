@@ -26,6 +26,7 @@
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <fcntl.h>
 #include <lwip/sockets.h>
 
@@ -119,6 +120,11 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["name"] = App.get_name();
     out["version"] = version_;
     out["uptime_s"] = millis() / 1000;
+    // Why it last started: a crash or a watchdog shows here, as the screen keeps no log.
+    static const char *const REASONS[] = {"unknown", "power_on", "external", "software", "panic", "interrupt_watchdog",
+                                          "task_watchdog", "watchdog", "deep_sleep", "brownout", "sdio"};
+    const unsigned reason = esp_reset_reason();
+    out["reset_reason"] = reason < sizeof(REASONS) / sizeof(REASONS[0]) ? REASONS[reason] : "other";
     out["asleep"] = asleep_;
 #ifdef USE_TIME
     if (clock_) {
@@ -172,6 +178,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["beam_paint_ms"] = std::round(paint_ms_ * 10) / 10;
     out["report_ms"] = std::round(report_ms_ * 10) / 10;
     out["report_ms_max"] = std::round(report_ms_max_ * 10) / 10;
+    out["airspace_draw_ms"] = std::round(airspace_draw_ms_ * 10) / 10;
     JsonObject slow = out["slow_frames"].to<JsonObject>();
     for (int p = 0; p < ui::PHASES; ++p) slow[ui::PHASE_NAMES[p]] = ui::slow_frames[p];
     slow["after_report"] = ui::slow_with_report;
@@ -204,6 +211,12 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["tiles_total"] = shared_.tiles_total;
     out["tile_error"] = shared_.tile_error;
     out["tile_zoom"] = shared_.plan.tile_z;
+    // The airspace shown (airspace.h): its areas and runways, its replies' bytes, and why the last request failed.
+    out["airspace_areas"] = shared_.airspace ? shared_.airspace->areas.size() : 0;
+    out["airspace_runways"] = shared_.airspace ? shared_.airspace->runways.size() : 0;
+    out["airspace_bytes"] = shared_.airspace_bytes;
+    out["airspace_rev"] = shared_.airspace_rev;  // counts the replies taken: a new place's is a new one
+    out["airspace_error"] = shared_.airspace_error;
     out["zoom"] = shared_.plan.view.zoom;
     send_json(request, 200, out);
     return;

@@ -24,11 +24,13 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "lvgl.h"
+#include "airspace.h"
 #include "beam.h"
 #include "feed.h"
 #include "firmware.h"
@@ -102,6 +104,11 @@ class Skyscope : public Component, public AsyncWebHandler {
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
     uint32_t feed_every_ms = 0;
     size_t cached_tiles = 0;  // the worker's tile cache, entries  // how often the feed is asked: refresh_s, or less often when its limits say so
+    // The airspace and runways of the last place and range asked (airspace.h), which may be an earlier frame's while a
+    // new one comes, and why the last request failed.
+    std::shared_ptr<const airspace::Map> airspace;
+    uint32_t airspace_rev = 0, airspace_bytes = 0;
+    std::string airspace_error;
     // loop -> web: the firmware on the update server (web.cpp), as the update entity last told it.
     struct Firmware {
       bool known = false;  // a manifest was read
@@ -166,6 +173,7 @@ class Skyscope : public Component, public AsyncWebHandler {
   void save_settings_();
   void use_settings_(const Settings &s);  // on the loop
   void replan_();
+  void replan_locked_();  // replan_() with lock_ held
   // Firmware from the update server (web.cpp): its state to the page, and the install.
   void firmware_changed_();
   void install_firmware_();
@@ -196,6 +204,10 @@ class Skyscope : public Component, public AsyncWebHandler {
   // none).
   static constexpr uint32_t AGAIN = UINT32_MAX;
   uint32_t seen_flights_rev_{AGAIN}, tracked_rev_{0}, seen_frame_rev_{0}, framed_plan_rev_{0}, copied_at_{0};
+  // The airspace drawn into the frame: the worker's map of it, and whether it was shown at all.
+  uint32_t drawn_airspace_rev_{0};
+  bool drawn_airspace_{false};
+  float airspace_draw_ms_{0};  // how long the last drawing of it took, on the loop
   std::vector<feed::Flight> flights_;
   overlay::Tracks tracks_;
   std::string picked_;
