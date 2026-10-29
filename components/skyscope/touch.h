@@ -41,17 +41,24 @@ inline uint32_t length(const Script &s) {
   return ms;
 }
 
-// Plays a script from `start`: at any time after, where the finger is and whether it is down. Before a script and after
-// one, up where it was last.
+// Plays a script: at any time after, where the finger is and whether it is down. Before a script and after one, up where
+// it was last. It starts at the first read after it is given, not when it is given: on a loop slower than a tap (a busy
+// sky, a map being drawn) a press could otherwise come and go between two reads, never seen. After that it goes by the
+// clock, as a finger does: points of a drag a slow loop does not read are passed over.
 class Player {
  public:
-  void play(const Script &s, uint32_t start) {
+  void play(const Script &s) {
     script_ = s;
-    start_ = start;
+    started_ = false;
   }
-  bool busy(uint32_t now) const { return !script_.empty() && now - start_ < length(script_); }
+  // Until a read finds it over.
+  bool busy() const { return !script_.empty(); }
   Step at(uint32_t now) {
     if (script_.empty()) return last_;
+    if (!started_) {
+      started_ = true;
+      start_ = now;
+    }
     uint32_t t = now - start_;
     for (const Step &step : script_) {
       if (t < step.ms) return last_ = step;
@@ -65,6 +72,7 @@ class Player {
 
  private:
   Script script_;
+  bool started_ = false;
   uint32_t start_ = 0;
   Step last_{};
 };

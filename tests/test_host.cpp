@@ -752,13 +752,16 @@ static void test_touch() {
   // A tap: down where it is for a moment, then up there.
   Player p;
   CHECK(!p.at(0).pressed);
-  p.play(tap(10, 20), 1000);
-  CHECK(p.busy(1000) && p.at(1000).pressed && p.at(1000).x == 10 && p.at(1050).y == 20);
-  CHECK(!p.at(1100).pressed);  // up after 80 ms
-  CHECK(!p.busy(1200) && !p.at(1200).pressed && p.at(1200).x == 10);
+  p.play(tap(10, 20));
+  CHECK(p.busy() && p.at(1000).pressed && p.at(1000).x == 10 && p.at(1050).y == 20);
+  CHECK(!p.at(1100).pressed && p.busy());  // up after 80 ms, for 60
+  CHECK(!p.at(1200).pressed && p.at(1200).x == 10 && !p.busy());
+  // On a loop slower than a tap, not lost: it starts at the first read, however late, and is up at the next.
+  p.play(tap(3, 3));
+  CHECK(p.busy() && p.at(500).pressed && !p.at(900).pressed && !p.busy());
   // A hold of a second and a half is down all that time.
-  p.play(hold(5, 5, 1500), 0);
-  CHECK(p.at(1499).pressed && !p.at(1500).pressed);
+  p.play(hold(5, 5, 1500));
+  CHECK(p.at(0).pressed && p.at(1499).pressed && !p.at(1500).pressed);
   CHECK(gesture("hold", 1, 1, -1, -1, 0)[0].ms == 1200);  // a long press unless it says
   // A drag goes from its start to its end, down all the way, each point further on, and lifts at the end.
   const Script d = drag(100, 400, 100, 100, 600);
@@ -773,8 +776,8 @@ static void test_touch() {
   CHECK(down && nearer && last == 100);
   CHECK(length(d) >= 600 && length(d) < 800);
   // Across millis() wrapping.
-  p.play(tap(1, 1), 0xFFFFFFF0u);
-  CHECK(p.at(0x10).pressed && !p.busy(0x200));
+  p.play(tap(1, 1));
+  CHECK(p.at(0xFFFFFFF0u).pressed && p.at(0x10).pressed && !p.at(0x40).pressed && !p.at(0x80).pressed && !p.busy());
   CHECK(gesture("swipe", 0, 0, 0, 0, 0).empty());
 }
 

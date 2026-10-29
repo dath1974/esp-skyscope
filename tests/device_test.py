@@ -228,7 +228,10 @@ class Glass:
         status, answer = self.screen.json("/api/touch", {"gesture": gesture, "x": x, "y": y, **more})
         if status != 200:
             return False
-        time.sleep(answer["ms"] / 1000 + 0.25)  # done, and a loop or two after it
+        time.sleep(answer["ms"] / 1000)
+        # On a slow loop the screen draws a touch out (touch.h): until it has had all of it, and a loop or two after.
+        wait_for(lambda: not self.ui().get("touching"), 15, 0.1)
+        time.sleep(0.25)
         return True
 
     def tap(self, x, y):
@@ -364,13 +367,21 @@ def test_touch(screen: Screen, run: Run, original: dict):
     run.check(glass.close_menu("cancel"), "the menu closes")
     run.check(not differing(screen, original), "with nothing applied", differing(screen, original))
 
-    # A plane's card.
-    ui = glass.ui()
-    planes = [p for p in ui["planes"] if 40 < p["x"] < ui["width"] - 80 and 60 < p["y"] < ui["height"] - 40]
-    if planes:
+    # A plane's card. One the feed drops as it is tapped (out of range, no longer heard) takes its card with it: then
+    # another, a few times.
+    for _ in range(3):
+        ui = glass.ui()
+        planes = [p for p in ui["planes"] if 40 < p["x"] < ui["width"] - 80 and 60 < p["y"] < ui["height"] - 40]
+        if not planes:
+            break
         p = planes[0]
         glass.tap(p["x"], p["y"])
         ui = glass.ui()
+        if ui.get("card") or any(q["id"] == p["id"] for q in ui["planes"]):
+            break
+        if ui["picked"]:
+            glass.tap(*glass.clear_spot(ui) or (10, 10))  # let go of the plane gone
+    if planes:
         run.check(bool(ui.get("card")) and ui["picked"] != "", "a tap on a plane opens its card")
         glass.tap(p["x"], p["y"]) if ui["picked"] == p["id"] else glass.tap(*glass.clear_spot(ui) or (10, 10))
         run.check(not glass.ui().get("card"), "and a second tap closes it")
@@ -384,7 +395,8 @@ def test_touch(screen: Screen, run: Run, original: dict):
         # A tap turns the address on or off: one already shown is let go first (it goes by itself in 6 s).
         wait_for(lambda: "http://" not in glass.ui()["status"], 10, 0.5)
         glass.tap(*spot)
-        run.check("http://" in glass.ui()["status"], "a tap on the map shows the screen's address")
+        run.check(wait_for(lambda: "http://" in glass.ui()["status"], 2, 0.2) is not None,
+                  "a tap on the map shows the screen's address")
         glass.tap(*spot)
     else:
         print("  (no clear spot on the map for a tap)")
@@ -397,7 +409,8 @@ def test_touch(screen: Screen, run: Run, original: dict):
     screen.json("/api/touch", {"gesture": "drag", "x": w - 8, "y": int(h * 0.8), "x1": w - 8, "y1": int(h * 0.3), "ms": 900})
     time.sleep(0.6)
     level = glass.ui().get("level")
-    time.sleep(1)
+    wait_for(lambda: not glass.ui().get("touching"), 15, 0.2)  # lifted (it starts at the screen's next frame)
+    time.sleep(0.5)
     after = screen.json("/api/settings")[1]["brightness"]
     run.check(level is not None, f"the level shows while it is dragged ({level})")
     run.check(after > 20, f"and the drag up brightens it (20% to {after}%)")

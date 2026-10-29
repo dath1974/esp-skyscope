@@ -65,7 +65,7 @@ void Skyscope::probe_touch_start_(const touch::Script &s) {
   if (!probe_input_) return;
   // Asleep, LVGL reads no input: woken as a finger wakes it, and this touch is the one that wakes it.
   if (lvgl_ && lvgl_->is_paused()) lvgl_->set_paused(false, false);
-  probe_touch_.play(s, millis());
+  probe_touch_.play(s);
   ESP_LOGD(TAG, "Touch of %u ms", (unsigned) touch::length(s));
 }
 
@@ -73,6 +73,7 @@ void Skyscope::describe_ui_(JsonObject out) {
   out["width"] = width_;
   out["height"] = height_;
   out["asleep"] = asleep_;
+  out["touching"] = probe_touch_.busy();  // a touch from /api/touch still being played
   out["status"] = text_of(status_);
   if (shown(setup_)) out["setup"] = text_of(setup_title_);
   out["brightness"] = drag_level_ >= 0 ? drag_level_ : settings_.brightness;
