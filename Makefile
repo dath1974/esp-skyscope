@@ -6,7 +6,7 @@ SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to catch what a change leaves behind.
 CHURN ?= 0
 
-.PHONY: test host python page device device-full soak firmware
+.PHONY: test host python page device device-full device-mock soak firmware
 
 test: host python page
 
@@ -30,6 +30,12 @@ device:
 device-full:
 	@test -n "$(DEVICE)" || { echo "make device-full DEVICE=<the screen's address>"; exit 2; }
 	tests/device_test.py $(DEVICE) --maps --reboot --sleep
+
+# Against a mock receiver this machine serves (tests/mock_feed.py, port 8095): known planes, a busy sky, and every
+# failure a feed can have. The screen must reach this machine (WSL: networkingMode=mirrored).
+device-mock:
+	@test -n "$(DEVICE)" || { echo "make device-mock DEVICE=<the screen's address>"; exit 2; }
+	tests/device_test.py $(DEVICE) --no-touch --mock
 
 # Memory over SOAK minutes (and with CHURN, the map changed every CHURN minutes).
 soak:

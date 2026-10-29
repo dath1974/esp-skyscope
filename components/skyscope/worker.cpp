@@ -138,13 +138,14 @@ void Skyscope::worker_() {
 
     // ---- The planes, every refresh_s, or at once for a new place or range, from the first exchange free
     // (providers.h): the preferred one, or while it waits the next in the list.
-    providers.set_order(settings.feed, settings.fallback);
+    providers.set_order(settings.feed, settings.fallback, !settings.receiver_url.empty());
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
     char place[64];
-    std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d", settings.lat, settings.lon, radius_nm, (int) settings.feed,
+    std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm, (int) settings.feed,
                   (int) settings.fallback);
-    if (place != feed_key) {
-      feed_key = place;
+    const std::string key = place + settings.receiver_url;
+    if (key != feed_key) {
+      feed_key = key;
       feed_due = now;
     }
     if ((int32_t) (now - feed_due) >= 0) {
@@ -154,7 +155,7 @@ void Skyscope::worker_() {
         // Every exchange it may ask is waiting: until the first is free.
         feed_due = now + wait;
       } else {
-        const std::string url = feed::url(source, settings.lat, settings.lon, radius_nm);
+        const std::string url = feed::url(source, settings.lat, settings.lon, radius_nm, settings.receiver_url);
         const uint32_t asked = millis();
         ui::worker_phase = ui::FEED_FETCH;
         const http::Result r = http::get(url, body, MOST_FEED_BYTES, agent_, "application/json");

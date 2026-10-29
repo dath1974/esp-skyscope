@@ -62,7 +62,7 @@ inline const std::vector<Row> &rows() {
       {"by_altitude", "Colour by altitude", FLAG, {}},
       {"glide", "Glide", FLAG, {}},
       {"ground", "On the ground", FLAG, {}},
-      {"feed", "Source", TEXT, {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}}},
+      {"feed", "Source", TEXT, {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}, {"receiver", "Receiver"}}},
       {"fallback", "Use the other", FLAG, {}},
       {"refresh_s", "Refresh", NUMBER, {{"5", "5 s"}, {"10", "10 s"}, {"15", "15 s"}, {"30", "30 s"}, {"60", "1 min"}}},
       {"metric", "Units", FLAG, {}},
@@ -112,7 +112,7 @@ inline std::string shown(const Row &row, const Settings &s) {
 }
 
 // `s` with `row` one step on (`step` 1) or back (-1). Words go round; numbers stop at their ends, and a number between
-// two choices steps to the next one its way. The map skips the custom server where none is set. False when nothing
+// two choices steps to the next one its way. The map skips the custom server, and the source a receiver, where none is set. False when nothing
 // changes or the settings refuse it.
 inline bool stepped(const Row &row, Settings &s, int step) {
   JsonDocument now;
@@ -146,7 +146,11 @@ inline bool stepped(const Row &row, Settings &s, int step) {
       int next = at < 0 ? 0 : at;
       for (int tries = 0; tries < count; ++tries) {
         next = (next + step + count) % count;
+        // Choices that need an address set on the web page are skipped while there is none.
         if (std::string(row.key) == "map" && std::string(row.choices[next].value) == "custom" && s.custom_url.empty())
+          continue;
+        if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "receiver" &&
+            s.receiver_url.empty())
           continue;
         break;
       }

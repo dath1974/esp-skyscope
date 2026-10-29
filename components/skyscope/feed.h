@@ -38,10 +38,23 @@ struct Flight {
 };
 
 // The URL of `feed` for planes within `radius_nm` of a place. Every one of them caps the radius at 250 nm.
-inline std::string url(Feed feed, double lat, double lon, int radius_nm) {
+inline std::string url(Feed feed, double lat, double lon, int radius_nm, const std::string &receiver = "") {
   radius_nm = std::max(1, std::min(250, radius_nm));
   char out[160];
   switch (feed) {
+    case RECEIVER: {
+      // A receiver lists every plane it hears; one with an API of its own may take the place and range.
+      std::string u = receiver;
+      auto put = [&u](const char *key, const std::string &value) {
+        for (size_t at; (at = u.find(key)) != std::string::npos;) u.replace(at, std::strlen(key), value);
+      };
+      std::snprintf(out, sizeof(out), "%.4f", lat);
+      put("{lat}", out);
+      std::snprintf(out, sizeof(out), "%.4f", lon);
+      put("{lon}", out);
+      put("{dist}", std::to_string(radius_nm));
+      return u;
+    }
     case ADSB_FI:
       std::snprintf(out, sizeof(out), "https://opendata.adsb.fi/api/v2/lat/%.4f/lon/%.4f/dist/%d", lat, lon, radius_nm);
       break;
@@ -53,6 +66,7 @@ inline std::string url(Feed feed, double lat, double lon, int radius_nm) {
 inline const char *credit(Feed feed) {
   switch (feed) {
     case ADSB_FI: return "adsb.fi";
+    case RECEIVER: return "receiver";
     default: return "adsb.lol";
   }
 }

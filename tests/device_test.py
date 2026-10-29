@@ -2,7 +2,7 @@
 """Tests on a real screen, over its web API: what the host tests cannot reach (the web server, the settings as the
 screen keeps them, the feed and the tile servers through its own HTTP client, its memory as it runs).
 
-    tests/device_test.py <address> [--no-touch] [--maps] [--reboot] [--sleep] [--soak MINUTES [--churn MINUTES]]
+    tests/device_test.py <address> [--no-touch] [--maps] [--reboot] [--sleep] [--mock] [--soak MINUTES [--churn MINUTES]]
 
 Every setting it changes is put back at the end, pass or fail. It never prints the screen's place. Python's standard
 library only. Nothing here installs firmware.
@@ -17,6 +17,12 @@ library only. Nothing here installs firmware.
 - --maps: each map in turn, every tile drawn without an error, and memory after;
 - --reboot: a restart keeps every setting;
 - --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap;
+- --mock: the screen pointed at a mock receiver this script serves (tests/mock_feed.py), at a test place (New York
+  JFK): the planes it lists are the ones the screen keeps, each where it should be on the glass; the filters, the
+  most shown and watched planes, a plane's card in both units; 600 planes at once; and every failure a feed can have
+  (refusals with Retry-After or a quota's end, a pace, a server error, an answer cut short, broken JSON, too big,
+  too slow, no answer, no list), each waited out as long as it should be and recovered from. The machine running this
+  must be reachable from the screen (WSL: networkingMode=mirrored);
 - --soak: memory sampled for that long, failing if it keeps falling; with --churn, the map and range changed every
   so many minutes (every map, near and far), memory compared each time the first of them comes round again, and
   the records that grow as the screen runs checked for staying bounded.
@@ -25,6 +31,7 @@ library only. Nothing here installs firmware.
 import argparse
 import json
 import math
+import socket
 import sys
 import time
 import urllib.error
@@ -385,6 +392,151 @@ def test_sleep(screen: Screen, run: Run, original: dict):
     screen.json("/api/settings", {"sleep_min": original["sleep_min"]})
 
 
+# ---------------------------------------------------------------- a mock receiver (mock_feed.py)
+
+TEST_PLACE = {"lat": 40.6413, "lon": -73.7781}  # New York JFK: the screen's own place is never used or shown
+
+
+def own_address_towards(device: str) -> str:
+    """This machine's address on the network the screen is on."""
+    host = device.removeprefix("http://").split("/")[0].split(":")[0]
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect((host, 80))
+        return s.getsockname()[0]
+
+
+def test_mock(screen: Screen, run: Run, original: dict, address: str):
+    import mock_feed
+
+    print("A mock receiver")
+    server = mock_feed.Server(port=8095, **TEST_PLACE).start()
+    feed = server.feed
+    url = f"http://{own_address_towards(address)}:{server.port}/data/aircraft.json"
+    glass = Glass(screen)
+    try:
+        base = {**TEST_PLACE, "place": "TEST", "range_nm": 15, "map": "radar", "feed": "receiver", "receiver_url": url,
+                "fallback": False, "refresh_s": 5, "most": 40, "alt_min": 0, "alt_max": 60000, "ground": False,
+                "watch": [{"id": "N12345", "colour": "red"}], "track_s": 0, "sleep_min": 0, "bedtime": False,
+                "metric": False, "label": "callsign"}
+        status, answer = screen.json("/api/settings", base)
+        if not run.check(status == 200, "the screen takes the receiver's address", str(answer)):
+            return
+        started = time.time()
+        first = wait_for(lambda: feed.log(started), 30, 1)
+        if not run.check(first is not None, "and asks it", f"no request to {url} (can the screen reach this machine?)"):
+            return
+        run.check(first[0][2].startswith("esp-skyscope/"), f"saying who it is ({first[0][2]})")
+
+        def kept():
+            return {p["hex"] for p in screen.json("/api/aircraft")[1]["aircraft"]}
+
+        def placed():
+            return {p["id"]: p for p in glass.ui()["planes"]}
+
+        showable = {h for h, *_ in mock_feed.FIXED} - {"a00005"}  # not the one on the ground
+        got = wait_for(lambda: kept() if kept() == showable else None, 20, 1)
+        run.check(got is not None, "the planes kept are the ones that can be shown", f"{sorted(kept())}")
+
+        # Each where it should be: the scope's middle is the place; north up; distances in proportion.
+        ui = glass.ui()
+        cx, cy = ui["width"] / 2, ui["height"] / 2
+        p = wait_for(lambda: (lambda q: q if {"a00001", "a00002", "a00003", "a00004"} <= q.keys() else None)(placed()), 10)
+        if run.check(p is not None, "the planes are on the glass"):
+            n5, e10, s10, w5 = p["a00001"], p["a00002"], p["a00003"], p["a00004"]
+            run.check(abs(n5["x"] - cx) <= 2 and n5["y"] < cy, f"5 NM north is straight up ({n5['x']:.0f}, {n5['y']:.0f})")
+            run.check(abs(s10["x"] - cx) <= 2 and s10["y"] > cy, "10 NM south straight down")
+            run.check(abs(e10["y"] - cy) <= 2 and e10["x"] > cx, "10 NM east to the right")
+            run.check(abs(w5["y"] - cy) <= 2 and w5["x"] < cx, "5 NM west to the left")
+            ratio = (s10["y"] - cy) / max(1, cy - n5["y"])
+            run.check(abs(ratio - 2) < 0.06, f"10 NM is twice as far as 5 ({ratio:.3f})")
+            run.check(abs((e10["x"] - cx) - (s10["y"] - cy)) <= 2, "the same distance east as south")
+
+        # The filters, the most shown, and a watched plane.
+        screen.json("/api/settings", {"ground": True})
+        run.check(wait_for(lambda: "a00005" in placed(), 20, 1) is not None, "ground traffic when asked for")
+        screen.json("/api/settings", {"ground": False, "alt_max": 20000})
+        gone = wait_for(lambda: (lambda q: q if not {"a00002", "a00006", "a00007"} & q.keys() else None)(placed()), 20, 1)
+        run.check(gone is not None, "an altitude limit hides those above it, and those without an altitude")
+        screen.json("/api/settings", {"alt_max": 60000, "most": 1})
+        few = wait_for(lambda: (lambda q: q if len(q) == 2 else None)(placed()), 20, 1)
+        run.check(few is not None and "a00008" in few, "the most shown is the nearest one, and the watched plane too",
+                  f"{sorted(placed())}")
+        screen.json("/api/settings", {"most": 40})
+        wait_for(lambda: "a00004" in placed(), 20, 1)
+
+        # A plane's card, in both units.
+        p = placed().get("a00004")
+        if p:
+            glass.tap(p["x"], p["y"])
+            card = glass.ui().get("card")
+            run.check(bool(card) and "EMERG1" in card["title"], "a tap on the emergency opens its card",
+                      json.dumps(card))
+            if card:
+                run.check(any("7700" in r for r in card["rows"]), "with its squawk")
+                feet = card["rows"][1]
+                screen.json("/api/settings", {"metric": True})
+                time.sleep(1.5)
+                metres = (glass.ui().get("card") or {"rows": ["", ""]})["rows"][1]
+                run.check(metres != feet, f"and in metric ({feet} / {metres})")
+                screen.json("/api/settings", {"metric": False})
+                glass.tap(p["x"], p["y"])
+
+        # A busy sky: 600 planes, of which the screen keeps what it can show.
+        feed.set(scenario="busy")
+        busy = wait_for(lambda: (lambda s: s if s["records"]["flights"] >= 40 else None)(screen.json("/api/status")[1]), 20, 1)
+        time.sleep(6)
+        s = screen.json("/api/status")[1]
+        run.check(busy is not None and s["records"]["flights"] <= 60, f"600 planes: {s['records']['flights']} kept")
+        run.check(s["heap_free"] >= HEAP_LEAST, f"internal RAM free {s['heap_free'] // 1024} KB")
+        run.check(s["frames_per_s"] > 0, f"{s['frames_per_s']} frames a second, longest {s['frame_ms_max']} ms")
+        feed.set(scenario="fixed")
+
+        # Failures: each waited out as long as it should be, and recovered from.
+        def fault(name, what, wait_least, wait_most, words=""):
+            feed.set(fault=name, times=1)
+            since = time.time()
+            hit = wait_for(lambda: [r for r in feed.log(since) if r[3] == what], 60, 0.5)
+            if not run.check(bool(hit), f"{name}: answered"):
+                return
+            at = hit[0][0]
+            time.sleep(2)
+            st = screen.json("/api/status")[1]
+            mine = next((f for f in st["feeds"] if f["feed"] == "receiver"), {})
+            run.check(mine.get("waiting", False) or wait_most < 10, f"{name}: the receiver is left alone "
+                      f"({mine.get('error', '')}, {mine.get('retry_in_s', '-')} s)")
+            if words:
+                run.check(words in glass.ui()["status"], f"{name}: the status line says so")
+            nxt = wait_for(lambda: [r for r in feed.log(at + 0.1)], wait_most + 15, 0.5)
+            gap = (nxt[0][0] - at) if nxt else None
+            run.check(gap is not None and wait_least <= gap <= wait_most + 3,
+                      f"{name}: asked again {gap:.0f} s later (between {wait_least} and {wait_most})" if gap else
+                      f"{name}: asked again", "")
+            ok = wait_for(lambda: [r for r in feed.log(at + 0.1) if r[3] == "ok"], 40, 0.5)
+            run.check(bool(ok) and st["uptime_s"] <= screen.json("/api/status")[1]["uptime_s"],
+                      f"{name}: recovered, without restarting")
+
+        fault("429", "429", 28, 31, "again in")
+        fault("429-reset", "429-reset", 28, 31)
+        fault("500", "500", 13, 16)
+        fault("truncated", "truncated", 13, 16)
+        fault("bad-json", "bad-json", 13, 16)
+        fault("no-list", "no-list", 13, 16)
+        fault("close", "close", 13, 16)
+        fault("huge", "huge", 13, 16)
+        fault("slow", "slow", 13, 30)
+        # A pace announced with a good answer: asked no more often than it says.
+        feed.set(fault="paced", times=1)
+        since = time.time()
+        hit = wait_for(lambda: [r for r in feed.log(since) if r[3] == "paced"], 30, 0.5)
+        if hit:
+            nxt = wait_for(lambda: feed.log(hit[0][0] + 0.1), 40, 0.5)
+            gap = nxt[0][0] - hit[0][0] if nxt else 0
+            run.check(19 <= gap <= 24, f"paced: asked again {gap:.0f} s later (at most once in 20 s)")
+    finally:
+        server.stop()
+        screen.json("/api/settings", original)
+
+
 def test_maps(screen: Screen, run: Run, original: dict):
     print("Maps (each drawn whole, without a tile error)")
     for name in MAPS:
@@ -480,6 +632,7 @@ def main():
     parser.add_argument("--reboot", action="store_true")
     parser.add_argument("--no-touch", action="store_true")
     parser.add_argument("--sleep", action="store_true")
+    parser.add_argument("--mock", action="store_true")
     parser.add_argument("--soak", type=float, metavar="MINUTES")
     parser.add_argument("--churn", type=float, metavar="MINUTES", default=0)
     args = parser.parse_args()
@@ -501,6 +654,8 @@ def main():
             test_maps(screen, run, original)
         if args.reboot:
             test_reboot(screen, run, original)
+        if args.mock:
+            test_mock(screen, run, original, args.address)
         if args.sleep:
             test_sleep(screen, run, original)
         if args.soak:

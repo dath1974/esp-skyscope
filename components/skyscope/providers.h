@@ -1,8 +1,9 @@
 #pragma once
 // Which ADS-B exchange to ask next, and when. Each exchange sets its own limits and changes them with its load, so the
 // screen keeps a record of each: how long it is to be left alone, how many times in a row it failed, and the pace it
-// announced. The order is the preferred exchange first, then the others as settings.h FEEDS lists them; every request
-// goes to the first one free, so the screen comes back to the preferred one by itself once its time is up.
+// announced. The order is the preferred exchange first, then the others as settings.h FEEDS lists them (a receiver of
+// one's own only where it has an address); every request goes to the first one free, so the screen comes back to the
+// preferred one by itself once its time is up.
 //
 // How long an exchange is left alone after it failed, in this order:
 //  1. what it said: the end of its quota (x-ratelimit-reset), or Retry-After;
@@ -48,21 +49,34 @@ struct State {
 
 inline bool before(uint32_t a, uint32_t b) { return (int32_t) (a - b) < 0; }
 
+// The exchanges in the order they are tried.
+struct Order {
+  std::array<Feed, COUNT> list{};
+  size_t size = 0;
+  const Feed *begin() const { return list.data(); }
+  const Feed *end() const { return list.data() + size; }
+};
+
 class Providers {
  public:
-  void set_order(Feed preferred, bool fallback) {
+  void set_order(Feed preferred, bool fallback, bool receiver = false) {
     preferred_ = preferred;
     fallback_ = fallback;
+    receiver_ = receiver;
   }
   Feed preferred() const { return preferred_; }
   bool fallback() const { return fallback_; }
-  // The exchanges in the order they are tried.
-  std::array<Feed, COUNT> order() const {
-    std::array<Feed, COUNT> out{};
-    size_t n = 0;
-    out[n++] = preferred_;
+  // The exchanges in the order they are tried. A receiver without an address is none, even preferred: then the others
+  // stand in where falling back is allowed, and none where it is not.
+  Order order() const {
+    Order out;
+    if (preferred_ == RECEIVER && !receiver_ && !fallback_) return out;
+    auto add = [&](Feed f) {
+      if (f != RECEIVER || receiver_) out.list[out.size++] = f;
+    };
+    add(preferred_);
     for (size_t i = 0; i < COUNT; ++i)
-      if ((Feed) i != preferred_) out[n++] = (Feed) i;
+      if ((Feed) i != preferred_) add((Feed) i);
     return out;
   }
   // The exchange to ask at `now`, or false with `wait_ms` until the first one is free.
@@ -78,7 +92,7 @@ class Providers {
       soonest = std::min(soonest, s.until - now);
       if (!fallback_) break;
     }
-    wait_ms = soonest;
+    wait_ms = soonest == MOST_WAIT_MS ? 60000 : soonest;  // none to ask (a receiver without an address): looked at again
     return false;
   }
   // A good answer from `f` at `now`: when to ask next, `refresh_ms` or less often while it announces a pace.
@@ -134,6 +148,7 @@ class Providers {
   }
   Feed preferred_ = ADSB_FI;
   bool fallback_ = true;
+  bool receiver_ = false;
   std::array<State, COUNT> states_{};
 };
 }  // namespace sky::providers

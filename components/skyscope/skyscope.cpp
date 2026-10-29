@@ -879,7 +879,11 @@ void Skyscope::update_status_(uint32_t now) {
   set_text(credit_, credit);
   const Feed preferred = settings_.feed;
   const providers::State &first = sources.state(preferred);
-  if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
+  if (sources.order().size == 0) {
+    // The receiver chosen, with no address and no other source allowed.
+    status = "No receiver address: set it on the web page";
+    colour = colours::WARNING;
+  } else if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
     // Every exchange it may ask is waiting: the one free soonest, and when.
     Feed next = preferred;
     for (const Feed f : sources.order()) {

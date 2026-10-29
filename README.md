@@ -9,7 +9,8 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   maps without a dark version of their own are drawn dark by rules made for each (the IFR charts turn only their paper
   and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
   kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
-- **Aircraft**: from adsb.fi or adsb.lol, every polling interval, switching to the other if one is unavailable. Plane,
+- **Aircraft**: from adsb.fi or adsb.lol, or a receiver of your own (readsb, tar1090, dump1090-fa: its
+  `aircraft.json`), every polling interval, switching to another if one is unavailable. Plane,
   arrow or dot markers, coloured by altitude; labels kept apart from each other; tracks of the last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
@@ -147,9 +148,33 @@ receiver's range, are missing, and positions may be late.
     a drag on the brightness strip).
   - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.
+  - `make device-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver this machine serves
+    (`tests/mock_feed.py`, port 8095, at a test place): the planes it lists kept and placed where they should be, the
+    filters and the card, 600 planes at once, and every failure a feed can have (refusals, a pace, server errors,
+    answers cut short, broken or too big, too slow, none), each waited out as long as it should be. The screen must be
+    able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow inbound
+    connections to it (see below).
   - `make soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every two
     minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
     that grows as the screen runs passes its bound.
+
+### A screen reaching a test server under WSL
+
+The mock receiver runs on the machine that runs the tests, and the screen has to reach it. WSL's default network is a
+private one behind Windows, which nothing on the network reaches. In `%UserProfile%\.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+then `wsl --shutdown` and open WSL again: it shares the PC's own address. Windows' firewall for WSL still refuses
+connections from the network; in a PowerShell run as administrator, allow the mock's port:
+
+```powershell
+New-NetFirewallHyperVRule -Name skyscope-mock -DisplayName "Skyscope mock feed" -Direction Inbound `
+  -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8095
+```
 
 ## License
 

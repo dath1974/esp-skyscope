@@ -88,9 +88,22 @@ static void test_settings() {
   // The stored JSON fits its slot (skyscope.cpp Stored) even with every watched plane.
   for (int i = 0; i < 12; ++i) s.watch.push_back({"N" + std::to_string(10000 + i), i % 6});
   s.custom_url = std::string("https://") + std::string(180, 'a') + "/{z}/{x}/{y}.png";
+  s.receiver_url = std::string("http://") + std::string(150, 'r') + ".json";
   JsonDocument full;
   to_json(s, full.to<JsonObject>());
   CHECK(measureJson(full) < 1800);
+  // A receiver's address: http or https, not too long; empty is none.
+  {
+    Settings r;
+    JsonDocument change;
+    change["receiver_url"] = "ftp://receiver/aircraft.json";
+    CHECK(!apply(change.as<JsonObjectConst>(), r, error) && error == "receiver_url");
+    change["receiver_url"] = "http://" + std::string(160, 'r');
+    CHECK(!apply(change.as<JsonObjectConst>(), r, error));
+    change["receiver_url"] = "http://192.0.2.10:8080/data/aircraft.json";
+    change["feed"] = "receiver";
+    CHECK(apply(change.as<JsonObjectConst>(), r, error) && r.feed == RECEIVER);
+  }
 }
 
 static const char *REPLY = R"({"ac":[
@@ -129,6 +142,10 @@ static void test_feed() {
   CHECK(feed::countdown(0x10, 0xFFFFFFF0u) == "0:01");  // across millis() wrapping
   CHECK(feed::url(ADSB_LOL, 40.64, -73.78, 400) == "https://api.adsb.lol/v2/point/40.6400/-73.7800/250");
   CHECK(feed::url(ADSB_FI, 1, 2, 5) == "https://opendata.adsb.fi/api/v2/lat/1.0000/lon/2.0000/dist/5");
+  // A receiver's address as it is, with the place and range put in where it asks for them.
+  CHECK(feed::url(RECEIVER, 1, 2, 5, "http://r.local/data/aircraft.json") == "http://r.local/data/aircraft.json");
+  CHECK(feed::url(RECEIVER, 40.5, -73.25, 300, "http://r:8080/v2/{lat}/{lon}/{dist}?a={lat}") ==
+        "http://r:8080/v2/40.5000/-73.2500/250?a=40.5000");
 }
 
 static void test_tiles() {
@@ -426,6 +443,24 @@ static void test_providers() {
   CHECK(r.succeeded(ADSB_LOL, 700000, 10000, {200}) == 10000);    // past it
   // Without falling back, a source that waits is waited for.
   providers::Providers alone;
+  // A receiver is tried only where it has an address: preferred, then the exchanges; else as if it were not there.
+  {
+    providers::Providers own;
+    own.set_order(RECEIVER, true, true);
+    const auto o = own.order();
+    CHECK(o.size == 3 && o.list[0] == RECEIVER && o.list[1] == ADSB_LOL && o.list[2] == ADSB_FI);
+    Feed got;
+    uint32_t w;
+    CHECK(own.choose(0, got, w) && got == RECEIVER);
+    own.failed(RECEIVER, 0, {0, 0, 0, "", "no answer"});
+    CHECK(own.choose(10, got, w) && got == ADSB_LOL);  // falls back to the exchanges
+    own.set_order(ADSB_FI, true, false);
+    CHECK(own.order().size == 2 && own.order().list[0] == ADSB_FI);
+    own.set_order(RECEIVER, true, false);  // preferred without an address: the exchanges
+    CHECK(own.order().size == 2 && own.choose(20, got, w) && got != RECEIVER);
+    own.set_order(RECEIVER, false, false);  // and without falling back: nothing, looked at again in a minute
+    CHECK(own.order().size == 0 && !own.choose(30, got, w) && w == 60000);
+  }
   alone.set_order(ADSB_LOL, false);
   alone.failed(ADSB_LOL, 0, down);
   CHECK(!alone.choose(1000, f, wait) && wait == 14000);

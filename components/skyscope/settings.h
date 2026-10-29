@@ -33,8 +33,9 @@ inline constexpr Names<9> MAP_STYLES{{"radar", "osm", "streets", "satellite", "t
                                       "custom"}};
 enum Theme : uint8_t { DARK, LIGHT };
 inline constexpr Names<2> THEMES{{"dark", "light"}};
-enum Feed : uint8_t { ADSB_LOL, ADSB_FI };
-inline constexpr Names<2> FEEDS{{"adsb_lol", "adsb_fi"}};
+// The public exchanges, and a receiver of one's own (readsb, tar1090, dump1090: its aircraft.json at receiver_url).
+enum Feed : uint8_t { ADSB_LOL, ADSB_FI, RECEIVER };
+inline constexpr Names<3> FEEDS{{"adsb_lol", "adsb_fi", "receiver"}};
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
 inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
 enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE };
@@ -74,6 +75,9 @@ struct Settings {
   // three minutes); providers.h keeps to whatever each one announces.
   Feed feed = ADSB_FI;  // the preferred exchange
   bool fallback = true;  // while it waits (it failed, or asked for fewer requests), the next one in FEEDS
+  // A receiver's aircraft.json (http or https), {lat} {lon} {dist} put in where it has them; "" for none, and then the
+  // receiver is never asked.
+  std::string receiver_url;
   int refresh_s = 10;
   int alt_min = 0, alt_max = ALTITUDE_CEILING;
   bool ground = false;
@@ -123,6 +127,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["sweep"] = s.sweep;
   o["feed"] = FEEDS[s.feed];
   o["fallback"] = s.fallback;
+  o["receiver_url"] = s.receiver_url;
   o["refresh_s"] = s.refresh_s;
   o["alt_min"] = s.alt_min;
   o["alt_max"] = s.alt_max;
@@ -224,6 +229,13 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!flag("sweep", n.sweep)) return fail("sweep");
   if (!choice("feed", n.feed, FEEDS)) return fail("feed");
   if (!flag("fallback", n.fallback)) return fail("fallback");
+  if (!o["receiver_url"].isNull()) {
+    const char *url = o["receiver_url"].as<const char *>();
+    if (!url || std::strlen(url) > 160) return fail("receiver_url");
+    n.receiver_url = url;
+    if (!n.receiver_url.empty() && n.receiver_url.rfind("http://", 0) != 0 && n.receiver_url.rfind("https://", 0) != 0)
+      return fail("receiver_url");
+  }
   if (!number("refresh_s", n.refresh_s, 3, 300)) return fail("refresh_s");
   if (!number("alt_min", n.alt_min, 0, ALTITUDE_CEILING)) return fail("alt_min");
   if (!number("alt_max", n.alt_max, 0, ALTITUDE_CEILING)) return fail("alt_max");

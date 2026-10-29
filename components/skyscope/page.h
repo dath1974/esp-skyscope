@@ -53,9 +53,11 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps</label>
 </section>
 <section><h2>Aircraft</h2>
-<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option></select></div>
+<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">Your own receiver</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
-<label class="check"><input type="checkbox" id="fallback" name="fallback"> Use the other source while this one is unavailable</label>
+<div id="receiver"><label for="receiver_url">Receiver address</label><input id="receiver_url" name="receiver_url" placeholder="http://receiver.local/tar1090/data/aircraft.json">
+<p class="hint">The aircraft.json of a receiver on your network (readsb, tar1090, dump1090-fa). It lists every plane it hears; the screen shows the ones on its map. {lat}, {lon} and {dist} in the address are replaced by the place and range, for a server that takes them.</p></div>
+<label class="check"><input type="checkbox" id="fallback" name="fallback"> Use another source while this one is unavailable</label>
 <p class="hint">Each exchange sets its own limits and may change them with its load (adsb.fi asks for no more than one request a second; adsb.lol has at times allowed only a few hundred a day per address). The screen keeps to what each one announces: when one refuses, it waits as long as that exchange says, or twice as long each time it refuses again, and meanwhile asks the other one if allowed to. It goes back to the preferred source as soon as that one's wait is over. <span id="every"></span></p>
 <p class="hint" id="sources"></p>
 <div class="row3"><div><label for="alt_min">Lowest (ft)</label><input id="alt_min" name="alt_min" type="number" min="0" max="60000" step="500"></div>
@@ -106,7 +108,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
 const BOOL=['rings','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake'];
-const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone'];
+const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');
@@ -114,7 +116,7 @@ function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
  ['bed_off','bed_on'].forEach(k=>{const [h,m]=(s[k]||'0:00').split(':');$(k).value=h.padStart(2,'0')+':'+m});
  zone(s.timezone);
- if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed()}
+ if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed();source()}
 // The time zone: the browser's, where the screen still has none and the browser's is in the list.
 const IANA={"America/New_York":"EST5EDT,M3.2.0,M11.1.0","America/Detroit":"EST5EDT,M3.2.0,M11.1.0","America/Toronto":"EST5EDT,M3.2.0,M11.1.0","America/Chicago":"CST6CDT,M3.2.0,M11.1.0","America/Winnipeg":"CST6CDT,M3.2.0,M11.1.0","America/Denver":"MST7MDT,M3.2.0,M11.1.0","America/Edmonton":"MST7MDT,M3.2.0,M11.1.0","America/Phoenix":"MST7","America/Los_Angeles":"PST8PDT,M3.2.0,M11.1.0","America/Vancouver":"PST8PDT,M3.2.0,M11.1.0","America/Anchorage":"AKST9AKDT,M3.2.0,M11.1.0","Pacific/Honolulu":"HST10","America/Sao_Paulo":"<-03>3","Europe/London":"GMT0BST,M3.5.0/1,M10.5.0","Europe/Lisbon":"GMT0BST,M3.5.0/1,M10.5.0","Asia/Kolkata":"IST-5:30","Asia/Shanghai":"CST-8","Asia/Hong_Kong":"CST-8","Asia/Singapore":"CST-8","Asia/Taipei":"CST-8","Asia/Tokyo":"JST-9","Asia/Seoul":"JST-9","Australia/Sydney":"AEST-10AEDT,M10.1.0,M4.1.0/3","Australia/Melbourne":"AEST-10AEDT,M10.1.0,M4.1.0/3","Pacific/Auckland":"NZST-12NZDT,M9.5.0,M4.1.0/3","Europe/Paris":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Berlin":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Madrid":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Rome":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Amsterdam":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Brussels":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Vienna":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Zurich":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Stockholm":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Oslo":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Copenhagen":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Prague":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Warsaw":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Athens":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Helsinki":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Kyiv":"EET-2EEST,M3.5.0/3,M10.5.0/4"};
 function zone(tz){let pick=tz;$('tzhint').textContent='';
@@ -129,6 +131,9 @@ $('bedtime').onchange=bed;$('bed_wake').onchange=bed;
 function relevant(){const m=$('map').value;document.querySelectorAll('[data-for]').forEach(e=>{
  e.style.display=e.dataset.for.split(' ').includes(m)?'':'none'})}
 $('map').onchange=relevant;
+// The receiver's address only for the receiver.
+function source(){$('receiver').style.display=$('feed').value==='receiver'?'':'none'}
+$('feed').onchange=source;
 // Coordinates typed by hand are no longer the place found.
 ['lat','lon'].forEach(k=>$(k).addEventListener('input',()=>{$('place').value='';$('q').value=''}));
 async function load(){const r=await fetch('api/settings');show(await r.json())}
@@ -205,7 +210,7 @@ function wait(t){return t>=5400?Math.floor(t/3600)+' h '+String(Math.floor(t%360
  :Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
- const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol'};
+ const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol',receiver:'receiver'};
  let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+NAMES[s.feed_source]:'');
  const waits=(s.feeds||[]).filter(f=>f.waiting).map(f=>NAMES[f.feed]+': '+f.error+', again in '+wait(f.retry_in_s));
  if(waits.length)t+=' · '+waits.join(' · ');
