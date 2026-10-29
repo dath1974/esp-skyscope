@@ -2,10 +2,15 @@
 """Tests on a real screen, over its web API: what the host tests cannot reach (the web server, the settings as the
 screen keeps them, the feed and the tile servers through its own HTTP client, its memory as it runs).
 
-    tests/device_test.py <address> [--no-touch] [--maps] [--reboot] [--sleep] [--mock] [--soak MINUTES [--churn MINUTES]]
+    tests/device_test.py <address> [--no-touch] [--maps] [--reboot] [--sleep] [--mock [--install IMAGE]]
+                         [--soak MINUTES [--churn MINUTES]]
+    tests/device_test.py <address> --restore
 
-Every setting it changes is put back at the end, pass or fail. It never prints the screen's place. Python's standard
-library only. Nothing here installs firmware.
+Every setting it changes is put back at the end, pass or fail: they are kept first in tests/build/settings-<address>.json
+(on this machine only, never printed), asked back several times, and if the screen still does not take them, the file
+stays for --restore to put back.
+
+It never prints the screen's place. Python's standard library only. Nothing here installs firmware but --install.
 
 - always: the page, the settings (round trip, wrong values refused and nothing changed), status, aircraft, firmware
   check against the published manifest, the debug switch, unknown paths;
@@ -21,8 +26,18 @@ library only. Nothing here installs firmware.
   JFK): the planes it lists are the ones the screen keeps, each where it should be on the glass; the filters, the
   most shown and watched planes, a plane's card in both units; 600 planes at once; and every failure a feed can have
   (refusals with Retry-After or a quota's end, a pace, a server error, an answer cut short, broken JSON, too big,
-  too slow, no answer, no list), each waited out as long as it should be and recovered from. The machine running this
-  must be reachable from the screen (WSL: networkingMode=mirrored);
+  too slow, no answer, no list, a web page, nothing, not found, forbidden), each waited out as long as it should be
+  and recovered from; good answers in chunks or redirected; an altitude floor and a shorter range; an empty sky (and a
+  card whose plane went); a plane flying at its speed; odd entries (wrong types, duplicates, UTF-8 past a field's
+  length, places off the earth); 4500 planes in 600 KB; a receiver that cannot be found, then corrected; falling back
+  to an exchange and coming back; and a receiver with no address. Then the same server as
+  the update server (the test API's {"source": url}): a release offered with its summary, none when it is the one
+  running, an update server that fails (an error, broken JSON, no build for this chip, no download) said and got over;
+  and installs that must fail (no image, no answer, cut short, a wrong digest, not an image), each said, the
+  firmware running kept and another install possible after it. The built-in update server is put back. The machine
+  running this must be reachable from the screen (WSL: networkingMode=mirrored);
+- --install IMAGE (with --mock): that firmware (a firmware.ota.bin of a build) installed from the mock: downloaded
+  whole, the screen restarted into it with every setting kept;
 - --soak: memory sampled for that long, failing if it keeps falling; with --churn, the map and range changed every
   so many minutes (every map, near and far), memory compared each time the first of them comes round again, and
   the records that grow as the screen runs checked for staying bounded.
@@ -79,9 +94,18 @@ class Run:
         return ok
 
 
+class Slept(Exception):
+    """This machine slept during a run: what the screen did meanwhile (a feed it could not reach for hours, waited out
+    for the longest) says nothing of it."""
+
+
 def wait_for(condition, seconds: float, every: float = 2):
     end = time.monotonic() + seconds
+    last = time.time()
     while time.monotonic() < end:
+        if time.time() - last > every + 60:
+            raise Slept(f"this machine was asleep for {(time.time() - last) / 60:.0f} minutes")
+        last = time.time()
         try:
             value = condition()
             if value:
@@ -132,9 +156,10 @@ def test_basics(screen: Screen, run: Run, original: dict):
     run.check(screen.json("/api/settings")[1] == before, "and nothing of that request is taken")
     status, answer = screen.json("/api/settings", b"not json")
     run.check(status == 400 and answer == {"error": "body"}, "a body that is not JSON is refused")
-    status, _ = screen.json("/api/settings", original)
-    run.check(status == 200 and not differing(screen, original), "every setting as the screen gave it is taken back",
-              differing(screen, original))
+    status, answer = screen.json("/api/settings", original)
+    left = differing(screen, original)
+    run.check(status == 200 and not left, "every setting as the screen gave it is taken back",
+              f"HTTP {status} {answer}, differing: {left}")
 
     print("Status")
     status, s = screen.json("/api/status")
@@ -142,6 +167,8 @@ def test_basics(screen: Screen, run: Run, original: dict):
     run.check(s["heap_free"] >= HEAP_LEAST, f"internal RAM free {s['heap_free'] // 1024} KB", f"under {HEAP_LEAST}")
     run.check(s["heap_largest"] >= LARGEST_LEAST, f"largest free block {s['heap_largest'] // 1024} KB")
     run.check(s["psram_free"] > 1_000_000, f"PSRAM free {s['psram_free'] // 1024} KB")
+    if "sockets" in s:
+        run.check(s["sockets"] <= s["sockets_most"] - 4, f"{s['sockets']} of {s['sockets_most']} sockets open")
     run.check(s.get("wifi_rssi", 0) > -85, f"Wi-Fi {s.get('wifi_rssi')} dBm")
     if s["asleep"]:
         print("  (asleep: frames and the feed are not looked at)")
@@ -407,7 +434,7 @@ def own_address_towards(device: str) -> str:
         return s.getsockname()[0]
 
 
-def test_mock(screen: Screen, run: Run, original: dict, address: str):
+def test_mock(screen: Screen, run: Run, original: dict, address: str, install: str = None):
     import mock_feed
 
     print("A mock receiver")
@@ -416,10 +443,15 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
     url = f"http://{own_address_towards(address)}:{server.port}/data/aircraft.json"
     glass = Glass(screen)
     try:
+        if glass.ui().get("asleep"):  # a screen that is off asks for nothing
+            ui = glass.ui()
+            glass.tap(ui["width"] // 2, ui["height"] // 2)
+            time.sleep(1.5)
         base = {**TEST_PLACE, "place": "TEST", "range_nm": 15, "map": "radar", "feed": "receiver", "receiver_url": url,
                 "fallback": False, "refresh_s": 5, "most": 40, "alt_min": 0, "alt_max": 60000, "ground": False,
                 "watch": [{"id": "N12345", "colour": "red"}], "track_s": 0, "sleep_min": 0, "bedtime": False,
-                "metric": False, "label": "callsign"}
+                "metric": False, "label": "callsign", "marker": "type",
+                "glide": False, "sweep": False}  # each plane where its report put it, for the geometry below
         status, answer = screen.json("/api/settings", base)
         if not run.check(status == 200, "the screen takes the receiver's address", str(answer)):
             return
@@ -435,7 +467,7 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
         def placed():
             return {p["id"]: p for p in glass.ui()["planes"]}
 
-        showable = {h for h, *_ in mock_feed.FIXED} - {"a00005"}  # not the one on the ground
+        showable = {h for h, _, _, f in mock_feed.FIXED if f.get("alt_baro") != "ground"}  # not those on the ground
         got = wait_for(lambda: kept() if kept() == showable else None, 20, 1)
         run.check(got is not None, "the planes kept are the ones that can be shown", f"{sorted(kept())}")
 
@@ -443,8 +475,10 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
         ui = glass.ui()
         cx, cy = ui["width"] / 2, ui["height"] / 2
         p = wait_for(lambda: (lambda q: q if {"a00001", "a00002", "a00003", "a00004"} <= q.keys() else None)(placed()), 10)
+        px_per_nm = ui["height"] / 2 / 15
         if run.check(p is not None, "the planes are on the glass"):
             n5, e10, s10, w5 = p["a00001"], p["a00002"], p["a00003"], p["a00004"]
+            px_per_nm = (s10["y"] - cy) / 10
             run.check(abs(n5["x"] - cx) <= 2 and n5["y"] < cy, f"5 NM north is straight up ({n5['x']:.0f}, {n5['y']:.0f})")
             run.check(abs(s10["x"] - cx) <= 2 and s10["y"] > cy, "10 NM south straight down")
             run.check(abs(e10["y"] - cy) <= 2 and e10["x"] > cx, "10 NM east to the right")
@@ -452,6 +486,21 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
             ratio = (s10["y"] - cy) / max(1, cy - n5["y"])
             run.check(abs(ratio - 2) < 0.06, f"10 NM is twice as far as 5 ({ratio:.3f})")
             run.check(abs((e10["x"] - cx) - (s10["y"] - cy)) <= 2, "the same distance east as south")
+
+        # Each drawn as its kind: by its type, its class or its description; and every one an airliner as a plain plane.
+        kinds = wait_for(lambda: (lambda q: q if len(q) >= len(showable) else None)(
+            {i: p["kind"] for i, p in placed().items() if i in mock_feed.KINDS}), 10, 1) or {}
+        wrong = {i: (k, mock_feed.KINDS[i]) for i, k in kinds.items() if k != mock_feed.KINDS[i]}
+        run.check(len(kinds) >= len(showable) and not wrong, f"each drawn as its kind ({len(set(kinds.values()))} kinds)",
+                  f"{len(kinds)} placed, wrong: {wrong}")
+        screen.json("/api/settings", {"marker": "plane"})
+        plain = wait_for(lambda: (lambda q: q if q and all(p["kind"] == "airliner" for p in q.values()) else None)(placed()),
+                         10, 1)
+        run.check(plain is not None, "as a plain plane marker, every one an airliner")
+        screen.json("/api/settings", {"ground": True, "marker": "type"})
+        veh = wait_for(lambda: placed().get("a00029"), 20, 1)
+        run.check(veh is not None and veh["kind"] == "vehicle", "a service vehicle on the ground, as a vehicle")
+        screen.json("/api/settings", {"ground": False})
 
         # The filters, the most shown, and a watched plane.
         screen.json("/api/settings", {"ground": True})
@@ -465,6 +514,23 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
                   f"{sorted(placed())}")
         screen.json("/api/settings", {"most": 40})
         wait_for(lambda: "a00004" in placed(), 20, 1)
+        screen.json("/api/settings", {"alt_min": 9000})
+        low = wait_for(lambda: (lambda q: q if not {"a00003", "a00007"} & q.keys() and "a00001" in q else None)(placed()),
+                       20, 1)
+        run.check(low is not None, "a floor hides those below it, and those without an altitude", f"{sorted(placed())}")
+        screen.json("/api/settings", {"alt_min": 0})
+
+        # A shorter range: the far planes off the glass, the near ones further out, in proportion.
+        far = wait_for(lambda: placed().get("a00004"), 20, 1)
+        screen.json("/api/settings", {"range_nm": 7})
+        near = wait_for(lambda: (lambda q: q if "a00004" in q and not {"a00002", "a00003"} & q.keys() else None)(placed()),
+                        20, 1)
+        if run.check(near is not None and far is not None, "at 7 NM those 10 NM away are off the glass",
+                     f"{sorted(placed())}"):
+            ratio = (cx - near["a00004"]["x"]) / max(1, cx - far["x"])
+            run.check(abs(ratio - 15 / 7) < 0.1, f"and 5 NM is 15/7 as far out ({ratio:.3f})")
+        screen.json("/api/settings", {"range_nm": 15})
+        wait_for(lambda: {"a00002", "a00003"} <= placed().keys(), 20, 1)
 
         # A plane's card, in both units.
         p = placed().get("a00004")
@@ -483,25 +549,100 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
                 screen.json("/api/settings", {"metric": False})
                 glass.tap(p["x"], p["y"])
 
+        # No aircraft at all: the glass emptied, a card whose plane is gone closed, and no error said.
+        p = placed().get("a00001")
+        if p:
+            glass.tap(p["x"], p["y"])
+        feed.set(scenario="empty")
+        emptied = wait_for(lambda: not placed() and not kept(), 20, 1)
+        run.check(emptied is not None, "an empty sky empties the glass", f"{sorted(placed())}")
+        ui = glass.ui()
+        run.check(not ui.get("card"), "and the card of a plane that is gone closes")
+        mine = next((f for f in screen.json("/api/status")[1]["feeds"] if f["feed"] == "receiver"), {})
+        run.check(not mine.get("error") and not mine.get("waiting") and "again in" not in ui["status"],
+                  f"and it is no error ({ui['status']})", json.dumps(mine))
+        feed.set(scenario="fixed")
+        run.check(wait_for(lambda: kept() == showable, 20, 1) is not None, "the planes come back")
+        if p and ui.get("picked"):
+            glass.tap(*glass.clear_spot(glass.ui()) or (10, 10))
+
+        # A plane flying: further east on the glass at each report, at about its speed.
+        feed.set(scenario="moving")
+        a = wait_for(lambda: placed().get("c00001"), 20, 1)
+        t0 = time.time()
+        time.sleep(20)
+        b = placed().get("c00001")
+        if run.check(a is not None and b is not None, "a moving plane is on the glass"):
+            nm = (b["x"] - a["x"]) / px_per_nm
+            expected = 480 / 3600 * (time.time() - t0)
+            run.check(b["x"] > a["x"] and abs(b["y"] - a["y"]) <= 2, f"flying east ({a['x']:.0f} to {b['x']:.0f})")
+            run.check(abs(nm - expected) < 0.35 * expected, f"at about 480 kt ({nm:.2f} NM in {time.time() - t0:.0f} s, "
+                      f"{expected:.2f} expected)")
+
+        # What a receiver should not send: the planes that can be read kept, the rest left out, nothing broken.
+        up = screen.json("/api/status")[1]["uptime_s"]
+        feed.set(scenario="odd")
+        readable = {k for _, k in mock_feed.ODD if k}
+        got = wait_for(lambda: kept() if kept() == readable else None, 20, 1)
+        run.check(got is not None, "odd entries: the readable planes kept, the rest left out",
+                  f"{sorted(kept() ^ readable)} differ")
+        for path in ("/api/aircraft", "/api/ui"):
+            raw = screen.call(path)[2]
+            try:
+                raw.decode("utf-8")
+                good = True
+            except UnicodeDecodeError as e:
+                good, why = False, str(e)
+            run.check(good, f"odd entries: {path} is good UTF-8, words cut between characters", "" if good else why)
+        q = placed().get("a0000d")
+        if q:
+            glass.tap(q["x"], q["y"])
+            card = glass.ui().get("card")
+            run.check(bool(card) and card["title"].startswith("ÄÖÜ✈"), f"odd entries: a name in UTF-8 on a card "
+                      f"({card and card['title']})")
+            glass.tap(q["x"], q["y"])
+        s = screen.json("/api/status")[1]
+        run.check(s["uptime_s"] >= up and s["loops_per_s"] > 3, "odd entries: and the screen goes on")
+        feed.set(scenario="fixed")
+
+        # A crowd: 4500 planes in 600 KB, near the most a reply may be, read without running out of memory.
+        feed.set(scenario="crowd")
+        since = time.time()
+        wait_for(lambda: [r for r in feed.log(since) if r[3] == "ok"], 20, 0.5)
+        time.sleep(8)
+        s = screen.json("/api/status")[1]
+        mine = next((f for f in s["feeds"] if f["feed"] == "receiver"), {})
+        run.check(not mine.get("error") and s["feed_bytes"] > 500_000 and s["records"]["flights"] >= 40,
+                  f"4500 planes: read ({s['feed_bytes'] // 1024} KB, {s['records']['flights']} kept)", json.dumps(mine))
+        run.check(s["feed_parse_ms"] < 10000, f"in {s['feed_parse_ms']} ms")  # some 6 s (read whole: over a minute)
+        run.check(s["heap_free"] >= HEAP_LEAST and s["uptime_s"] >= up, f"internal RAM free {s['heap_free'] // 1024} KB, "
+                  f"largest {s['heap_largest'] // 1024} KB")
+        run.check(s["frame_ms_max"] < 1000, f"longest frame {s['frame_ms_max']} ms")
+        feed.set(scenario="fixed")
+
         # A busy sky: 600 planes, of which the screen keeps what it can show.
         feed.set(scenario="busy")
         busy = wait_for(lambda: (lambda s: s if s["records"]["flights"] >= 40 else None)(screen.json("/api/status")[1]), 20, 1)
         time.sleep(6)
         s = screen.json("/api/status")[1]
         run.check(busy is not None and s["records"]["flights"] <= 60, f"600 planes: {s['records']['flights']} kept")
+        run.check(s["feed_parse_ms"] < 2500, f"read in {s['feed_parse_ms']} ms")  # some 1.2 s (read whole: 5 s)
         run.check(s["heap_free"] >= HEAP_LEAST, f"internal RAM free {s['heap_free'] // 1024} KB")
         run.check(s["frames_per_s"] > 0, f"{s['frames_per_s']} frames a second, longest {s['frame_ms_max']} ms")
         feed.set(scenario="fixed")
 
         # Failures: each waited out as long as it should be, and recovered from.
-        def fault(name, what, wait_least, wait_most, words=""):
-            feed.set(fault=name, times=1)
+        def fault(name, what, wait_least, wait_most, words="", times=1, settle=2):
+            """`name` for `times` requests in a row (the screen tries a broken one again at once, on a new connection):
+            left alone between `wait_least` and `wait_most` seconds after the last, and recovered from."""
+            feed.set(fault=name, times=times)
             since = time.time()
-            hit = wait_for(lambda: [r for r in feed.log(since) if r[3] == what], 60, 0.5)
-            if not run.check(bool(hit), f"{name}: answered"):
+            hit = wait_for(lambda: (lambda h: h if len(h) >= times else None)(
+                [r for r in feed.log(since) if r[3] == what]), 60 + 15 * times, 0.5)
+            if not run.check(bool(hit), f"{name}: answered" + (f" {times} times" if times > 1 else "")):
                 return
-            at = hit[0][0]
-            time.sleep(2)
+            at = hit[-1][0]
+            time.sleep(max(0.0, at + settle - time.time()))
             st = screen.json("/api/status")[1]
             mine = next((f for f in st["feeds"] if f["feed"] == "receiver"), {})
             run.check(mine.get("waiting", False) or wait_most < 10, f"{name}: the receiver is left alone "
@@ -517,15 +658,57 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
             run.check(bool(ok) and st["uptime_s"] <= screen.json("/api/status")[1]["uptime_s"],
                       f"{name}: recovered, without restarting")
 
+        def tried_again(name, what):
+            """`name` once: the screen tries again at once, on a new connection, and nothing is said."""
+            feed.set(fault=name, times=1)
+            since = time.time()
+            def after():
+                log = feed.log(since)
+                at = next((i for i, r in enumerate(log) if r[3] == what), None)
+                ok = at is not None and next((r for r in log[at + 1:] if r[3] == "ok"), None)
+                return (log[at], ok) if ok else None
+
+            got = wait_for(after, 60, 0.2)
+            hit = got and [got[0]]
+            gap = got[1][0] - got[0][0] if got else 99
+            limit = 14 if name == "slow" else 2  # after its 12 s timeout
+            run.check(bool(hit) and gap <= limit, f"{name} once: tried again at once on a new connection ({gap:.1f} s)")
+            mine = next((f for f in screen.json("/api/status")[1]["feeds"] if f["feed"] == "receiver"), {})
+            run.check(not mine.get("waiting"), f"{name} once: and nothing is held against the receiver", json.dumps(mine))
+            time.sleep(6)
+
         fault("429", "429", 28, 31, "again in")
         fault("429-reset", "429-reset", 28, 31)
         fault("500", "500", 13, 16)
-        fault("truncated", "truncated", 13, 16)
+        tried_again("truncated", "truncated")
+        fault("truncated", "truncated", 13, 16, times=2)
         fault("bad-json", "bad-json", 13, 16)
         fault("no-list", "no-list", 13, 16)
-        fault("close", "close", 13, 16)
-        fault("huge", "huge", 13, 16)
-        fault("slow", "slow", 13, 30)
+        tried_again("close", "close")
+        fault("close", "close", 13, 16, times=2)
+        fault("huge", "huge", 13, 19, settle=6)  # a megabyte coming in before it is refused
+        tried_again("slow", "slow")
+        fault("slow", "slow", 25, 32, times=2, settle=14)  # each given up after the client's 12 s, then 15 s
+        fault("404", "404", 13, 16)
+        fault("html", "html", 13, 16)
+        fault("blank", "blank", 13, 16)
+        fault("403", "403", 118, 123, "again in")
+
+        # Good answers sent another way: taken as any other, and the next asked at the refresh.
+        for name in ("chunked", "redirect"):
+            feed.set(scenario="empty")
+            wait_for(lambda: not kept(), 20, 1)
+            feed.set(scenario="fixed", fault=name, times=1)
+            since = time.time()
+            hit = wait_for(lambda: [r for r in feed.log(since) if r[3] == name], 20, 0.5)
+            got = wait_for(lambda: kept() if kept() == showable else None, 15, 0.5)
+            mine = next((f for f in screen.json("/api/status")[1]["feeds"] if f["feed"] == "receiver"), {})
+            run.check(bool(hit) and got is not None and not mine.get("error"), f"{name}: the planes taken",
+                      json.dumps(mine))
+            if hit:
+                nxt = wait_for(lambda: [r for r in feed.log(hit[0][0] + 0.1) if r[1] == "/data/aircraft.json"], 15, 0.5)
+                gap = nxt[0][0] - hit[0][0] if nxt else 99
+                run.check(gap <= 8, f"{name}: and the next asked at the refresh ({gap:.0f} s)")
         # A pace announced with a good answer: asked no more often than it says.
         feed.set(fault="paced", times=1)
         since = time.time()
@@ -534,9 +717,184 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str):
             nxt = wait_for(lambda: feed.log(hit[0][0] + 0.1), 40, 0.5)
             gap = nxt[0][0] - hit[0][0] if nxt else 0
             run.check(19 <= gap <= 24, f"paced: asked again {gap:.0f} s later (at most once in 20 s)")
+
+        def status():
+            return screen.json("/api/status")[1]
+
+        def receiver():
+            return next((f for f in status()["feeds"] if f["feed"] == "receiver"), {})
+
+        # A receiver that cannot be found: said, and waited out; the address corrected, asked at once.
+        screen.json("/api/settings", {"receiver_url": "http://nowhere.invalid/data/aircraft.json"})
+        lost = wait_for(lambda: (lambda m: m if m.get("waiting") else None)(receiver()), 40, 1)
+        run.check(lost is not None, f"an address that cannot be found: said ({lost and lost.get('error')})")
+        run.check("again in" in glass.ui()["status"], "and the status line says when it is asked again")
+        since = time.time()
+        screen.json("/api/settings", {"receiver_url": url})
+        back = wait_for(lambda: [r for r in feed.log(since) if r[3] == "ok"], 15, 0.5)
+        run.check(bool(back) and back[0][0] - since < 6, "the address corrected: asked at once, not after the wait",
+                  f"{back[0][0] - since:.0f} s" if back else "not asked")
+
+        # Down for good with falling back allowed: an exchange stands in, and the receiver is had back once it answers.
+        feed.set(fault="500", times=0)
+        screen.json("/api/settings", {"fallback": True})
+        stood = wait_for(lambda: (lambda x: x if x["feed_source"] != "receiver" and 0 <= x["feed_age_s"] < 10 else None)
+                         (status()), 60, 1)
+        run.check(stood is not None, f"the receiver down, falling back: {stood and stood['feed_source']} stands in")
+        feed.set(fault="")
+        had = wait_for(lambda: status()["feed_source"] == "receiver" and kept() == showable, 90, 1)
+        run.check(had is not None, "and the receiver is had back when it answers again", status()["feed_source"])
+
+        # The receiver chosen with no address and nothing else allowed: nothing asked, and the status line says why.
+        screen.json("/api/settings", {"receiver_url": "", "fallback": False})
+        since = time.time()
+        said = wait_for(lambda: "No receiver address" in glass.ui()["status"], 15, 1)
+        run.check(said is not None, "no receiver address: the status line says so", glass.ui()["status"])
+        time.sleep(8)
+        run.check(not [r for r in feed.log(since) if "aircraft" in r[1]], "and nothing is asked")
+        screen.json("/api/settings", {"receiver_url": url})
+
+        # The feed the screen had, while its firmware is tried; kept awake (a screen that is off asks for nothing).
+        screen.json("/api/settings", {**original, "sleep_min": 0, "bedtime": False})
+        test_mock_firmware(screen, run, server, url.rsplit("/data/", 1)[0] + "/firmware/manifest.json", install)
     finally:
         server.stop()
-        screen.json("/api/settings", original)
+        put_back(screen, original)
+
+
+INSTALL_FAILED = "The install failed; the screen keeps the firmware it has."
+SERVER_FAILED = "The update server could not be read."
+
+
+def test_mock_firmware(screen: Screen, run: Run, server, source: str, install: str = None):
+    print("A mock update server")
+    feed, fw = server.feed, server.firmware
+    status, f = screen.json("/api/firmware")
+    if not f.get("updates"):
+        print("  (built without updates)")
+        return
+    running = f["version"]
+
+    def asked(what_from: str, since: float, seconds=30):
+        return wait_for(lambda: [r for r in feed.log(since) if r[3].startswith(what_from)], seconds, 0.5)
+
+    def firmware():
+        return screen.json("/api/firmware")[1]
+
+    def check(fault=""):
+        """A check of the mock, `fault` its manifest's: the firmware the screen says it has after it."""
+        fw.set(fault=fault, times=1 if fault else 0)
+        since = time.time()
+        screen.json("/api/firmware", {"check": True})
+        if not asked("manifest", since):
+            return None
+        time.sleep(1.5)  # the answer handed to the loop and on to the page
+        return firmware()
+
+    try:
+        fw.set(version=running)
+        since = time.time()
+        status, _ = screen.json("/api/firmware", {"source": source})
+        if not run.check(status == 200 and asked("manifest", since) is not None, "the screen asks another update server",
+                         f"{status}, nothing asked of {source}"):
+            return
+        run.check(screen.json("/api/firmware", {"source": "ftp://nowhere"})[0] == 400, "an address that is not http is refused")
+        time.sleep(1.5)
+        f = firmware()
+        run.check(f["known"] and f["latest"] == running and not f["available"] and not f.get("error"),
+                  f"the release running ({running}) is not offered", json.dumps(f))
+
+        fw.set(version="9.9.9")
+        f = check()
+        run.check(f is not None and f["available"] and f["latest"] == "9.9.9", "a release that differs is offered",
+                  json.dumps(f))
+        if f:
+            run.check(f.get("summary") == "A test release, 9.9.9" and f.get("release_url", "").endswith("/9.9.9"),
+                      "with its summary and where it is published")
+
+        # An update server that fails: said, and over at the next check that works.
+        for fault in ("500", "bad-json", "no-build", "no-ota"):
+            f = check(fault)
+            run.check(f is not None and f.get("error") == SERVER_FAILED, f"{fault}: the update server's failure is said",
+                      json.dumps(f))
+            f = check()
+            run.check(f is not None and not f.get("error") and f["available"], f"{fault}: and over at the next check",
+                      json.dumps(f))
+
+        # Installs that fail: nothing is written over the firmware running, the screen goes on, and says so, and leaves
+        # no connection open (a socket short, every new connection is turned away).
+        sockets = screen.json("/api/status")[1].get("sockets")
+        for fault, what in (("bin-404", "no image"), ("bin-close", "no answer"), ("bin-truncated", "cut short"),
+                            ("bin-md5", "a wrong digest"), ("", "not an image")):
+            fw.set(fault=fault, times=1 if fault else 0)
+            if fault == "bin-md5":
+                check()  # the manifest with the wrong digest; the image takes the fault
+                fw.set(fault=fault, times=1)
+            up = screen.json("/api/status")[1]["uptime_s"]
+            since = time.time()
+            screen.json("/api/firmware", {"install": True})
+            got = asked("bin-", since)
+            failed = wait_for(lambda: (lambda x: x if x.get("error") == INSTALL_FAILED and not x["installing"] else None)
+                              (firmware()), 90, 1)
+            s = screen.json("/api/status")[1]
+            run.check(got is not None and failed is not None, f"{what}: the install fails and says so",
+                      json.dumps(firmware()))
+            run.check(s["uptime_s"] >= up and firmware()["version"] == running, f"{what}: the firmware running is kept")
+            fed = wait_for(lambda: (lambda x: x if 0 <= x["feed_age_s"] < 15 else None)(screen.json("/api/status")[1]), 60)
+            run.check(s["loops_per_s"] > 3 and fed is not None, f"{what}: and the screen goes on, its feed asked again")
+            if sockets is not None:
+                time.sleep(3)
+                now = screen.json("/api/status")[1]["sockets"]
+                # ESPHome's download leaves its connection open when the image is not there or no answer comes
+                # (ota_http_request.cpp returns before container->end()): one socket each, until a restart.
+                known = 1 if fault in ("bin-404", "bin-close") else 0
+                run.check(now <= sockets + known, f"{what}: no socket left open ({sockets} to {now})" +
+                          (" (one is ESPHome's, known)" if known and now > sockets else ""))
+                sockets = now
+        f = check()
+        run.check(f is not None and f["available"], "a failed install leaves the release on offer", json.dumps(f))
+
+        if install:
+            test_install(screen, run, server, install)
+    finally:
+        fw.set(fault="")
+        published = releases_address() + "/manifest.json"
+        if screen.up() and screen.json("/api/firmware", {"source": published})[0] == 200:
+            f = wait_for(lambda: (lambda x: x if x.get("known") and x.get("latest") != "9.9.9" else None)(firmware()),
+                         30, 1)
+            run.check(f is not None and not f.get("error"), "the built-in update server put back", json.dumps(firmware()))
+
+
+def test_install(screen: Screen, run: Run, server, image: str):
+    from pathlib import Path
+
+    print(f"Installing {Path(image).name} from the mock")
+    feed, fw = server.feed, server.firmware
+    data = Path(image).read_bytes()
+    if not run.check(data[:1] == b"\xe9" and len(data) > 500_000, "the image is a firmware", f"{len(data)} bytes"):
+        return
+    original = screen.json("/api/settings")[1]
+    fw.set(version="9.9.9-test", fault="", image=image)
+    try:
+        since = time.time()
+        screen.json("/api/firmware", {"check": True})
+        f = wait_for(lambda: (lambda x: x if x.get("latest") == "9.9.9-test" and x["available"] else None)
+                     (screen.json("/api/firmware")[1]), 30, 1)
+        if not run.check(f is not None, "offered"):
+            return
+        started = time.time()
+        screen.json("/api/firmware", {"install": True})
+        installing = wait_for(lambda: screen.json("/api/firmware")[1]["installing"], 15, 0.5)
+        run.check(installing is not None, "installing")
+        served = wait_for(lambda: [r for r in feed.log(since) if r[3] == "bin-ok"], 180, 1)
+        run.check(served is not None, f"downloaded whole ({len(data) // 1024} KB)")
+        run.check(wait_for(lambda: not screen.up(), 60, 1) is not None, "the screen restarts")
+        run.check(wait_for(screen.up, 120) is not None, f"and comes back ({time.time() - started:.0f} s)")
+        s = screen.json("/api/status")[1]
+        run.check(s["uptime_s"] < 180, f"up {s['uptime_s']} s")
+        run.check(not differing(screen, original), "every setting kept", differing(screen, original))
+    finally:
+        fw.set(image="", version="9.9.9")
 
 
 def test_maps(screen: Screen, run: Run, original: dict):
@@ -603,6 +961,7 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, origin
         for k, v in s["records"].items():
             worst[k] = max(worst.get(k, 0), v)
         print(f"    {len(samples):3d}: free {s['heap_free'] // 1024} KB, largest {s['heap_largest'] // 1024} KB, "
+              f"{s.get('sockets', '-')} sockets, "
               f"PSRAM {s['psram_free'] // 1024} KB, {s['aircraft']} aircraft, {s['records']['cached_tiles']} tiles")
         time.sleep(30)
     if churn and original:
@@ -627,6 +986,26 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, origin
         print("  (too short for the map to come round twice: no comparison of rounds)")
 
 
+def kept_settings(address: str):
+    from pathlib import Path
+
+    name = "".join(c if c.isalnum() or c in ".-" else "_" for c in address.removeprefix("http://"))
+    return Path(__file__).resolve().parent / "build" / f"settings-{name}.json"
+
+
+def put_back(screen: Screen, original: dict, tries: int = 8) -> bool:
+    """`original` given back to the screen until it has taken it, a few seconds between tries."""
+    for _ in range(tries):
+        try:
+            if screen.json("/api/settings")[1] == original:
+                return True
+            screen.json("/api/settings", original)
+        except (OSError, ValueError):
+            pass
+        time.sleep(4)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("address", help="the screen's address (an IP or name.local)")
@@ -635,18 +1014,33 @@ def main():
     parser.add_argument("--no-touch", action="store_true")
     parser.add_argument("--sleep", action="store_true")
     parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--install", metavar="IMAGE", help="with --mock: install this firmware.ota.bin from the mock")
     parser.add_argument("--soak", type=float, metavar="MINUTES")
     parser.add_argument("--churn", type=float, metavar="MINUTES", default=0)
+    parser.add_argument("--restore", action="store_true", help="put back the settings a run could not")
     args = parser.parse_args()
 
     sys.stdout.reconfigure(line_buffering=True)  # a soak's samples as they come, through a pipe too
     screen = Screen(args.address)
     if not screen.up():
         raise SystemExit(f"No screen answers at {screen.base}")
+    saved = kept_settings(args.address)
+    if args.restore:
+        if not saved.exists():
+            raise SystemExit(f"No settings kept for {args.address} ({saved})")
+        ok = put_back(screen, json.loads(saved.read_text()))
+        if ok:
+            saved.unlink()
+        raise SystemExit("Settings put back" if ok else "The screen did not take them; try again")
+    if saved.exists():
+        raise SystemExit(f"A run before could not put the settings back: tests/device_test.py {args.address} --restore "
+                         f"({saved}), or remove that file")
     run = Run()
     status, original = screen.json("/api/settings")
     if status != 200:
         raise SystemExit("The screen gave no settings")
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    saved.write_text(json.dumps(original))
     try:
         test_basics(screen, run, original)
         test_firmware(screen, run)
@@ -657,15 +1051,23 @@ def main():
         if args.reboot:
             test_reboot(screen, run, original)
         if args.mock:
-            test_mock(screen, run, original, args.address)
+            test_mock(screen, run, original, args.address, args.install)
         if args.sleep:
             test_sleep(screen, run, original)
         if args.soak:
             test_soak(screen, run, args.soak, args.churn, original)
+    except Slept as e:
+        print(f"STOPPED: {e}; what came after it means nothing. Run it again with this machine kept awake.")
+        run.failed += 1
     finally:
-        if screen.up() and screen.json("/api/settings")[1] != original:
-            screen.json("/api/settings", original)
-            print("Settings put back" if screen.json("/api/settings")[1] == original else "SETTINGS NOT PUT BACK")
+        changed = not screen.up() or screen.json("/api/settings")[1] != original
+        if not changed or put_back(screen, original):
+            saved.unlink()
+            if changed:
+                print("Settings put back")
+        else:
+            print(f"SETTINGS NOT PUT BACK: kept in {saved}; tests/device_test.py {args.address} --restore")
+            run.failed += 1
     print(f"{run.failed} FAILED" if run.failed else "All passed")
     sys.exit(1 if run.failed else 0)
 

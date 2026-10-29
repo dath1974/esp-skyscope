@@ -131,6 +131,37 @@ static void test_feed() {
   CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error) && flights.size() == 3);
   CHECK(!feed::parse("{\"msg\":\"bad\"}", 13, doc, flights, error) && error == "bad");
   CHECK(!feed::parse("<html>", 6, doc, flights, error));
+  // Read plane by plane: what is no plane in the list is passed over, and brackets and quotes inside strings are words.
+  const std::string odd = R"({"now":1,"note":"a } and a ] and \" in words","aircraft":[7,"plane",null,[],true,
+    {"hex":"a1","lat":1.5,"lon":2.5,"flight":"X]}\"Y","nested":{"a":[1,{"b":"}"}]}},
+    {"hex":"a2","lat":"1","lon":2},{"hex":"a3","lat":91,"lon":2},{"hex":"","lat":1,"lon":2},
+    {"hex":"a4","lat":-1,"lon":-2,"alt_baro":-40}],"messages":5})";
+  CHECK(feed::parse(odd.c_str(), odd.size(), doc, flights, error) && flights.size() == 2);
+  CHECK(flights[0].hex == "a1" && flights[0].callsign == "X]}\"Y" && flights[1].altitude == -40);
+  // Broken off anywhere, or wrong anywhere: an error, never a part of the list.
+  for (size_t cut = 1; cut + 1 < odd.size(); cut += 7) {
+    flights.clear();
+    CHECK(!feed::parse(odd.c_str(), cut, doc, flights, error) && !error.empty());
+  }
+  const std::string wrong = R"({"aircraft":[{"hex":"a1","lat":1,"lon":2}}]})";
+  CHECK(!feed::parse(wrong.c_str(), wrong.size(), doc, flights, error));
+  CHECK(!feed::parse("", 0, doc, flights, error) && error == "JSON: IncompleteInput");
+  CHECK(!feed::parse("{\"now\":1}", 9, doc, flights, error) && error == "no aircraft list");
+  // A crowd: five thousand planes, all read (read whole, a 32-bit chip ran out of slots, and took a minute).
+  std::string crowd = "{\"aircraft\":[";
+  for (int i = 0; i < 5000; ++i) {
+    char one[160];
+    std::snprintf(one, sizeof(one), "%s{\"hex\":\"d%05x\",\"flight\":\"CRWD%d\",\"alt_baro\":%d,\"lat\":%.4f,\"lon\":%.4f}",
+                  i ? "," : "", i, i, 1000 + i, 40 + i * 1e-4, -73 - i * 1e-4);
+    crowd += one;
+  }
+  crowd += "]}";
+  CHECK(feed::parse(crowd.c_str(), crowd.size(), doc, flights, error) && flights.size() == 5000);
+  CHECK(flights[4999].hex == "d01387" && flights[4999].callsign == "CRWD4999");
+  // Words cut at a byte count, but never inside a character.
+  CHECK(feed::trimmed("\xC3\x84\xC3\x96\xC3\x9C\xE2\x9C\x88\xC3\x85X", 10) == "\xC3\x84\xC3\x96\xC3\x9C\xE2\x9C\x88");
+  CHECK(feed::trimmed("\xE2\x9C\x88\xE2\x9C\x88", 4) == "\xE2\x9C\x88");
+  CHECK(feed::trimmed("\xE2\x9C\x88", 2) == "" && feed::trimmed("ABCDEFGHIJK", 10) == "ABCDEFGHIJ");
   // adsb.lol's announced limits: 500 a day is the tightest, one request every 172.8 s.
   CHECK(feed::min_interval_ms("500, 4;w=1, 60;w=60, 500;w=86400") == 172800);
   CHECK(feed::min_interval_ms("") == 0 && feed::min_interval_ms("100") == 0);
@@ -327,6 +358,19 @@ static void test_overlay() {
     // What is shown of it is what would have been shown of the whole.
     CHECK(overlay::shown(sky, busy, p.view).size() == 11);
   }
+  // Below sea level, or above the highest ceiling: shown while no limit is set, hidden by one.
+  {
+    std::vector<feed::Flight> low = flights;
+    low[0].altitude = -40;
+    low[1].altitude = ALTITUDE_CEILING + 5000;
+    Settings open = s;
+    open.alt_min = 0;
+    open.alt_max = ALTITUDE_CEILING;
+    CHECK(overlay::shown(low, open, p.view).size() == overlay::shown(flights, open, p.view).size());
+    open.alt_min = 100;
+    open.alt_max = ALTITUDE_CEILING - 1000;
+    CHECK(overlay::shown(low, open, p.view).size() < overlay::shown(flights, open, p.view).size());
+  }
   // Watched planes come last and always show.
   s.watch = {{"N12345", 2}};
   s.alt_max = 10000;
@@ -368,6 +412,71 @@ static void test_sprites() {
   auto *borrowed = cache.get(30, 270, 7, 1);
   CHECK(cache.size() == 3 && borrowed == cache.get(30, 180, 7, 1));
   CHECK(cache.get(30, 270, 8, 1) != borrowed && cache.size() == 4);  // the next frame makes it
+}
+
+static void test_shapes() {
+  using namespace shapes;
+  // Each kind drawn: something solid in its middle third, nothing past the mask's edge, and the same at every size.
+  for (int k = 0; k < KINDS; ++k) {
+    const sprites::Mask m = sprites::render(40, 0, (Kind) k);
+    int inked = 0, edge = 0;
+    for (int y = 0; y < m.size; ++y)
+      for (int x = 0; x < m.size; ++x) {
+        const int a = m.alpha[(size_t) y * m.size + x];
+        inked += a > 0;
+        if ((x == 0 || y == 0 || x == m.size - 1 || y == m.size - 1) && a) ++edge;
+      }
+    CHECK(inked > 60 && edge == 0);
+    CHECK(outline((Kind) k).count <= 16);
+    if (inked <= 60 || edge) std::printf("  kind %s: %d inked, %d on the edge\n", NAMES[k], inked, edge);
+  }
+  // The airliner is the plane as it was drawn: its nose up, solid in the middle, wing tips at the sides.
+  const sprites::Mask a = sprites::render(30, 0, AIRLINER);
+  CHECK(a.alpha[16 * a.size + 16] == 255 && a.alpha[3 * a.size + 16] > 0 && a.alpha[20 * a.size + 2] > 0);
+  // A balloon does not turn; a helicopter's rotor is faint and its body solid.
+  const sprites::Mask b0 = sprites::render(30, 0, BALLOON), b1 = sprites::render(30, 45, BALLOON);
+  CHECK(b0.alpha == b1.alpha);
+  const sprites::Mask h = sprites::render(40, 0, HELICOPTER);
+  const int rotor = h.alpha[(size_t) (h.size / 2 - 1) * h.size + h.size / 2 + 13], body = h.alpha[(size_t) (h.size / 2 - 4) * h.size + h.size / 2];
+  CHECK(rotor > 60 && rotor < 160 && body == 255);
+  // The cache keeps kinds apart, and a kind that does not turn has one mask for every heading.
+  sprites::Cache<int> cache;
+  CHECK(cache.get(30, 0, 0, 1 << 30, AIRLINER) != cache.get(30, 0, 0, 1 << 30, HELICOPTER));
+  cache.get(30, 90, 0, 1 << 30, BALLOON);
+  cache.get(30, 200, 0, 1 << 30, BALLOON);
+  CHECK(cache.size() == 3);
+  // A kind by its type first, its words next, its class after, else an airliner.
+  CHECK(kind_of("A3", "B738", "") == AIRLINER && kind_of("A5", "B77W", "") == HEAVY && kind_of("", "B744", "") == QUAD);
+  CHECK(kind_of("", "C172", "") == shapes::LIGHT && kind_of("", "R44", "") == HELICOPTER && kind_of("", "PC12", "") == TURBOPROP);
+  CHECK(kind_of("", "GLF6", "") == JET && kind_of("", "F16", "") == FAST && kind_of("", "BALL", "") == BALLOON);
+  CHECK(kind_of("A3", "AT76", "") == TURBOPROP);  // the type over the class: a large turboprop is still a turboprop
+  CHECK(kind_of("A7", "XXXX", "") == HELICOPTER && kind_of("A1", "", "") == shapes::LIGHT && kind_of("B6", "", "") == DRONE);
+  CHECK(kind_of("B1", "", "") == GLIDER && kind_of("B2", "", "") == BALLOON && kind_of("C2", "", "") == VEHICLE);
+  CHECK(kind_of("A2", "", "General Atomics MQ-9 Reaper") == DRONE);  // the words over the class
+  CHECK(kind_of("B2", "", "GOODYEAR BLIMP") == AIRSHIP && kind_of("", "", "ROBINSON HELICOPTER R-44") == HELICOPTER);
+  CHECK(kind_of("", "", "") == AIRLINER && kind_of("C3", "", "") == AIRLINER && kind_of("Z9", "", "") == AIRLINER);
+  // The table names each type once.
+  for (size_t i = 0; i < std::size(TYPES); ++i)
+    for (size_t j = i + 1; j < std::size(TYPES); ++j) CHECK(std::strcmp(TYPES[i].code, TYPES[j].code) != 0);
+  // By type, an overlay's planes carry their kinds; a plain plane marker draws every one as an airliner.
+  feed::Flight heli;
+  heli.hex = "h1";
+  heli.lat = 40.65;
+  heli.lon = -73.78;
+  heli.type = "EC35";
+  heli.has_altitude = true;
+  heli.altitude = 1000;
+  Settings s;
+  s.lat = 40.65;
+  s.lon = -73.78;
+  s.map = RADAR;
+  const tiles::Plan q = tiles::plan(s, 600, 450, 1);
+  overlay::Tracks tracks;
+  plan::Overlay o = overlay::build({heli}, s, q.view, tracks, 0, 8, false);
+  CHECK(s.marker == MARKER_TYPE && o.marker == plan::PLANE && o.planes.size() == 1 && o.planes[0].kind == HELICOPTER);
+  s.marker = MARKER_PLANE;
+  o = overlay::build({heli}, s, q.view, tracks, 0, 8, false);
+  CHECK(o.planes.size() == 1 && o.planes[0].kind == AIRLINER);
 }
 
 static void test_beam() {
@@ -434,6 +543,13 @@ static void test_providers() {
   // A good answer clears the record.
   q.succeeded(ADSB_LOL, 0, 10000, {200});
   CHECK(!q.state(ADSB_LOL).blocked && q.state(ADSB_LOL).failures == 0);
+  // A receiver at a new address starts afresh: what the old one earned is forgotten.
+  providers::Providers moved;
+  moved.set_order(RECEIVER, false, true);
+  for (int i = 0; i < 5; ++i) moved.failed(RECEIVER, 0, down);
+  CHECK(!moved.choose(1000, f, wait) && wait > 60000);
+  moved.forget(RECEIVER);
+  CHECK(moved.choose(1000, f, wait) && f == RECEIVER && moved.state(RECEIVER).failures == 0);
   // Back to the preferred one once its quota is back.
   CHECK(p.choose(1000 + 26798u * 1000 + 5000, f, wait) && f == ADSB_FI);
   // An announced pace holds until the quota's end, then the refresh asked for again.
@@ -696,6 +812,15 @@ static void test_firmware() {
   CHECK(menu_line(false, true, true, false, "1.0", "").tone == GOOD_NEWS);
   CHECK(menu_line(false, true, false, false, "1.0", "").text == "This is the latest release");
   CHECK(menu_line(false, false, false, false, "", "").text == "Not checked yet");
+  // A check that finds nothing to install after a failed one: the failure no longer matters. (One that failed while
+  // the entity said NO_UPDATE stays, as above.)
+  Tracker w;
+  w.start(AVAILABLE);
+  w.seen(INSTALLING, false);
+  CHECK(w.seen(AVAILABLE, true) && w.error == INSTALL_FAILED);
+  CHECK(!w.seen(AVAILABLE, true) && w.error == INSTALL_FAILED);
+  CHECK(!w.seen(NO_UPDATE, false) && w.error.empty());
+  CHECK(!t.seen(NO_UPDATE, false) && t.error == INSTALL_FAILED);
   // A start a check failed before: the server's word goes with it.
   Tracker u;
   u.seen(AVAILABLE, true);
@@ -710,6 +835,7 @@ int main(int argc, char **argv) {
   test_overlay();
   test_labels();
   test_sprites();
+  test_shapes();
   test_beam();
   test_providers();
   test_menu();

@@ -37,11 +37,12 @@ device-full:
 	@test -n "$(DEVICE)" || { echo "make device-full DEVICE=<the screen's address>"; exit 2; }
 	tests/device_test.py $(DEVICE) --maps --reboot --sleep
 
-# Against a mock receiver this machine serves (tests/mock_feed.py, port 8095): known planes, a busy sky, and every
-# failure a feed can have. The screen must reach this machine (WSL: networkingMode=mirrored).
+# Against a mock receiver and update server this machine serves (tests/mock_feed.py, port 8095): known planes, a busy
+# sky, every failure a feed or an update server can have, and installs that must fail; with INSTALL=<firmware.ota.bin>
+# that firmware installed from it. The screen must reach this machine (WSL: networkingMode=mirrored).
 device-mock:
 	@test -n "$(DEVICE)" || { echo "make device-mock DEVICE=<the screen's address>"; exit 2; }
-	tests/device_test.py $(DEVICE) --no-touch --mock
+	tests/device_test.py $(DEVICE) --no-touch --mock $(if $(INSTALL),--install $(INSTALL))
 
 # Memory over SOAK minutes (and with CHURN, the map changed every CHURN minutes).
 soak:

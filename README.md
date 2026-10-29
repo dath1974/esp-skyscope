@@ -151,19 +151,24 @@ receiver's range, are missing, and positions may be late.
     a drag on the brightness strip).
   - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.
-  - `make device-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver this machine serves
-    (`tests/mock_feed.py`, port 8095, at a test place): the planes it lists kept and placed where they should be, the
-    filters and the card, 600 planes at once, and every failure a feed can have (refusals, a pace, server errors,
-    answers cut short, broken or too big, too slow, none), each waited out as long as it should be. The screen must be
-    able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow inbound
-    connections to it (see below).
+  - `make device-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver and update server this
+    machine serves (`tests/mock_feed.py`, port 8095, at a test place). The receiver: the planes it lists kept and
+    placed where they should be, the filters, the range and the card; no planes, a moving one, 600, and 4500 in 600 KB;
+    entries no receiver should send (wrong types, duplicates, UTF-8 past a field's length); every failure a feed can
+    have (refusals, a pace, server errors, answers cut short, broken, too big or not JSON, too slow, none), each
+    waited out as long as it should be; answers chunked or redirected; an address that cannot be found, then
+    corrected; falling back to an exchange and back. The update server: a release offered, its failures said, and
+    installs that must fail (no image, cut short, a wrong digest, not an image) leaving the firmware as it is. With
+    `INSTALL=.esphome/build/skyscope/build/firmware.ota.bin`, that build installed from the mock. The
+    screen must be able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow
+    inbound connections to it (see below).
   - `make soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every two
     minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
     that grows as the screen runs passes its bound.
 
 ### A screen reaching a test server under WSL
 
-The mock receiver runs on the machine that runs the tests, and the screen has to reach it. WSL's default network is a
+The mock runs on the machine that runs the tests, and the screen has to reach it. WSL's default network is a
 private one behind Windows, which nothing on the network reaches. In `%UserProfile%\.wslconfig`:
 
 ```ini
