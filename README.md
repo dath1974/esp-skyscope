@@ -140,10 +140,13 @@ receiver's range, are missing, and positions may be late.
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
   `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
-- `make test` runs everything that needs no screen, as CI does on every push and before every release:
+- `make test` runs everything that needs no screen, as CI does on every push and before every release. A push also
+  builds the firmware and draws the aircraft sheet (`make test-markers`), kept with the run as `markers`.
+  `make test` covers:
   - `make test-host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers;
     needs a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
-  - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads.
+  - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads,
+    and the mock receiver and update server (`tests/test_mock_feed.py`) that the tests on a real screen use.
   - `make test-page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
     firmware section's words, and that the whole script parses.
 - With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is

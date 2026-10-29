@@ -1,4 +1,5 @@
 # The tests that need no screen (make test), on every push and pull request, and before every release (release.yml).
+# A push also builds the firmware, so a change that breaks the build is found before a release would find it.
 name: Tests
 
 on:
@@ -14,9 +15,39 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: make test
         run: make test
+
+      # Every kind of aircraft as the screen draws it, to look at with the run (its Artifacts).
+      - name: make test-markers
+        run: make test-markers
+      - uses: actions/upload-artifact@v7
+        with:
+          name: markers
+          path: tests/build/markers.png
+
+  firmware:
+    # A release builds the firmware itself (release.yml), so not twice.
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
+          restore-keys: platformio-${{ runner.os }}-
+
+      - name: make firmware
+        run: |
+          pip install "esphome==$(make -s firmware-esphome-version)"
+          make firmware

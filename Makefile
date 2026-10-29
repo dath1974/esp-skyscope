@@ -14,7 +14,7 @@
 #                         that needs no screen
 #   make test-host        the C++, with the address and undefined-behaviour
 #                         sanitizers
-#   make test-python      tools/release_site.py
+#   make test-python      tools/release_site.py and tests/mock_feed.py
 #   make test-page        the web page's script (Node 18 or newer)
 #   make test-markers     every kind of aircraft drawn on a sheet,
 #                         tests/build/markers.png
@@ -79,7 +79,8 @@ test: test-host test-python test-page
 test-host:
 	tests/run.sh
 
-# tools/release_site.py: the manifest the screens read.
+# tools/release_site.py, the manifest the screens read, and tests/mock_feed.py,
+# what the tests on a real screen are served.
 test-python:
 	python3 -m unittest discover -s tests -p "test_*.py"
 

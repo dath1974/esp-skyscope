@@ -28,7 +28,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -49,11 +49,11 @@ jobs:
           git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME" > summary.txt
           echo "summary=$(cat summary.txt)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
@@ -78,9 +78,9 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" site/*.bin --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

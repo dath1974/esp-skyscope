@@ -18,6 +18,7 @@ class MockFeed(unittest.TestCase):
 
     def get(self, path="/data/aircraft.json"):
         c = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=5)
+        self.addCleanup(c.close)
         c.request("GET", path, headers={"User-Agent": "esp-skyscope/test"})
         r = c.getresponse()
         return r, r.read()
@@ -51,6 +52,7 @@ class MockFeed(unittest.TestCase):
     def test_truncated_and_bad_json(self):
         self.server.feed.set(fault="truncated", times=1)
         c = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=5)
+        self.addCleanup(c.close)
         c.request("GET", "/data/aircraft.json")
         r = c.getresponse()
         with self.assertRaises(http.client.IncompleteRead):
@@ -133,6 +135,7 @@ class MockFeed(unittest.TestCase):
 
     def test_steered_over_http(self):
         c = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=5)
+        self.addCleanup(c.close)
         c.request("POST", "/control", json.dumps({"scenario": "empty", "firmware": {"version": "1.2.3"}}))
         c.getresponse().read()
         self.assertEqual(json.loads(self.get()[1])["aircraft"], [])
