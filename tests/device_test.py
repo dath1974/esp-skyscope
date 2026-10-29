@@ -146,7 +146,9 @@ def test_basics(screen: Screen, run: Run, original: dict):
     if s["asleep"]:
         print("  (asleep: frames and the feed are not looked at)")
     else:
-        run.check(s["frames_per_s"] > 0, f"{s['frames_per_s']} frames a second")
+        # A still map draws nothing until something on it changes: the loop running is what counts.
+        run.check(s["loops_per_s"] > 3, f"the loop runs {s['loops_per_s']} times a second "
+                  f"({s['frames_per_s']} frames a second)")
         run.check(s["frame_ms_max"] < 1000, f"longest frame {s['frame_ms_max']} ms")
         fed = wait_for(lambda: (lambda x: x if 0 <= x["feed_age_s"] < 120 else None)(screen.json("/api/status")[1]), 60)
         run.check(fed is not None, "a feed answered within the last two minutes",
