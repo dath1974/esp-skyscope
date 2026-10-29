@@ -1,6 +1,6 @@
 // A sheet of every kind of aircraft as the screen draws it (shapes.h, sprites.h), to look at without a screen:
 //
-//     make markers            (writes tests/build/markers.png)
+//     make test-markers       (writes tests/build/markers.png)
 //
 // A row a kind: at the screen's size and a watched plane's, then large at eight headings. Dark on light, as on a map.
 #include <cstdint>

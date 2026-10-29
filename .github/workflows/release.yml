@@ -61,7 +61,7 @@ jobs:
 
       - name: Build
         run: |
-          pip install "esphome==$(make -s esphome-version)"
+          pip install "esphome==$(make -s firmware-esphome-version)"
           esphome compile skyscope.yaml
 
       - name: The files for the screens

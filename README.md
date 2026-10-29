@@ -13,8 +13,8 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   `aircraft.json`), every polling interval, switching to another if one is unavailable. Each
   aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
   helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
-  sends, else its description; `make markers` draws them all on a sheet), or as one plane, an arrow or a dot, coloured
-  by altitude; labels kept apart from each other; tracks of the last seconds; planes
+  sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
+  coloured by altitude; labels kept apart from each other; tracks of the last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
@@ -40,7 +40,7 @@ new board will require ample testing, noting the goal of this project is a physi
 ## Install
 
 You need [ESPHome](https://esphome.io) 2026.9 or newer; releases are built with the version in the `Makefile`
-(`ESPHOME_VERSION`), which `make esphome` installs.
+(`ESPHOME_VERSION`), which `make firmware-esphome` installs.
 
 ```sh
 git clone https://github.com/dath1974/esp-skyscope
@@ -61,10 +61,11 @@ are kept. A download that breaks off or fails its check changes nothing: the scr
 A build of your own offers the releases too, whenever its version differs. To leave them out, remove the `update:`
 block and the `skyscope:` block's `update_id` from `skyscope.yaml`.
 
-Releasing (maintainers): set `version` in `skyscope.yaml`, commit, and push an annotated tag `v<version>`
-(`git tag -a v0.3.0 -m "What changed, in one line"`). `.github/workflows/release.yml` builds it, makes the GitHub
-release and publishes the firmware with its manifest (`tools/release_site.py`). The tag's message is the summary the
-page shows.
+Releasing (maintainers): `make release-version VERSION=0.4.0` sets `version` in `skyscope.yaml` and commits it;
+`make release-tag MSG="What changed, in one line"` checks that main is committed and current, builds the firmware,
+runs the tests and makes the annotated tag `v<version>`; `make release` asks, then pushes main and the tag.
+`.github/workflows/release.yml` builds it, makes the GitHub release and publishes the firmware with its manifest
+(`tools/release_site.py`). The tag's message is the summary the page shows.
 
 ## First start
 
@@ -138,21 +139,22 @@ receiver's range, are missing, and positions may be late.
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
   `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`) are plain C++.
+- `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
 - `make test` runs everything that needs no screen, as CI does on every push and before every release:
-  - `make host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers; needs
-    a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
-  - `make python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads.
-  - `make page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
+  - `make test-host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers;
+    needs a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
+  - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads.
+  - `make test-page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
     firmware section's words, and that the whole script parses.
 - With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is
   put back, and it prints nothing of the screen's place):
-  - `make device DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
+  - `make test-esp32 DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
     aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
     stepped, cancelled and saved, paged, recoloured; Check and Install's second tap; a plane's card; the address;
     a drag on the brightness strip).
-  - `make device-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
+  - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.
-  - `make device-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver and update server this
+  - `make test-esp32-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver and update server this
     machine serves (`tests/mock_feed.py`, port 8095, at a test place). The receiver: the planes it lists kept and
     placed where they should be, the filters, the range and the card; no planes, a moving one, 600, and 4500 in 600 KB;
     entries no receiver should send (wrong types, duplicates, UTF-8 past a field's length); every failure a feed can
@@ -163,8 +165,8 @@ receiver's range, are missing, and positions may be late.
     `INSTALL=.esphome/build/skyscope/build/firmware.ota.bin`, that build installed from the mock. The
     screen must be able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow
     inbound connections to it (see below).
-  - `make soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every two
-    minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
+  - `make test-esp32-soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every
+    two minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
     that grows as the screen runs passes its bound.
 
 ### A screen reaching a test server under WSL
