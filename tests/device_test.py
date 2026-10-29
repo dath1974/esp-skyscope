@@ -846,7 +846,8 @@ def test_mock_firmware(screen: Screen, run: Run, server, source: str, install: s
                 time.sleep(3)
                 now = screen.json("/api/status")[1]["sockets"]
                 # ESPHome's download leaves its connection open when the image is not there or no answer comes
-                # (ota_http_request.cpp returns before container->end()): one socket each, until a restart.
+                # (ota_http_request.cpp returns before container->end()): one socket each, until a restart. Fixed on
+                # ESPHome's dev branch (esphome/esphome#21762), not yet in a release; once it is, allow none.
                 known = 1 if fault in ("bin-404", "bin-close") else 0
                 run.check(now <= sockets + known, f"{what}: no socket left open ({sockets} to {now})" +
                           (" (one is ESPHome's, known)" if known and now > sockets else ""))

@@ -5,8 +5,10 @@ DEVICE ?=
 SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to catch what a change leaves behind.
 CHURN ?= 0
+# The ESPHome the firmware is built with, here and for a release (release.yml): `make esphome` installs it.
+ESPHOME_VERSION := 2026.10.1
 
-.PHONY: test host python page markers device device-full device-mock soak firmware
+.PHONY: test host python page markers device device-full device-mock soak esphome esphome-version firmware
 
 test: host python page
 
@@ -49,5 +51,15 @@ soak:
 	@test -n "$(DEVICE)" || { echo "make soak DEVICE=<the screen's address> [SOAK=minutes] [CHURN=minutes]"; exit 2; }
 	tests/device_test.py $(DEVICE) --no-touch --soak $(SOAK) --churn $(CHURN)
 
+# With pipx where there is one (as ESPHome suggests), else with pip.
+esphome:
+	if command -v pipx >/dev/null; then pipx install --force esphome==$(ESPHOME_VERSION); \
+	else pip install esphome==$(ESPHOME_VERSION); fi
+
+esphome-version:
+	@echo $(ESPHOME_VERSION)
+
 firmware:
+	@v=$$(esphome version | sed 's/.* //'); test "$$v" = "$(ESPHOME_VERSION)" || \
+	  { echo "ESPHome $$v, not $(ESPHOME_VERSION): make esphome"; exit 2; }
 	esphome compile skyscope.yaml

@@ -61,7 +61,7 @@ jobs:
 
       - name: Build
         run: |
-          pip install esphome==2026.9.1
+          pip install "esphome==$(make -s esphome-version)"
           esphome compile skyscope.yaml
 
       - name: The files for the screens

@@ -39,7 +39,8 @@ new board will require ample testing, noting the goal of this project is a physi
 
 ## Install
 
-You need [ESPHome](https://esphome.io) 2026.9 or newer.
+You need [ESPHome](https://esphome.io) 2026.9 or newer; releases are built with the version in the `Makefile`
+(`ESPHOME_VERSION`), which `make esphome` installs.
 
 ```sh
 git clone https://github.com/dath1974/esp-skyscope
