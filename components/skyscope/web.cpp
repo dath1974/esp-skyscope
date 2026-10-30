@@ -8,6 +8,9 @@
 //   GET  /api/firmware     the firmware running and the newest on the update server
 //   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware;
 //                          with the test API, {"source": url} asks another update server until a restart
+//   GET  /api/networks     the Wi-Fi networks the screen knows, first choice first: their names (never a password)
+//   POST /api/networks     with the test API: {"move": [i, step]}, {"forget": i}, {"join": {"name", "password"}} (no
+//                          restart: the first choice at the next start)
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //
@@ -330,6 +333,35 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 #endif
+  if (url == "/api/networks" && known_networks_) {
+#ifdef SKYSCOPE_TEST_API
+    if (post) {
+      JsonDocument in;
+      const std::string text = std::move(body_);
+      body_.clear();
+      if (deserializeJson(in, text)) {
+        request->send(400, "application/json", "{\"error\":\"json\"}");
+        return;
+      }
+      // Changed on the loop, which owns the menu's list too; answered with the list as it will be.
+      auto ask = std::make_shared<JsonDocument>(std::move(in));
+      this->defer([this, ask]() {
+        JsonDocument &in = *ask;
+        if (in["move"].is<JsonArrayConst>()) known_networks_->move(in["move"][0] | 99, in["move"][1] | 0);
+        if (in["forget"].is<int>()) known_networks_->forget(in["forget"].as<int>());
+        if (in["join"].is<JsonObjectConst>())
+          known_networks_->joined(in["join"]["name"] | "", in["join"]["password"] | "");
+      });
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+#endif
+    JsonDocument out;
+    JsonArray list = out["networks"].to<JsonArray>();
+    for (const auto &n : known_networks_->list().networks) list.add(n.name);
+    send_json(request, 200, out);
+    return;
+  }
   if (url == "/api/reboot" && post) {
     request->send(200, "application/json", "{\"ok\":true}");
     this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });

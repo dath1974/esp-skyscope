@@ -3,11 +3,12 @@
 // - The keyboard (keyboard.h) types a row's value, which the settings check when Done is pressed: the row's hint shows
 //   under the text, in the error colour when they refuse it. It also types a place to find, which the worker looks for
 //   (places.h) and a list then offers, and a Wi-Fi network's name and password.
-// - The list offers the places a search found, or the Wi-Fi networks in reach. While the screen is on a network it
-//   scans for them itself; while it is not, ESPHome scans as it looks for one, and each of its scans comes here too.
-//   Joining a network keeps the menu's changes, saves the network and restarts the screen to join it: ESPHome changes
-//   networks only when it loses the one it is on. A network it cannot join opens the setup network after a minute, as
-//   at the first start.
+// - The list offers the places a search found, or the Wi-Fi networks: first those the screen knows, first choice first
+//   (networks.h), each with keys to move it up or down and to forget it, then the others in reach. While the screen is
+//   on a network it scans for them itself; while it is not, ESPHome scans as it looks for one, and each of its scans
+//   comes here too. Joining a network keeps the menu's changes, makes it the first choice and restarts the screen to
+//   join it: ESPHome changes networks only when it loses the one it is on. If it cannot join, it tries the others it
+//   knows, and opens the setup network after a minute without any, as at the first start.
 #include "skyscope.h"
 
 #include "colours.h"
@@ -31,6 +32,10 @@ using namespace widgets;
 namespace {
 constexpr uint32_t SCAN_MS = 10000;  // a scan unanswered for this long is waited for no more
 constexpr int PICK_OTHER = -1;       // the networks' last item: one typed by its name
+constexpr int PICK_KNOWN = 1000;     // a network the screen knows: PICK_KNOWN + its place in the list
+constexpr int KNOWN_KEYS = 2000;     // its keys: KNOWN_KEYS + its place * 3 + one of these
+enum { KEY_UP, KEY_DOWN, KEY_FORGET };
+constexpr uint32_t FORGET_MS = 4000;  // Forget's second tap, within this
 constexpr size_t MOST_NETWORKS = 12;
 
 // A panel over everything, the size of the glass, in the menu's colours.
@@ -377,13 +382,74 @@ void Skyscope::fill_picker_() {
     char ssid[wifi::SSID_BUFFER_SIZE];
     on = wifi->wifi_ssid_to(ssid);
   }
+  auto heading = [&](const char *words) {
+    lv_obj_t *h = widgets::text(picker_list_, ui::fonts.small, c.accent, words);
+    lv_obj_set_style_pad_left(h, ui::mm(1), 0);
+  };
+  // The networks the screen knows, first choice first, each with its keys: up, down, and Forget (a second tap).
+  const sky::wifi_list::List known = known_networks_ ? known_networks_->list() : sky::wifi_list::List{};
+  if (!known.networks.empty()) heading("Known, first choice first");
+  const bool armed = forget_armed_until_ && (int32_t) (millis() - forget_armed_until_) < 0;
+  for (size_t i = 0; i < known.networks.size(); ++i) {
+    const std::string &name = known.networks[i].name;
+    std::string detail = "not in reach";
+    for (const Network &n : networks_)
+      if (n.name == name) detail = std::to_string(n.rssi) + " dBm";
+    if (name == on) detail += ", connected";
+    lv_obj_t *row = plain(picker_list_);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);  // its item and keys are
+    lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, ui::mm(0.8f), 0);
+    item(std::to_string(i + 1) + ". " + name, detail, PICK_KNOWN + (int) i);
+    lv_obj_t *b = lv_obj_get_child(picker_list_, -1);  // the item just made, into the row
+    lv_obj_set_parent(b, row);
+    lv_obj_set_width(b, 0);
+    lv_obj_set_flex_grow(b, 1);
+    auto key = [&](const char *label, int arrow_of, int action) {
+      lv_obj_t *k = button_(row, label, label ? LV_SIZE_CONTENT : ui::mm(7), ui::mm(8), arrow_of);
+      lv_obj_set_user_data(k, (void *) (intptr_t) (KNOWN_KEYS + (int) i * 3 + action));
+      on_click(k, this, [](lv_event_t *e) { self_of(e)->known_key_(index_of(e)); });
+      return k;
+    };
+    if (i > 0) key(nullptr, ARROW_UP, KEY_UP);
+    if (i + 1 < known.networks.size()) key(nullptr, ARROW_DOWN, KEY_DOWN);
+    if (known.networks.size() > 1) key(armed && forget_armed_ == (int) i ? "Sure?" : "Forget", -1, KEY_FORGET);
+  }
+  // The others in reach, and one by its name.
+  heading("In reach");
   for (size_t i = 0; i < networks_.size(); ++i) {
     const Network &n = networks_[i];
+    if (known.find(n.name) >= 0) continue;
     item(n.name,
          std::to_string(n.rssi) + " dBm, " + (n.secured ? "password" : "open") + (n.name == on ? ", connected" : ""),
          (int) i);
   }
   item("Other network", "A hidden one, by its name", PICK_OTHER);
+}
+
+void Skyscope::known_key_(int code) {
+  if (!known_networks_ || code < KNOWN_KEYS) return;
+  const int i = (code - KNOWN_KEYS) / 3, action = (code - KNOWN_KEYS) % 3;
+  bool changed = false;
+  if (action == KEY_FORGET) {
+    // The first tap asks for a second; the second forgets it.
+    const bool armed = forget_armed_ == i && forget_armed_until_ && (int32_t) (millis() - forget_armed_until_) < 0;
+    if (!armed) {
+      forget_armed_ = i;
+      forget_armed_until_ = (millis() + FORGET_MS) | 1;
+    } else {
+      changed = known_networks_->forget(i);
+      forget_armed_ = -1;
+      forget_armed_until_ = 0;
+    }
+  } else {
+    changed = known_networks_->move(i, action == KEY_UP ? -1 : 1);
+  }
+  if (changed) ESP_LOGI(TAG, "Known networks changed");
+  // Built again after this event: the key pressed is one of what goes.
+  this->defer([this]() { fill_picker_(); });
 }
 
 void Skyscope::refresh_picker_() {
@@ -450,6 +516,19 @@ void Skyscope::picker_pick_(int index) {
     this->defer([this]() {
       open_editor_(TYPING_NETWORK, "Network name", "", keyboard::WORDS, 32,
                    "The network's name (its SSID), as it is written");
+    });
+    return;
+  }
+  if (index >= PICK_KNOWN && known_networks_) {
+    // A network the screen knows: its password as kept, to join it now.
+    const sky::wifi_list::List known = known_networks_->list();
+    const size_t i = index - PICK_KNOWN;
+    if (i >= known.networks.size()) return;
+    network_name_ = known.networks[i].name;
+    const std::string password = known.networks[i].password;
+    this->defer([this, password]() {
+      open_editor_(TYPING_PASSWORD, "Password", password, keyboard::WORDS, 64,
+                   "Kept for \"" + network_name_ + "\". The screen restarts to join it.");
     });
     return;
   }
@@ -529,7 +608,9 @@ void Skyscope::join_network_(const std::string &name, const std::string &passwor
     joining_ = name;
     last_status_ = 0;
     ESP_LOGI(TAG, "A new Wi-Fi network: restarting to join it");
-    if (wifi::global_wifi_component) wifi::global_wifi_component->save_wifi_sta(name, password);
+    // The first choice from now on, among the others it knows (or ESPHome's one network, without them).
+    if (known_networks_) known_networks_->joined(name, password);
+    else if (wifi::global_wifi_component) wifi::global_wifi_component->save_wifi_sta(name, password);
     this->set_timeout(1500, []() { App.safe_reboot(); });
   });
 }

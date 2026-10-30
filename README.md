@@ -112,11 +112,15 @@ for **Save**; **Cancel** drops them.
   only when **Search** is pressed. Pick one of what it found; an airport is named by its code. Latitude and longitude
   can be typed instead.
 - **Watched** takes the aircraft with a comma between: `N12345 red, BAW123 blue` (red where no colour is given).
-- **Wi-Fi** shows the network the screen is on; a tap lists the networks in reach (the screen scans for them, or uses
-  ESPHome's own scans while it has no network), strongest first, and **Other network** for a hidden one by its name.
-  After the password, **Join** keeps the menu's changes, saves the network and restarts the screen to join it (ESPHome
-  changes networks only by losing the one it is on). The screen keeps one network: if it cannot join the new one, it
-  opens **Skyscope Setup** after a minute, and the network can be chosen again there or in the menu.
+- **Wi-Fi** shows the network the screen is on; a tap lists the networks it knows, first choice first, then the others
+  in reach (the screen scans for them, or uses ESPHome's own scans while it has no network), strongest first, and
+  **Other network** for a hidden one by its name. A known network has keys to move it up or down and **Forget** (a
+  second tap forgets it; the last one stays). A tap on a known network joins it with the password it keeps; on another,
+  after its password, **Join**. Joining keeps the menu's changes, makes the network the first choice and restarts the
+  screen to join it (ESPHome changes networks only by losing the one it is on). The screen knows up to eight networks,
+  and at every start (or when it loses its network) joins the first of them in reach, so it can be moved between places.
+  A network given to ESPHome's setup page or Improv joins them as the first choice. With none in reach it opens
+  **Skyscope Setup** after a minute, and a network can be chosen there or in the menu.
 
 ## Zoom and pan
 
@@ -160,6 +164,8 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
+| `GET /api/networks` | the Wi-Fi networks the screen knows, first choice first: their names only, never a password |
+| `POST /api/networks` | with the test API only: `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, and where each plane is |
@@ -210,8 +216,8 @@ receiver's range, are missing, and positions may be late.
 
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
-  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`) are plain
-  C++.
+  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
+  `wifi_list.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
   ESPHome downloaded.
@@ -229,7 +235,8 @@ receiver's range, are missing, and positions may be late.
   - `make test-esp32 DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
     aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
     stepped, cancelled and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and
-    Install's second tap; a plane's card; the address; a swipe between maps and back;
+    Install's second tap; the known Wi-Fi networks (a made-up one moved and forgotten, never joined); a plane's card;
+    the address; a swipe between maps and back;
     a drag on the brightness strip).
   - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.

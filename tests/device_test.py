@@ -384,6 +384,41 @@ def test_touch(screen: Screen, run: Run, original: dict):
             listed = wait_for(lambda: (lambda p: p if p and len(p["items"]) > 1 else None)(glass.menu().get("picker")), 15, 1)
             run.check(listed is not None, f"a scan finds networks ({len(listed['items']) - 1 if listed else 0})")
             run.check(glass.menu()["picker"]["items"][-1]["name"] == "Other network", "and offers one by its name")
+            # The networks the screen knows come first, numbered; with one there is nothing to move or forget.
+            known = screen.json("/api/networks")[1].get("networks", [])
+            first = glass.menu()["picker"]["items"][0]
+            run.check(len(known) >= 1 and first["name"].startswith("1. "), f"the known networks first ({len(known)})")
+            if len(known) == 1:
+                run.check(not first.get("keys"), "one alone, with no keys to move or forget it")
+            # A second, made up (it is never in reach, and goes again before the end): keys to move it and forget it,
+            # Forget taking a second tap. Nothing restarts, and the screen's own network stays first.
+            fake = "skyscope-test-nowhere"
+            screen.json("/api/networks", {"join": {"name": fake, "password": "not-a-real-one"}})
+            time.sleep(0.5)
+            screen.json("/api/networks", {"move": [0, 1]})
+            time.sleep(0.5)
+            glass.tap_key(glass.menu()["picker"]["back"])
+            time.sleep(0.5)
+            glass.tap_key(glass.menu()["keys"]["wifi"])
+            picker = wait_for(lambda: (glass.menu() or {}).get("picker"), 5, 0.3)
+            items = picker["items"] if picker else []
+            row = next((i for i in items if i["name"].endswith(fake)), None)
+            run.check(row is not None and row["name"].startswith("2. ") and len(row.get("keys", [])) == 2,
+                      "a second known network, with keys up and Forget")
+            if row:
+                glass.tap_key(row["keys"][-1])
+                time.sleep(0.6)
+                still = fake in screen.json("/api/networks")[1]["networks"]
+                row = next((i for i in glass.menu()["picker"]["items"] if i["name"].endswith(fake)), None)
+                run.check(still and row is not None, "Forget asks for a second tap")
+                if row:
+                    glass.tap_key(row["keys"][-1])
+                    time.sleep(0.6)
+            gone = fake not in screen.json("/api/networks")[1]["networks"]
+            run.check(gone, "and forgets it at the second")
+            if not gone:
+                names = screen.json("/api/networks")[1]["networks"]
+                screen.json("/api/networks", {"forget": names.index(fake)})
             glass.tap_key(glass.menu()["picker"]["back"])
             gone = wait_for(lambda: (lambda m: m if m and not m.get("picker") else None)(glass.menu()), 5, 0.3)
             run.check(gone is not None, "Back goes back to the menu")

@@ -46,7 +46,9 @@ void place(JsonObject out, lv_obj_t *o) {
   out["reachable"] = reachable;
 }
 bool shown(lv_obj_t *o) { return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN); }
-const char *text_of(lv_obj_t *label) { return label ? lv_label_get_text(label) : ""; }
+const char *text_of(lv_obj_t *label) {
+  return label && lv_obj_check_type(label, &lv_label_class) ? lv_label_get_text(label) : "";
+}
 }  // namespace
 
 void Skyscope::make_probe_input_() {
@@ -153,9 +155,17 @@ void Skyscope::describe_ui_(JsonObject out) {
     JsonArray items = pk["items"].to<JsonArray>();
     for (uint32_t i = 0; i < lv_obj_get_child_count(picker_list_); ++i) {
       lv_obj_t *item = lv_obj_get_child(picker_list_, i);
+      if (lv_obj_check_type(item, &lv_label_class)) continue;  // a heading
+      // A known network's row: its item first, then its keys.
+      lv_obj_t *row = lv_obj_has_flag(item, LV_OBJ_FLAG_CLICKABLE) ? nullptr : item;
+      if (row) item = lv_obj_get_child(row, 0);
       JsonObject it = items.add<JsonObject>();
       it["name"] = text_of(lv_obj_get_child(item, 0));
       place(it, item);
+      if (row) {
+        JsonArray ks = it["keys"].to<JsonArray>();
+        for (uint32_t k = 1; k < lv_obj_get_child_count(row); ++k) place(ks.add<JsonObject>(), lv_obj_get_child(row, k));
+      }
     }
   }
 }

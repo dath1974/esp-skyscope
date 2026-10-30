@@ -27,6 +27,7 @@
 #include "../components/skyscope/swipe.h"
 #include "../components/skyscope/tiles.h"
 #include "../components/skyscope/touch.h"
+#include "../components/skyscope/wifi_list.h"
 
 using namespace sky;
 
@@ -1098,6 +1099,45 @@ static void test_swipe() {
   CHECK(menu::stepped(map_row(), s, -1) && menu::stepped(map_row(), s, -1) && s.map == CUSTOM);
 }
 
+static void test_wifi_list() {
+  using namespace wifi_list;
+  List l;
+  // The first network ESPHome starts with joins the list; known as it is, nothing changes.
+  CHECK(l.merge("Home", "secret12") && l.networks.size() == 1);
+  CHECK(!l.merge("Home", "secret12") && !l.merge("", "x"));
+  // Networks joined go first; one joined again goes first with its new password, the rest keep their order.
+  CHECK(l.add_first("Cabin", "pinecone") && l.add_first("Office", "work1234"));
+  CHECK(l.networks[0].name == "Office" && l.networks[1].name == "Cabin" && l.networks[2].name == "Home");
+  CHECK(l.add_first("Home", "newsecret") && l.networks[0].name == "Home" && l.networks[0].password == "newsecret" &&
+        l.networks[1].name == "Office" && l.networks.size() == 3);
+  CHECK(!l.add_first("Home", "newsecret"));  // already first, as it is
+  // ESPHome given a known network with another password (its setup page): first, with it.
+  CHECK(l.merge("Cabin", "pinecone2") && l.networks[0].name == "Cabin" && l.networks[0].password == "pinecone2");
+  // Moved, within the list only.
+  CHECK(l.move(0, 1) && l.networks[1].name == "Cabin" && !l.move(0, -1) && !l.move(2, 1) && !l.move(9, 1));
+  // Earlier is higher to ESPHome.
+  CHECK(l.priority(0) > l.priority(1) && l.priority(1) > l.priority(2) && l.priority(2) > 0);
+  // Forgotten, but never the last.
+  CHECK(l.forget(2) && l.networks.size() == 2 && l.forget(0) && !l.forget(0) && l.networks.size() == 1);
+  // No more than MOST: the last choice goes.
+  for (int i = 0; i < 10; ++i) l.add_first("Net" + std::to_string(i), "password");
+  CHECK(l.networks.size() == MOST && l.networks[0].name == "Net9" && l.find("Net1") < 0);
+  // Names and passwords as long as ESPHome takes them, and no longer.
+  CHECK(!l.add_first(std::string(33, 'n'), "") && !l.add_first("x", std::string(65, 'p')));
+  CHECK(l.add_first(std::string(32, 'n'), std::string(64, 'p')));
+  // Stored and read back the same; bytes of something else read as no networks.
+  const List back = from(stored(l));
+  CHECK(back.networks.size() == l.networks.size());
+  for (size_t i = 0; i < l.networks.size(); ++i)
+    CHECK(back.networks[i].name == l.networks[i].name && back.networks[i].password == l.networks[i].password);
+  Stored junk = stored(l);
+  junk.check = 0;
+  CHECK(from(junk).networks.empty());
+  junk = stored(l);
+  junk.count = 200;
+  CHECK(from(junk).networks.size() == MOST);
+}
+
 static void test_schedule() {
   using namespace schedule;
   Zone z;
@@ -1301,6 +1341,7 @@ int main(int argc, char **argv) {
   test_places();
   test_pinch();
   test_swipe();
+  test_wifi_list();
   test_schedule();
   test_firmware();
   test_touch();

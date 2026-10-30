@@ -30,6 +30,10 @@ CONF_TEST_API = "test_api"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
+# The Wi-Fi networks the screen knows, first choice first (networks.h): a component of its own, started just after
+# Wi-Fi.
+Networks = skyscope_ns.class_("Networks", cg.Component)
+CONF_NETWORKS_ID = "networks_id"
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent")
@@ -47,6 +51,7 @@ HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(Skyscope),
+        cv.GenerateID(CONF_NETWORKS_ID): cv.declare_id(Networks),
         cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(WebServerBase),
         # The LVGL component whose rotation the settings page sets.
         cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
@@ -104,6 +109,9 @@ async def to_code(config):
     await cg.register_component(var, config)
     base = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     cg.add(var.set_web_server_base(base))
+    networks = cg.new_Pvariable(config[CONF_NETWORKS_ID])
+    await cg.register_component(networks, {})
+    cg.add(var.set_networks(networks))
     cg.add(var.set_lvgl(await cg.get_variable(config[CONF_LVGL_ID])))
     small = await cg.get_variable(config[CONF_FONT_SMALL])
     label = await cg.get_variable(config[CONF_FONT_LABEL])

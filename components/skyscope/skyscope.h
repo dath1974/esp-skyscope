@@ -40,6 +40,7 @@
 #include "feed.h"
 #include "firmware.h"
 #include "keyboard.h"
+#include "networks.h"
 #include "overlay.h"
 #include "pinch.h"
 #include "places.h"
@@ -81,6 +82,7 @@ class Skyscope : public Component,
   void set_brightness_output(output::FloatOutput *out) { brightness_ = out; }
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
+  void set_networks(Networks *networks) { known_networks_ = networks; }
 #ifdef USE_TOUCHSCREEN
   // Every finger on the glass, for two-finger zoom and pan (preview.cpp): LVGL is told of the first finger only.
   void set_touchscreen(touchscreen::Touchscreen *touch) { touch->register_listener(this); }
@@ -207,6 +209,9 @@ class Skyscope : public Component,
   void scan_networks_();
   void networks_from_(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results);
   void join_network_(const std::string &name, const std::string &password);
+  void known_key_(int code);  // a known network's key: up, down, Forget
+  int forget_armed_{-1};       // the known network Forget's second tap would forget, until forget_armed_until_
+  uint32_t forget_armed_until_{0};
   void set_brightness_now_(int percent);
   // Two fingers zoom and pan a preview of another view (preview.cpp): a picture of the glass as they landed, stretched
   // and shifted as they move, the view planned once they have been still for a while, and kept or dropped by the bar's
@@ -254,6 +259,7 @@ class Skyscope : public Component,
   void install_firmware_();
 
   web_server_base::WebServerBase *base_{nullptr};
+  Networks *known_networks_{nullptr};  // the networks the screen knows, first choice first (networks.h)
   lvgl::LvglComponent *lvgl_{nullptr};
 #ifdef USE_TIME
   time::RealTimeClock *clock_{nullptr};
