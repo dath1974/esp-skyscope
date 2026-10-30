@@ -80,6 +80,7 @@ class Cache {
 
  public:
   size_t size() const { return items_.size(); }
+  size_t bytes() const { return bytes_; }
 };
 
 // How long a source that failed is left alone: a feed that says "too many requests" longer.
@@ -149,6 +150,12 @@ void Skyscope::worker_() {
   tiles::Plan plan;
   uint32_t settings_rev = 0, plan_rev = 0, painting_rev = 0;
   std::vector<Pending> pending;  // the plan's tiles not drawn yet, in its order (nearest the middle first)
+  // What the frame being drawn shows (tiles.h frame_key), and whether a tile of it was given up; the frame kept, what
+  // it shows and when it was drawn. Counters for /api/status.
+  std::string painting_key, kept_key;
+  bool gave_up = false;
+  uint32_t kept_at = 0, tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
+  uint64_t tile_bytes_fetched = 0;
   uint32_t feed_due = 0;
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
   std::string receiver_url;  // the receiver's address the last request was for
@@ -322,20 +329,46 @@ void Skyscope::worker_() {
     // ---- The map, one tile a turn, so the planes keep coming while it fills.
     if (painting_rev != plan_rev) {
       painting_rev = plan_rev;
-      pending.clear();
-      for (size_t i = 0; i < plan.keys.size(); ++i) pending.push_back({i});
+      // The frame just drawn is kept if it is whole; the frame wanted, if it is the one kept, comes back at once, with
+      // no tile decoded (a map swiped away and back, a preview dropped). Frames older than the tiles kept are not.
+      const std::string wanted = tiles::frame_key(settings, plan);
+      const bool whole = !painting_key.empty() && pending.empty() && !gave_up;
+      const uint32_t at = millis();
+      bool again = false;
       {
         std::lock_guard<std::mutex> frame(frame_lock_);
-        // The ground where no tile is (yet): black in the dark appearance, a pale gray in the light one.
-        const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
-        std::fill(base_frame_, base_frame_ + width * height, tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF));
+        if (!kept_frame_ && whole)
+          kept_frame_ = static_cast<uint16_t *>(
+              heap_caps_malloc((size_t) width * height * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (kept_frame_ && !wanted.empty() && wanted == kept_key && at - kept_at < TILE_TTL_MS) {
+          std::swap(base_frame_, kept_frame_);
+          kept_key = whole ? painting_key : "";
+          kept_at = at;
+          again = true;
+        } else {
+          if (kept_frame_ && whole) {
+            std::swap(base_frame_, kept_frame_);
+            kept_key = painting_key;
+            kept_at = at;
+          }
+          // The ground where no tile is (yet): black in the dark appearance, a pale gray in the light one.
+          const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
+          std::fill(base_frame_, base_frame_ + width * height, tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF));
+        }
       }
+      painting_key = wanted;
+      gave_up = false;
+      pending.clear();
+      if (!again)
+        for (size_t i = 0; i < plan.keys.size(); ++i) pending.push_back({i});
+      else ++frames_again;
       std::lock_guard<std::mutex> guard(lock_);
       shared_.frame_rev++;
       shared_.frame_plan_rev = plan_rev;
-      shared_.tiles_done = 0;
+      shared_.tiles_done = again ? plan.keys.size() : 0;
       shared_.tiles_total = plan.keys.size();
       shared_.tile_error.clear();
+      shared_.frames_again = frames_again;
     }
     // The first tile due, nearest the middle first; one that failed waits its turn while the others load.
     auto due = std::find_if(pending.begin(), pending.end(), [&](const Pending &p) { return (int32_t) (millis() - p.due) >= 0; });
@@ -345,11 +378,16 @@ void Skyscope::worker_() {
       Cached *tile = cache.find(key, millis());
       std::string error;
       bool fetched_failed = false;
+      if (tile) ++tiles_from_cache;
       if (!tile) {
         ui::worker_phase = ui::TILE_FETCH;
         const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
         ui::worker_phase = ui::IDLE;
-        if (r.status == 200) tile = cache.keep(key, body.data, body.size, millis());
+        if (r.status == 200) {
+          ++tiles_fetched;
+          tile_bytes_fetched += body.size;
+          tile = cache.keep(key, body.data, body.size, millis());
+        }
         // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
         else if (r.status == 404 || r.status == 204) tile = cache.keep(key, nullptr, 0, millis());
         else error = r.error;
@@ -376,11 +414,18 @@ void Skyscope::worker_() {
         const uint32_t wait = std::min<uint32_t>(TILE_RETRY_MOST_MS, TILE_RETRY_FIRST_MS << std::min(job.failures - 1, 5));
         ESP_LOGW(TAG, "Tile %u/%u/%u%s: %s; %s", key.z, (unsigned) key.x, (unsigned) key.y, key.layer ? " (names)" : "",
                  error.c_str(), given_up ? "given up" : ("again in " + std::to_string(wait / 1000) + " s").c_str());
-        if (given_up) pending.erase(due);
+        if (given_up) {
+          pending.erase(due);
+          gave_up = true;
+        }
         else job.due = millis() + wait;
       }
       std::lock_guard<std::mutex> guard(lock_);
       shared_.cached_tiles = cache.size();
+      shared_.cache_bytes = cache.bytes();
+      shared_.tiles_fetched = tiles_fetched;
+      shared_.tiles_from_cache = tiles_from_cache;
+      shared_.tile_bytes_fetched = tile_bytes_fetched;
       if (shared_.frame_plan_rev == plan_rev) {
         if (drawn) shared_.tiles_done++;
         if (!drawn) shared_.tile_error = error.empty() ? std::string("tile server") : error;

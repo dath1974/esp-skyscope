@@ -42,7 +42,7 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
 |---|---|
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` |
 
-A board needs an ESP32-S3 with PSRAM (the map takes two frames of the screen, the tile cache 3 MB) and an LVGL-capable
+A board needs an ESP32-S3 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB) and an LVGL-capable
 display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:` block's `dpi`.  Any
 new board will require ample testing, noting the goal of this project is a physically small display size.
 
@@ -156,7 +156,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -190,14 +190,18 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [FAA airports](https://adds-faa.opendata.arcgis.com) | the menu's place search: airports by code or name | public domain, United States |
 | [Nominatim](https://operations.osmfoundation.org/policies/nominatim/) | the menu's place search: anything else | at most one request a second, with a User-Agent, none as you type, OpenStreetMap credited (all done) |
 
-The screen asks for planes every 10 seconds by default (3 at the least). Each exchange sets its own limits and may change
-them with its load, so the screen keeps to what each one announces: never more often than its `x-ratelimit-limit` header
-allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or `Retry-After`), else twice as long each
-time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the other
-exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status line
-and the page count down to the next try. Tiles are cached in memory for a day and asked again only when the place, range
-or map changes. The airspace is asked once for each place and range while it is switched on; a request that fails waits
-30 seconds, then twice as long each time, up to 15 minutes, since the FAA's server is shared by everyone who uses it.
+The screen asks for planes every 10 seconds by default (3 at the least). Each exchange sets its own limits and may
+change them with its load, so the screen keeps to what each one announces: never more often than its `x-ratelimit-limit`
+header allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or `Retry-After`), else twice as
+long each time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the
+other exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status
+line and the page count down to the next try. Tiles are cached in memory for a day (3 MB, as they came from their
+server, the least recently drawn going first), and a tile is asked for only when a map needs one it does not hold. Each
+map is drawn from its tiles, one at a time, so a map from the cache still fills in over a second or two; the last map
+drawn whole is also kept as it was drawn, so going back to it (a swipe back, a preview cancelled) shows it whole at
+once. `/api/status` counts both (`tile_cache`). The airspace is asked once for each place and range while it is switched
+on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's server is
+shared by everyone who uses it.
 
 **Not for navigation.** ADS-B exchanges show what volunteers' receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.

@@ -215,6 +215,15 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["tiles_total"] = shared_.tiles_total;
     out["tile_error"] = shared_.tile_error;
     out["tile_zoom"] = shared_.plan.tile_z;
+    // Where the map's tiles came from since the screen started: their servers or the cache, and frames shown whole
+    // again from the one kept, with no tile drawn.
+    JsonObject cache = out["tile_cache"].to<JsonObject>();
+    cache["tiles"] = shared_.cached_tiles;
+    cache["kb"] = shared_.cache_bytes / 1024;
+    cache["fetched"] = shared_.tiles_fetched;
+    cache["fetched_kb"] = (uint32_t) (shared_.tile_bytes_fetched / 1024);
+    cache["from_cache"] = shared_.tiles_from_cache;
+    cache["frames_again"] = shared_.frames_again;
     // The airspace shown (airspace.h): its areas and runways, its replies' bytes, and why the last request failed.
     out["airspace_areas"] = shared_.airspace ? shared_.airspace->areas.size() : 0;
     out["airspace_runways"] = shared_.airspace ? shared_.airspace->runways.size() : 0;

@@ -194,6 +194,24 @@ inline Filter filter_of(const Settings &s) {
   return {s.theme == DARK && s.map != CUSTOM ? source(s).night : NIGHT_NONE, (uint16_t) (s.map_brightness * 256 / 100)};
 }
 
+// What a frame of tiles shows, for knowing a frame drawn before when the same one is wanted again (worker.cpp keeps
+// the last whole one): its map (the custom server's address too), its middle and zoom, its tiles and their layers, and
+// how they are painted (the appearance, the night rules, the map's brightness). "" for a plan with no tiles.
+inline std::string frame_key(const Settings &s, const Plan &p) {
+  if (p.keys.empty()) return "";
+  const Filter f = filter_of(s);
+  char text[160];
+  std::snprintf(text, sizeof(text), "%d %d %d %u %.7f %.7f %.4f %d %d %zu %d|", (int) s.map, (int) s.theme,
+                (int) f.night, (unsigned) f.keep, p.view.lat, p.view.lon, p.view.zoom, p.view.width,
+                p.view.height, p.keys.size(), p.tile_z);
+  std::string key = text;
+  for (const Key &k : p.keys) {
+    std::snprintf(text, sizeof(text), "%u/%u/%u/%u ", k.z, (unsigned) k.x, (unsigned) k.y, k.layer);
+    key += text;
+  }
+  return s.map == CUSTOM ? key + s.custom_url : key;
+}
+
 inline uint16_t rgb565(int r, int g, int b) {
   auto c = [](int v) { return v < 0 ? 0 : v > 255 ? 255 : v; };
   return (uint16_t) ((c(r) & 0xF8) << 8 | (c(g) & 0xFC) << 3 | c(b) >> 3);

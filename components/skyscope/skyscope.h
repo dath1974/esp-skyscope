@@ -126,7 +126,12 @@ class Skyscope : public Component,
     // How long the last report took: its download, reading its JSON (both on the worker), and its bytes.
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
     uint32_t feed_every_ms = 0;
-    size_t cached_tiles = 0;  // the worker's tile cache, entries  // how often the feed is asked: refresh_s, or less often when its limits say so
+    size_t cached_tiles = 0;  // the worker's tile cache, entries
+    // Since the screen started: tiles fetched from their servers (and their bytes) and found in the cache, the cache's
+    // bytes now, and frames shown whole again from the one kept (worker.cpp) with no tile drawn.
+    uint32_t tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
+    uint64_t tile_bytes_fetched = 0;
+    size_t cache_bytes = 0;
     // The airspace and runways of the last place and range asked (airspace.h), which may be an earlier frame's while a
     // new one comes, and why the last request failed.
     std::shared_ptr<const airspace::Map> airspace;
@@ -361,6 +366,9 @@ class Skyscope : public Component,
   Shared shared_;
   std::mutex frame_lock_;
   uint16_t *base_frame_{nullptr};
+  // The worker's: the last frame of tiles it drew whole, for its view and map wanted again (a map swiped away and
+  // back). Swapped with base_frame_ under frame_lock_.
+  uint16_t *kept_frame_{nullptr};
   TaskHandle_t worker_task_{nullptr};
 
   // The preview: the fingers, the settings as they were (kept until Save), the view previewed, when it is planned

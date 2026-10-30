@@ -470,6 +470,44 @@ static void test_tiles() {
   }
 }
 
+static void test_frame_key() {
+  // A frame is known again by everything that shows in it, and by nothing else.
+  Settings s;
+  s.lat = 40.64;
+  s.lon = -73.78;
+  s.located = true;
+  s.map = SECTIONAL;
+  const tiles::Plan p = tiles::plan(s, 600, 450, 2);
+  const std::string key = tiles::frame_key(s, p);
+  CHECK(!key.empty() && key == tiles::frame_key(s, tiles::plan(s, 600, 450, 2)));
+  Settings t = s;
+  t.tint = AMBER;  // the radar's phosphor: no part of a map
+  t.rings = false;  // drawn over the frame, not in it
+  CHECK(tiles::frame_key(t, tiles::plan(t, 600, 450, 2)) == key);
+  for (auto change : std::vector<void (*)(Settings &)>{
+           [](Settings &x) { x.map = IFR_LOW; }, [](Settings &x) { x.theme = LIGHT; },
+           [](Settings &x) { x.map_brightness = 70; }, [](Settings &x) { x.lat += 0.2; },
+           [](Settings &x) { x.range_nm = 60; }}) {
+    t = s;
+    change(t);
+    CHECK(tiles::frame_key(t, tiles::plan(t, 600, 450, 2)) != key);
+  }
+  // Place names are a layer of their own tiles; the custom server's address is part of its map.
+  t = s;
+  t.map = STREETS;
+  const std::string named = tiles::frame_key(t, tiles::plan(t, 600, 450, 2));
+  t.place_names = false;
+  CHECK(tiles::frame_key(t, tiles::plan(t, 600, 450, 2)) != named);
+  t.map = CUSTOM;
+  t.custom_url = "https://a.example/{z}/{x}/{y}.png";
+  const std::string a = tiles::frame_key(t, tiles::plan(t, 600, 450, 2));
+  t.custom_url = "https://b.example/{z}/{x}/{y}.png";
+  CHECK(tiles::frame_key(t, tiles::plan(t, 600, 450, 2)) != a);
+  // The radar has no tiles, and so no frame to keep.
+  t.map = RADAR;
+  CHECK(tiles::frame_key(t, tiles::plan(t, 600, 450, 2)).empty());
+}
+
 static void test_overlay() {
   JsonDocument doc;
   std::vector<feed::Flight> flights;
@@ -1251,6 +1289,7 @@ int main(int argc, char **argv) {
   test_airspace();
   test_feed();
   test_tiles();
+  test_frame_key();
   test_overlay();
   test_labels();
   test_sprites();
