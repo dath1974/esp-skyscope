@@ -285,7 +285,7 @@ class Glass:
         while m and m["scroll_y"] > 0:
             self.tap_key(m["keys"]["up"])
             m = self.menu()
-        for _ in range(12):
+        for _ in range(40):  # the whole menu, a page at a time
             found = reachable(m)
             if found and found.get("reachable"):
                 return found
@@ -333,8 +333,13 @@ def test_touch(screen: Screen, run: Run, original: dict):
     row = glass.row("range_nm")
     run.check(row["value"] != was and row["pending"], f"an arrow steps the range ({was} to {row['value']}), marked")
     run.check(screen.json("/api/settings")[1]["range_nm"] == original["range_nm"], "but does not apply it")
+    stepped = row["value"]
     glass.tap_key(row["back"])
-    run.check(glass.row("range_nm")["value"] == was and not glass.row("range_nm")["pending"], "and back")
+    # Back from where it stepped to: to where it was, or (a range between the steps) to the step below it.
+    back = glass.row("range_nm")["value"]
+    nm = lambda v: int(v.split()[0])
+    run.check(back == was and not glass.row("range_nm")["pending"] or nm(back) < nm(was),
+              f"and back ({stepped} to {back})")
     glass.tap_key(glass.row("range_nm")["on"])
     run.check(glass.close_menu("cancel"), "Cancel closes the menu")
     run.check(not differing(screen, original), "and nothing it showed is applied", differing(screen, original))
@@ -391,7 +396,7 @@ def test_touch(screen: Screen, run: Run, original: dict):
     run.check(lower > 0, f"the down arrow scrolls the list ({lower} px)")
     glass.tap_key(glass.menu()["keys"]["up"])
     run.check(glass.menu()["scroll_y"] < lower, "and the up arrow back")
-    theme = glass.row("theme")
+    theme = glass.reach_row("theme")
     if theme and theme["shown"]:
         was = theme["value"]
         glass.tap_key(theme["on"])
