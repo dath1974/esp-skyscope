@@ -24,6 +24,12 @@ inline int direction(double x0, double y0, double x1, double y1, double least) {
   return dx < 0 ? 1 : -1;
 }
 
+// A finger from (x0, y0) to (x1, y1) going up: at least `least` up, and at least twice as far up as across.
+inline bool upward(double x0, double y0, double x1, double y1, double least) {
+  const double dx = x1 - x0, dy = y0 - y1;
+  return dy >= least && dy >= 2 * std::fabs(dx);
+}
+
 inline const menu::Row &map_row() {
   for (const auto &r : menu::rows())
     if (std::string(r.key) == "map") return r;

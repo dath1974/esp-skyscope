@@ -27,6 +27,7 @@
 #include "../components/skyscope/swipe.h"
 #include "../components/skyscope/tiles.h"
 #include "../components/skyscope/touch.h"
+#include "../components/skyscope/weather.h"
 #include "../components/skyscope/wifi_list.h"
 
 using namespace sky;
@@ -1138,6 +1139,88 @@ static void test_wifi_list() {
   CHECK(from(junk).networks.size() == MOST);
 }
 
+static void test_weather() {
+  using namespace weather;
+  JsonDocument doc;
+  std::string error;
+  CHECK(station_id(" kjfk ") == "KJFK" && station_id("JFK") == "JFK" && station_id("K1") == "" && station_id("KJ-K") == "");
+  CHECK(metar_url("KJFK").find("ids=KJFK") != std::string::npos && mos_url("KJFK").find("station=KJFK") != std::string::npos);
+  CHECK(nearby_url(40.64, -73.78).find("bbox=40.14,-74.") != std::string::npos);
+  // METARs as the Aviation Weather Center gives them (2026-10-30), the nearest to a place, and in words.
+  const std::string metars = R"([{"icaoId": "KJFK", "obsTime": 1793346660, "temp": 13.9, "dewp": 12.2, "wdir": 240,
+    "wspd": 12, "visib": "10+", "altim": 1017.4, "rawOb": "METAR KJFK 300751Z 24012KT 10SM FEW130 SCT250 14/12 A3004",
+    "lat": 40.6392, "lon": -73.7639, "name": "New York/JF Kennedy Intl, NY, US", "clouds": [{"cover": "FEW", "base":
+    13000}, {"cover": "BKN", "base": 2500}], "fltCat": "MVFR"}, {"icaoId": "KTEB", "obsTime": 1793346660, "temp": 12.8,
+    "dewp": 11.1, "wdir": "VRB", "wspd": 3, "wgst": null, "visib": 1.5, "altim": 1016.3, "rawOb": "METAR KTEB", "lat":
+    40.859, "lon": -74.0562, "clouds": [], "fltCat": "IFR"}])";
+  std::vector<Metar> m;
+  CHECK(read_metars(metars.c_str(), metars.size(), doc, m, error) && m.size() == 2);
+  CHECK(m[0].id == "KJFK" && m[0].category == MVFR && m[0].wind_dir == 240 && m[0].wind_kt == 12 && !m[0].variable);
+  CHECK(m[1].variable && m[1].wind_kt == 3 && m[1].visibility == "1.5" && m[1].category == IFR);
+  CHECK(nearest(m, 40.85, -74.05) == 1 && nearest(m, 40.6, -73.7) == 0 && nearest({}, 0, 0) == -1);
+  CHECK(ceiling_ft(m[0]) == 2500 && ceiling_ft(m[1]) == -1);
+  const auto words = decoded(m[0], false);
+  CHECK(words.size() == 6 && words[0] == "Wind 240\xC2\xB0 at 12 kt" && words[1] == "Visibility 10 SM or more");
+  CHECK(words[3] == "Ceiling 2500 ft" && words[4].find("57\xC2\xB0" "F") != std::string::npos &&
+        words[5].find("30.04 inHg") != std::string::npos);
+  CHECK(decoded(m[1], true)[0] == "Wind variable, 3 kt" && decoded(m[1], true)[2].find("13\xC2\xB0" "C") != std::string::npos);
+  CHECK(when(1793346660, 1793346660 + 23 * 60) == "0751Z, 23 min ago" && when(1793346660, 0) == "0751Z");
+  CHECK(read_metars("", 0, doc, m, error) && m.empty());  // no stations near
+  CHECK(!read_metars("<html>", 6, doc, m, error));
+  // A TAF a line a change; PROB30 TEMPO is one.
+  const auto lines = taf_lines("TAF KJFK 300522Z 3006/3112 26008KT P6SM SKC FM301500 31015G22KT P6SM SKC "
+                               "TEMPO 3016/3018 BKN020 PROB30 TEMPO 3020/3022 TSRA BECMG 3100/3102 33012KT");
+  CHECK(lines.size() == 5 && lines[1].rfind("FM301500", 0) == 0 && lines[2].rfind("TEMPO", 0) == 0 &&
+        lines[3].rfind("PROB30 TEMPO", 0) == 0 && lines[4].rfind("BECMG", 0) == 0);
+  // The GFS MOS as the Iowa Environmental Mesonet gives it: each hour, and the flight category its ceiling and
+  // visibility categories make.
+  const std::string mos = R"({"schema": {}, "data": [{"ftime": "2026-10-30 06:00", "tmp": 58, "dpt": 55, "cld": "FW",
+    "wdr": 230, "wsp": 9, "p06": null, "cig": 8, "vis": 7}, {"ftime": "2026-10-30 12:00", "tmp": 59, "dpt": 56, "cld":
+    "BK", "wdr": 260, "wsp": 9, "p06": 3.0, "cig": 4, "vis": 7}, {"ftime": "2026-10-30 15:00", "tmp": null}]})";
+  std::vector<MosRow> rows;
+  CHECK(read_mos(mos.c_str(), mos.size(), doc, rows, error) && rows.size() == 2);
+  CHECK(rows[0].at == 1793340000 && rows[1].pop6 == 3 && rows[0].pop6 == -1);
+  CHECK(utc_seconds("2026-10-30T06:00:00.000Z") == 1793340000 && utc_seconds("soon") == 0);
+  const std::string taf = R"([{"icaoId": "KJFK", "issueTime": "2026-10-30T05:22:00.000Z", "rawTAF": "TAF KJFK"}])";
+  Taf t;
+  CHECK(read_taf(taf.c_str(), taf.size(), doc, t, error) && t.issued == 1793340000 - 38 * 60 && t.raw == "TAF KJFK");
+  CHECK(category_of(rows[0]) == VFR && category_of(rows[1]) == MVFR);
+  CHECK(mos_line(rows[1]) == "12Z  59/56\xC2\xB0" "F  260/9 kt  BK  MVFR  3% precip");
+  MosRow low = rows[0];
+  low.cig = 2;
+  CHECK(category_of(low) == LIFR);
+  low.cig = 8;
+  low.vis = 4;
+  CHECK(category_of(low) == IFR);
+  // Advisories over the place only: a SIGMET round it, another far away; G-AIRMETs of the hour valid now, each
+  // hazard once.
+  const std::string sigmets = R"([{"airSigmetType": "SIGMET", "hazard": "CONVECTIVE", "altitudeHi1": 40000,
+    "altitudeLow1": null, "validTimeTo": 1793354100, "rawAirSigmet": "CONVECTIVE SIGMET 25E", "coords": [{"lat": 41.5,
+    "lon": -75}, {"lat": 41.5, "lon": -72}, {"lat": 39.5, "lon": -72}, {"lat": 39.5, "lon": -75}]}, {"airSigmetType":
+    "SIGMET", "hazard": "CONVECTIVE", "coords": [{"lon": -93.461, "lat": 42.347}, {"lon": -93.559, "lat": 38.894},
+    {"lon": -95.477, "lat": 38.577}]}])";
+  std::vector<Advisory> advisories;
+  CHECK(read_sigmets(sigmets.c_str(), sigmets.size(), doc, 40.64, -73.78, 20, advisories, error) && advisories.size() == 1);
+  CHECK(advisory_line(advisories[0]) == "SIGMET CONVECTIVE, to FL400, until 0955Z");
+  const std::string gairmets = R"([{"forecastHour": 3, "hazard": "ICE", "base": "120", "top": "240", "severity": "MOD",
+    "expireTime": 1793350800, "coords": [{"lat": "40.5", "lon": "-74.5"}, {"lat": "41", "lon": "-73"}, {"lat": "40",
+    "lon": "-73"}]}, {"forecastHour": 3, "hazard": "ICE", "coords": [{"lat": "40.6", "lon": "-73.8"}]},
+    {"forecastHour": 6, "hazard": "TURB-HI", "coords": [{"lat": "40.6", "lon": "-73.8"}]}, {"forecastHour": 3,
+    "hazard": "IFR", "due_to": "CIG BLW 010", "coords": [{"lat": "30", "lon": "-90"}, {"lat": "31", "lon": "-90"},
+    {"lat": "30", "lon": "-89"}]}])";
+  CHECK(read_gairmets(gairmets.c_str(), gairmets.size(), doc, 40.64, -73.78, 20, advisories, error) &&
+        advisories.size() == 2 && advisories[1].hazard == "ICE");
+  CHECK(advisory_line(advisories[1]) == "G-AIRMET ICE, 12000 ft to FL240, MOD, until 0900Z");
+  CHECK(near({{0, 0}, {0, 2}, {2, 2}, {2, 0}}, 1, 1, 1) && !near({{0, 0}, {0, 2}, {2, 2}, {2, 0}}, 5, 5, 10));
+  // Pilot reports, the latest first; none is an empty body.
+  const std::string pireps = R"([{"rawOb": "JFK UA /OV JFK/TM 0730/FL050/TP B738/SK OVC040", "acType": "B738",
+    "fltLvl": 50, "lat": 40.6, "lon": -73.8, "obsTime": 1793345400}, {"rawOb": "LGA UA /OV LGA", "obsTime": 1793346000}])";
+  std::vector<Pirep> reports;
+  CHECK(read_pireps(pireps.c_str(), pireps.size(), doc, reports, error) && reports.size() == 2 &&
+        reports[0].raw == "LGA UA /OV LGA" && reports[1].level_ft == 5000);
+  CHECK(read_pireps("", 0, doc, reports, error) && reports.empty());
+}
+
 static void test_schedule() {
   using namespace schedule;
   Zone z;
@@ -1342,6 +1425,7 @@ int main(int argc, char **argv) {
   test_pinch();
   test_swipe();
   test_wifi_list();
+  test_weather();
   test_schedule();
   test_firmware();
   test_touch();

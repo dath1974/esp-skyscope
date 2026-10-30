@@ -130,6 +130,10 @@ inline const std::vector<Row> &rows() {
       // Another way up restarts the screen when the menu is saved.
       {"rotation", "Rotation", NUMBER,
        {{"-1", "Default"}, {"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
+      {.key = "weather_station", .name = "Station", .kind = TEXT, .pad = WORDS,
+       .hint = "A METAR station (KJFK) for the weather page, or none for the nearest to the place", .most = 4},
+      {"radar_overlay", "Radar", FLAG, {}},
+      {.key = "radar_loop", .name = "Radar loop", .kind = FLAG, .needs = {"radar_overlay"}},
   };
   return table;
 }
@@ -140,7 +144,8 @@ struct Group {
 };
 inline const std::vector<Group> &groups() {
   static const std::vector<Group> table = {
-      {"place", "Where"}, {"map", "Map"}, {"marker", "Aircraft"}, {"feed", "Source"}, {"metric", "Screen"}};
+      {"place", "Where"}, {"map", "Map"},           {"marker", "Aircraft"},
+      {"feed", "Source"}, {"metric", "Screen"}, {"weather_station", "Weather"}};
   return table;
 }
 // The group a row is the first of, or nullptr.

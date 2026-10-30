@@ -100,6 +100,13 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
 </section>
+<section><h2>Weather</h2>
+<label for="weather_station">Station for the weather page</label><input id="weather_station" name="weather_station" maxlength="4" placeholder="The nearest to the place">
+<p class="hint">A swipe up from the bottom edge of the map (or the menu) shows the weather page: the METAR, TAF and GFS MOS of this station (or, left empty, of the nearest one to the place that reports), and the SIGMETs, G-AIRMETs and pilot reports over the area, from aviationweather.gov and the Iowa Environmental Mesonet. Not for flight planning.</p>
+<label class="check"><input type="checkbox" id="radar_overlay" name="radar_overlay"> Weather radar over the map (NEXRAD, United States)</label>
+<label class="check"><input type="checkbox" id="radar_loop" name="radar_loop"> Play the radar's last hour as a loop</label>
+<p class="hint">The composite of the NWS radars from the Iowa Environmental Mesonet, a new scan every five minutes. The loop shows the last hour a scan at a time; each scan is fetched once.</p>
+</section>
 <section id="fw" style="display:none"><h2>Firmware</h2>
 <p id="fw_text">Asking the update server...</p>
 <div class="bar" style="position:static;padding:0"><button type="button" id="fw_install" style="display:none">Install</button><button type="button" class="plain" id="fw_check">Check now</button></div>
@@ -110,8 +117,8 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
-const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake'];
-const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url'];
+const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop'];
+const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');

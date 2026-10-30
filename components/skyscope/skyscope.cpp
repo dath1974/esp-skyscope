@@ -419,6 +419,7 @@ void Skyscope::loop() {
     refresh_menu_firmware_();
     refresh_menu_wifi_();
     refresh_picker_();  // a search answered, a scan given up
+    refresh_weather_();
   }
 }
 
@@ -692,6 +693,7 @@ void Skyscope::go_to_sleep_(const std::string &why) {
   if (menu_) close_menu_();
   end_preview_(false);
   finish_swipe_();
+  close_weather_();
   // Dark, and nothing drawn: an AMOLED shows black as off. The worker asks for no planes or tiles meanwhile.
   asleep_ = true;
   if (brightness_) brightness_->set_level(0);

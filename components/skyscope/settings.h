@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -103,6 +104,11 @@ struct Settings {
   std::string bed_off = "22:00", bed_on = "07:00";
   bool bed_wake = true;
   std::string timezone = "UTC0";
+  // Aviation weather (weather.h): the station whose METAR, TAF and MOS the weather page shows, "" for the nearest to
+  // the place that reports; the NEXRAD radar over the map, and whether it plays its last hour as a loop.
+  std::string weather_station;
+  bool radar_overlay = false;
+  bool radar_loop = false;
 };
 
 // Whether the radar's scope is drawn, and whether its beam turns: the beam goes round the scope's rose, so not without
@@ -165,6 +171,9 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["bed_on"] = s.bed_on;
   o["bed_wake"] = s.bed_wake;
   o["timezone"] = s.timezone;
+  o["weather_station"] = s.weather_station;
+  o["radar_overlay"] = s.radar_overlay;
+  o["radar_loop"] = s.radar_loop;
 }
 
 // Applies the keys `o` has to `s`, leaving the others as they are. Nothing changes and `error` names the first key that
@@ -291,6 +300,19 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
     if (!t || std::strlen(t) > 60 || !schedule::parse(t, zone)) return fail("timezone");
     n.timezone = t;
   }
+  if (!o["weather_station"].isNull()) {
+    const char *w = o["weather_station"].as<const char *>();
+    if (!w || std::strlen(w) > 4) return fail("weather_station");
+    std::string id;
+    for (const char *c = w; *c; ++c) {
+      if (!std::isalnum((unsigned char) *c)) return fail("weather_station");
+      id += (char) std::toupper((unsigned char) *c);
+    }
+    if (!id.empty() && id.size() < 3) return fail("weather_station");
+    n.weather_station = id;
+  }
+  if (!flag("radar_overlay", n.radar_overlay)) return fail("radar_overlay");
+  if (!flag("radar_loop", n.radar_loop)) return fail("radar_loop");
   s = std::move(n);
   return true;
 }

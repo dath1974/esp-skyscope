@@ -84,6 +84,20 @@ void Skyscope::describe_ui_(JsonObject out) {
   if (shown(level_)) out["level"] = text_of(level_text_);
   out["picked"] = picked_;
   if (swipe_name_) out["swipe"] = text_of(swipe_name_);  // the map a swipe went to, until it is planned
+  if (wx_) {
+    // The weather page: its title (the station and its category), its line, the tab shown and its lines, its keys.
+    JsonObject wx = out["weather"].to<JsonObject>();
+    wx["title"] = text_of(wx_title_);
+    wx["line"] = text_of(wx_line_);
+    wx["tab"] = wx_tab_;
+    JsonArray lines = wx["lines"].to<JsonArray>();
+    for (uint32_t i = 0; i < lv_obj_get_child_count(wx_list_); ++i) lines.add(text_of(lv_obj_get_child(wx_list_, i)));
+    JsonArray tabs = wx["tabs"].to<JsonArray>();
+    for (lv_obj_t *t : wx_tabs_) place(tabs.add<JsonObject>(), t);
+    lv_obj_t *head = lv_obj_get_parent(wx_title_);
+    place(wx["close"].to<JsonObject>(), lv_obj_get_child(head, 0));
+    place(wx["refresh"].to<JsonObject>(), lv_obj_get_child(head, 2));
+  }
   if (shown(card_)) {
     JsonObject card = out["card"].to<JsonObject>();
     card["title"] = text_of(card_title_);

@@ -49,6 +49,7 @@
 #include "settings.h"
 #include "tiles.h"
 #include "view.h"
+#include "weather.h"
 
 namespace esphome::skyscope {
 using namespace ::sky;
@@ -151,6 +152,9 @@ class Skyscope : public Component,
     uint32_t search_rev = 0, found_rev = 0;
     std::vector<places::Found> found;
     std::string search_error;
+    // loop -> worker: the weather page wants the weather (weather.h) again; worker -> loop: what came, for that ask.
+    uint32_t weather_ask = 0, weather_rev = 0;
+    std::shared_ptr<const weather::Report> weather;
   };
 
   // worker.cpp
@@ -232,6 +236,15 @@ class Skyscope : public Component,
   void show_swipe_();
   void swipe_tick_(uint32_t now);
   void finish_swipe_();  // the map swiped to, at once (the menu opening, the screen going off)
+  // The weather page (wxpage.cpp): the station's METAR, TAF and MOS and the area's advisories, over everything; a swipe
+  // up from the bottom strip, or the menu, opens it.
+  void open_weather_();
+  void close_weather_();
+  void ask_weather_();
+  void weather_tab_(int tab);
+  void fill_weather_();
+  void refresh_weather_();  // what the worker found, and another ask when it is old
+  int64_t unix_now_() const;  // the clock's Unix seconds, 0 while it is not set
 #ifdef SKYSCOPE_TEST_API
   // Tests without a finger (probe.cpp): a touch as a second input device, and what the glass shows.
   void make_probe_input_();
@@ -400,6 +413,11 @@ class Skyscope : public Component,
   bool swiping_{false};
   uint32_t swipe_at_{0};
   lv_obj_t *swipe_card_{nullptr}, *swipe_name_{nullptr}, *swipe_dots_{nullptr};
+  // The weather page: its objects, the tab shown, the ask made, and the report shown and when it came.
+  lv_obj_t *wx_{nullptr}, *wx_title_{nullptr}, *wx_line_{nullptr}, *wx_list_{nullptr}, *wx_tabs_[4]{};
+  int wx_tab_{0};
+  uint32_t wx_asked_{0}, wx_at_{0};
+  std::shared_ptr<const weather::Report> wx_report_;
 
   // The body of a POST on its way in (the HTTP server's task).
   std::string body_;

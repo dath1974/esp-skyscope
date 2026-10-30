@@ -139,6 +139,64 @@ std::vector<places::Found> find_places(const std::string &q, http::Body &body, c
   if (all.empty()) error = why;
   return all;
 }
+
+// The weather for the weather page (weather.h): the station set, or the nearest to the place that reports, its METAR,
+// TAF and MOS, and the advisories and pilot reports over the map. A part that fails leaves the rest.
+std::shared_ptr<weather::Report> find_weather(const Settings &settings, http::Body &body, const std::string &agent) {
+  using namespace weather;
+  auto report = std::make_shared<Report>();
+  JsonDocument doc;
+  auto note = [&](const std::string &e) {
+    if (report->error.empty()) report->error = e;
+  };
+  // A reply in `body`, or why not.
+  auto ask = [&](const std::string &url) {
+    body.clear();
+    const http::Result r = http::get(url, body, MOST_REPLY_BYTES, agent, "application/json");
+    if (r.status == 200 || r.status == 204) {
+      if (r.status == 204) body.clear();
+      return true;
+    }
+    note("No answer from the weather service (" + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")");
+    return false;
+  };
+  auto text = [&]() { return reinterpret_cast<const char *>(body.data); };
+  std::string error;
+  std::vector<Metar> metars;
+  const std::string set = station_id(settings.weather_station);
+  if (ask(set.empty() ? nearby_url(settings.lat, settings.lon) : metar_url(set))) {
+    if (!read_metars(text(), body.size, doc, metars, error)) note(error);
+    const int i = set.empty() ? nearest(metars, settings.lat, settings.lon) : (metars.empty() ? -1 : 0);
+    if (i >= 0) {
+      report->has_metar = true;
+      report->metar = metars[i];
+      report->station = metars[i].id;
+    } else if (error.empty()) {
+      note(set.empty() ? "No station reports near the place: set one in the menu" : "No METAR from " + set);
+    }
+  }
+  if (report->station.empty()) report->station = set;
+  if (!report->station.empty()) {
+    if (ask(taf_url(report->station)) && !read_taf(text(), body.size, doc, report->taf, error)) note(error);
+    // The MOS is for stations of the United States: none elsewhere is no error.
+    body.clear();
+    const http::Result r = http::get(mos_url(report->station), body, MOST_REPLY_BYTES, agent, "application/json");
+    if (r.status == 200) read_mos(text(), body.size, doc, report->mos, error);
+  }
+  const double reach = std::max(50, settings.range_nm);
+  if (ask(airsigmet_url()) &&
+      !read_sigmets(text(), body.size, doc, settings.lat, settings.lon, reach, report->advisories, error))
+    note(error);
+  if (ask(gairmet_url()) &&
+      !read_gairmets(text(), body.size, doc, settings.lat, settings.lon, reach, report->advisories, error))
+    note(error);
+  if (ask(pirep_url(settings.lat, settings.lon, settings.range_nm)) &&
+      !read_pireps(text(), body.size, doc, report->pireps, error))
+    note(error);
+  body.clear();
+  if (body.room > 256 * 1024) body.release();
+  return report;
+}
 }  // namespace
 
 void Skyscope::worker_main(void *self) { static_cast<Skyscope *>(self)->worker_(); }
@@ -163,11 +221,11 @@ void Skyscope::worker_() {
   std::string airspace_asked;  // the requests (airspace.h Ask) the airspace shown answered
   uint32_t airspace_due = 0, airspace_wait = 0;
   const int width = width_, height = height_;
-  uint32_t search_rev = 0, nominatim_at = 0;
+  uint32_t search_rev = 0, nominatim_at = 0, weather_ask = 0;
   while (true) {
     bool online;
     std::string search;
-    bool connected;
+    bool connected, wants_weather = false;
     {
       std::lock_guard<std::mutex> guard(lock_);
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
@@ -177,6 +235,10 @@ void Skyscope::worker_() {
       if (shared_.search_rev != search_rev) {
         search = shared_.search;
         search_rev = shared_.search_rev;
+      }
+      if (shared_.weather_ask != weather_ask) {
+        weather_ask = shared_.weather_ask;
+        wants_weather = true;
       }
       if (shared_.settings_rev != settings_rev) {
         settings = shared_.settings;
@@ -200,6 +262,24 @@ void Skyscope::worker_() {
       shared_.found = std::move(found);
       shared_.search_error = error;
       shared_.found_rev = search_rev;
+    }
+    // ---- The weather, when the weather page asks: someone is looking at it.
+    if (wants_weather) {
+      std::shared_ptr<weather::Report> report;
+      if (!connected) {
+        report = std::make_shared<weather::Report>();
+        report->error = "The screen is not on a network";
+      } else if (!settings.located) {
+        report = std::make_shared<weather::Report>();
+        report->error = "No place is set";
+      } else {
+        report = find_weather(settings, body, agent_);
+      }
+      ESP_LOGI(TAG, "Weather: %s%s", report->has_metar ? "a METAR" : "no METAR",
+               report->error.empty() ? "" : (", " + report->error).c_str());
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.weather = std::move(report);
+      shared_.weather_rev = weather_ask;
     }
     const uint32_t now = millis();
     if (!online || !settings.located || plan.view.width == 0) {

@@ -27,6 +27,12 @@ constexpr uint32_t NO_TAP_MS = 300;      // the click LVGL sends after the swipe
 
 void Skyscope::on_released_(lv_point_t at) {
   if (!swipe::in_strip(pressed_at_.y, height_, ui::mm(swipe::STRIP_MM))) return;
+  // Up from the strip: the weather page (wxpage.cpp).
+  if (swipe::upward(pressed_at_.x, pressed_at_.y, at.x, at.y, ui::mm(swipe::SWIPE_MM)) && can_pinch_() && !previewing_) {
+    taps_from_ = millis() + NO_TAP_MS;
+    open_weather_();
+    return;
+  }
   const int step = swipe::direction(pressed_at_.x, pressed_at_.y, at.x, at.y, ui::mm(swipe::SWIPE_MM));
   if (!step || !can_pinch_() || previewing_) return;
   taps_from_ = millis() + NO_TAP_MS;
