@@ -13,9 +13,11 @@
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/geo.h"
+#include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/pixels.h"
+#include "../components/skyscope/places.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
 #include "../components/skyscope/schedule.h"
@@ -809,6 +811,168 @@ static void test_menu() {
   CHECK(!menu::applies(row("tint"), st) && menu::applies(row("place_names"), st) && menu::applies(row("tile_scale"), st));
   st.map = SECTIONAL;
   CHECK(!menu::applies(row("tile_scale"), st) && menu::applies(row("map_brightness"), st));
+  // Bedtime's times show with bedtime on; the time it comes on again only with that on too.
+  st.bedtime = false;
+  CHECK(!menu::applies(row("bed_off"), st) && !menu::applies(row("timezone"), st));
+  st.bedtime = true;
+  st.bed_wake = false;
+  CHECK(menu::applies(row("bed_off"), st) && !menu::applies(row("bed_on"), st));
+  st.bed_wake = true;
+  CHECK(menu::applies(row("bed_on"), st));
+  // Every row is stepped, typed, or both; a row with nothing to step has no arrows to step it with.
+  for (const auto &r : menu::rows()) {
+    CHECK(menu::steps(r) || menu::typed(r));
+    Settings any;
+    if (!menu::steps(r)) CHECK(!menu::stepped(r, any, 1));
+  }
+
+  // Typed: a number between the choices shows with its unit, and steps on from there.
+  Settings t;
+  CHECK(menu::typed_in(row("range_nm"), t, " 12 ") && t.range_nm == 12 && menu::shown(row("range_nm"), t) == "12 NM");
+  CHECK(menu::stepped(row("range_nm"), t, 1) && t.range_nm == 15);
+  CHECK(!menu::typed_in(row("range_nm"), t, "300") && t.range_nm == 15);
+  CHECK(!menu::typed_in(row("range_nm"), t, "12a") && !menu::typed_in(row("range_nm"), t, ""));
+  CHECK(menu::text_of(row("range_nm"), t) == "15");
+  // Coordinates: the place's name goes with a coordinate typed, and there is a place from then on.
+  t.place = "KJFK";
+  CHECK(menu::shown(row("lat"), t) == "Not set" && menu::shown(row("place"), t) == "KJFK");
+  CHECK(menu::typed_in(row("lat"), t, "-33.94610") && t.located && near(t.lat, -33.9461, 1e-9) && t.place.empty());
+  CHECK(menu::typed_in(row("lon"), t, "151.17722") && menu::text_of(row("lon"), t) == "151.17722");
+  CHECK(menu::shown(row("place"), t) == "-33.946, 151.177");
+  CHECK(!menu::typed_in(row("lat"), t, "91") && !menu::typed_in(row("lat"), t, "1.2.3") && near(t.lat, -33.9461, 1e-9));
+  // Words, URLs and times, through the settings' own checks.
+  CHECK(menu::shown(row("custom_url"), t) == "None");
+  CHECK(!menu::typed_in(row("custom_url"), t, "ftp://x/{z}") && t.custom_url.empty());
+  CHECK(menu::typed_in(row("custom_url"), t, "https://t.example/{z}/{x}/{y}.png") && !t.custom_url.empty());
+  CHECK(menu::typed_in(row("bed_off"), t, "23:30") && t.bed_off == "23:30");
+  CHECK(!menu::typed_in(row("bed_off"), t, "25:00") && t.bed_off == "23:30");
+  // A time zone typed that is none of the list shows as typed, and the arrows go on into the list from it.
+  CHECK(menu::typed_in(row("timezone"), t, "WET0WEST,M3.5.0/1,M10.5.0") && menu::shown(row("timezone"), t) == "WET0WEST,M3.5.0/1,M10.5.0");
+  CHECK(menu::stepped(row("timezone"), t, 1) && t.timezone == "UTC0");
+  CHECK(menu::typed_in(row("timezone"), t, "CET-1CEST,M3.5.0,M10.5.0/3") && menu::shown(row("timezone"), t) == "Central Europe");
+  // The watched aircraft, with a comma between, red where no colour is given; written back the same way.
+  CHECK(menu::typed_in(row("watch"), t, "n12345 Blue, BAW123,") && t.watch.size() == 2 && t.watch[0].id == "N12345" &&
+        t.watch[0].colour == 4 && t.watch[1].colour == 0);
+  CHECK(menu::text_of(row("watch"), t) == "N12345 blue, BAW123 red" && menu::shown(row("watch"), t) == "2 aircraft");
+  CHECK(!menu::typed_in(row("watch"), t, "N1 pink") && t.watch.size() == 2);
+  CHECK(menu::typed_in(row("watch"), t, "") && t.watch.empty() && menu::shown(row("watch"), t) == "None");
+  // Rotation steps through the ways up the settings take.
+  CHECK(menu::shown(row("rotation"), t) == "Default" && menu::stepped(row("rotation"), t, 1) && t.rotation == 0);
+  // Every hint of a typed row, and every typed row has one.
+  for (const auto &r : menu::rows())
+    if (menu::typed(r)) CHECK(*r.hint);
+
+  // Wi-Fi: a name of 1 to 32 bytes; no password, 8 to 63 characters, or 64 hexadecimal digits.
+  CHECK(!menu::network_refused("Home", "") && !menu::network_refused("Home", "12345678"));
+  CHECK(menu::network_refused("", "12345678") && menu::network_refused(std::string(33, 'n'), ""));
+  CHECK(menu::network_refused("Home", "1234567") && menu::network_refused("Home", std::string(64, 'z')));
+  CHECK(!menu::network_refused("Home", std::string(64, 'a')) && !menu::network_refused("Home", std::string(63, 'z')));
+}
+
+static void test_keyboard() {
+  using namespace keyboard;
+  // Every printable character is on a page of the words' keyboard, and every row fills its width or less.
+  std::string all;
+  for (Page page : {LETTERS, NUMBERS, SYMBOLS})
+    for (const auto &row : layout(WORDS, page)) {
+      int width = 0;
+      for (const auto &k : row) {
+        width += k.width;
+        if (k.action == TYPE) all += k.text;
+      }
+      CHECK(width <= ROW_WIDTH);
+    }
+  for (char c = ' '; c < 127; ++c) {
+    const bool typed = all.find(c) != std::string::npos || (c >= 'A' && c <= 'Z');  // capitals: a letter, shifted
+    if (!typed) std::printf("no key types '%c'\n", c);
+    CHECK(typed);
+  }
+  for (Pad pad : {WHOLE, DECIMAL, CLOCK})
+    for (const auto &row : layout(pad, DIGITS)) {
+      int width = 0;
+      for (const auto &k : row) width += k.width;
+      CHECK(width == ROW_WIDTH);
+    }
+  // A board as a finger uses it: capitals with the shift, a page of numbers, the cursor moved and a character put in.
+  auto key = [](const Board &b, const char *text) {
+    for (const auto &row : b.keys())
+      for (const auto &k : row)
+        if (!std::strcmp(k.text, text)) return k;
+    return Key{"?", TYPE, 2};
+  };
+  Board b;
+  b.start(WORDS, "", 8);
+  CHECK(b.page == LETTERS && !b.caps);
+  CHECK(b.press(key(b, "Aa")) && b.caps && b.face(key(b, "k")) == "K");
+  b.press(key(b, "k"));
+  b.press(key(b, "Aa"));
+  b.press(key(b, "j"));
+  b.press(key(b, " "));
+  CHECK(b.press(key(b, "123")) && b.page == NUMBERS);
+  b.press(key(b, "1"));
+  CHECK(b.editor.text == "Kj 1");
+  b.press(key(b, "<"));
+  b.press(key(b, "<"));
+  b.press(key(b, "-"));
+  CHECK(b.editor.text == "Kj- 1" && b.editor.cursor == 3);
+  b.press(key(b, "Del"));
+  CHECK(b.editor.text == "Kj 1" && b.editor.cursor == 2);
+  // No more than it takes.
+  for (int i = 0; i < 10; ++i) b.press(key(b, "9"));
+  CHECK(b.editor.text.size() == 8);
+  // Digits: the decimal pad has a sign and a point, the clock a colon, the whole numbers neither.
+  b.start(DECIMAL, "51.5", 12);
+  CHECK(b.page == DIGITS && b.editor.cursor == 4 && key(b, "-").action == TYPE && key(b, ".").action == TYPE);
+  b.start(CLOCK, "", 5);
+  CHECK(!std::strcmp(key(b, ":").text, ":") && !std::strcmp(key(b, ".").text, "?"));
+  // A character of two bytes goes, and is passed, whole.
+  Editor e;
+  e.start("Z\xC3\xBCrich", 40);
+  e.cursor = 3;
+  CHECK(e.erase() && e.text == "Zrich" && e.cursor == 1);
+  e.start("\xC3\xBC", 40);
+  CHECK(e.left() && e.cursor == 0 && e.right() && e.cursor == 2 && !e.right());
+  CHECK(chars_in("Z\xC3\xBCrich", 3) == 2);
+  CHECK(clipped("ab\xC3\xBC", 3) == "ab" && clipped("abc", 5) == "abc");
+}
+
+static void test_places() {
+  using namespace places;
+  // An airport code goes to the FAA; a search that names an airport does too, by its other words; any other does not.
+  CHECK(code_url(" kjfk ").find("where=ICAO_ID%3D%27KJFK%27%20OR%20IDENT%3D%27KJFK%27") != std::string::npos);
+  CHECK(code_url("Teterboro Airport").empty() && code_url("K").empty() && code_url("KJF-K").empty());
+  const std::string named = named_url("Boeing Field, Seattle");
+  CHECK(named.find("BOEING") != std::string::npos && named.find("FLD") != std::string::npos &&
+        named.find("SEATTLE") != std::string::npos && named.find("FIELD%25") != std::string::npos);
+  CHECK(named_url("Paris").empty() && named_url("Airport").empty());
+  CHECK(named_url("O'Hare Airport'; DROP").find("%27%3B") == std::string::npos);
+  CHECK(nominatim_url("Zürich HB").find("q=Z%C3%BCrich%20HB") != std::string::npos);
+
+  JsonDocument doc;
+  std::vector<Found> found;
+  std::string error;
+  const std::string faa = R"({"features":[{"attributes":{"IDENT":"JFK","ICAO_ID":"KJFK","NAME":"JOHN F KENNEDY INTL",
+      "SERVCITY":"NEW YORK","STATE":"NY"},"geometry":{"x":-73.7789,"y":40.6398}},{"attributes":{"IDENT":"X"}}]})";
+  CHECK(read_faa(faa.c_str(), faa.size(), doc, found, error) && found.size() == 1);
+  CHECK(found[0].name == "KJFK" && found[0].airport && near(found[0].lat, 40.6398, 1e-5) &&
+        found[0].detail == "KJFK JOHN F KENNEDY INTL, NEW YORK, NY");
+  const std::string refused = R"({"error":{"code":400}})";
+  CHECK(!read_faa(refused.c_str(), refused.size(), doc, found, error) && !error.empty());
+
+  const std::string osm = R"([{"lat":"47.4581","lon":"8.5555","display_name":"Zurich Airport, Kloten, Switzerland",
+      "class":"aeroway","type":"aerodrome","extratags":{"iata":"ZRH","icao":"LSZH"}},
+      {"lat":"47.3769","lon":"8.5417","display_name":"Zürich, Bezirk Zürich, Switzerland","class":"boundary",
+       "type":"administrative","extratags":{}},{"lat":"x","lon":"8"}])";
+  std::vector<Found> places;
+  CHECK(read_nominatim(osm.c_str(), osm.size(), "zurich", doc, places, error) && places.size() == 2);
+  CHECK(places[0].name == "LSZH" && places[0].airport && places[1].name == "Zürich" && !places[1].airport);
+  places.clear();
+  CHECK(read_nominatim(osm.c_str(), osm.size(), "zrh", doc, places, error) && places[0].name == "ZRH");
+  CHECK(!read_nominatim("{}", 2, "x", doc, places, error));
+  // The FAA's first, then the airports, then the rest.
+  std::reverse(places.begin(), places.end());
+  const auto all = in_order(found, places);
+  CHECK(all.size() == 3 && all[0].name == "KJFK" && all[1].name == "ZRH" && all[2].name == "Zürich");
 }
 
 static void test_schedule() {
@@ -1009,6 +1173,8 @@ int main(int argc, char **argv) {
   test_beam();
   test_providers();
   test_menu();
+  test_keyboard();
+  test_places();
   test_schedule();
   test_firmware();
   test_touch();

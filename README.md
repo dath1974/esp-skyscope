@@ -26,13 +26,14 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
   while without a touch, and at a bedtime every night, on again at a time or a tap (while it is off no planes or
-  tiles are fetched). A long press on the map opens a settings menu, which also shows the firmware and installs a new
-  release. Tap a plane for its card
-  (type, registration, altitude, climb, speed, heading, operator, squawk);
-  tap the map to see the screen's address and range in the status line. The range and everything else is set on the
-  web page: the screen has no zoom or pan keys, which are too slow on a small embedded display.
+  tiles are fetched). A long press on the map opens a settings menu with every setting the web page has (see
+  [The menu](#the-menu)): its arrows step a value, and a tap on a value's field types it on a keyboard on the glass. It
+  also finds a place, changes the Wi-Fi network, and shows the firmware and installs a new release. Tap a plane for
+  its card (type, registration, altitude, climb, speed, heading, operator, squawk); tap the map to see the screen's
+  address and range in the status line. The screen has no zoom or pan keys, which are too slow on a small embedded
+  display: the range is a setting.
 - **Set up like any ESPHome device**: Wi-Fi through the screen's own setup network (captive portal) or over USB with
-  Improv; everything else on the screen's own web page or built in configuration panel.
+  Improv, or on the glass itself; everything else on the screen's own web page or its menu.
 
 ## Hardware
 
@@ -55,7 +56,9 @@ cd esp-skyscope
 esphome run skyscope.yaml          # over USB the first time
 ```
 
-Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen's address>`.
+Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen's address>`, or
+`make firmware-flash DEVICE=<the screen's address>`, which builds with the Makefile's ESPHome version first (`DEVICE`
+can be a serial port too).
 
 ## Updates
 
@@ -78,18 +81,41 @@ runs the tests and makes the annotated tag `v<version>`; `make release` asks, th
 
 1. The screen shows **Set up Wi-Fi**. On a phone or other device, join the Wi-Fi network **Skyscope Setup**. A page
    opens (or go to `http://192.168.4.1`): choose your network and enter its password. (Or use Improv from
-   [ESPHome Web](https://web.esphome.io) while the screen is on USB.)
+   [ESPHome Web](https://web.esphome.io) while the screen is on USB, or hold a finger on the screen and choose the
+   network in its menu, under **Wi-Fi**.)
 2. The screen joins your network and shows **Where are you?** with its address. Open that address in a browser on the
-   same network.
+   same network, or hold a finger on the screen for its menu.
 3. Search for a place (an airport, a town) or enter its latitude and longitude, choose a range and a map, and press
    **Save**. The display should draw the map and begin showing traffic within a few seconds.
 
-All settings are on that page, and the screen keeps them across restarts and updates. Once it is set up and running,
+All settings are on that page and in the menu, and the screen keeps them across restarts and updates. Once it is set up and running,
 tapping the status bar at the top shows the screen's address for a moment.
 
-**Rotation** is set on that page too (the screen restarts to turn). 0° is the panel's own way up and the least
+**Rotation** is set there too (the screen restarts to turn). 0° is the panel's own way up and the least
 expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41, 0° is
 portrait and 90° landscape).
+
+## The menu
+
+A long press on the map (or on the setup screen) opens the menu. Its rows are grouped as on the web page (Where, Map,
+Aircraft, Source, Screen) and hide where they do not apply, as the page's do: the phosphor on the radar only, the
+bedtime's times with bedtime on. A value between two arrows steps through common choices; a value in a field opens
+the keyboard at a tap, and a few (the range, the brightness) have both. Typed values are checked as the page's are;
+one the screen cannot take is refused, with what it may be shown under the text. Changes show in the accent and wait
+for **Save**; **Cancel** drops them.
+
+- **The keyboard** has letters, numbers and a page of symbols (every printable ASCII character), **Aa** for capitals,
+  arrows to move the cursor and **Del**. Numbers and times get a pad of digits.
+- **Place** finds a place as the page does, but from the screen itself: an airport code (KJFK, JFK) in the FAA's
+  airport data, an airport's name there too, then anything in OpenStreetMap's Nominatim, at most once a second and
+  only when **Search** is pressed. Pick one of what it found; an airport is named by its code. Latitude and longitude
+  can be typed instead.
+- **Watched** takes the aircraft with a comma between: `N12345 red, BAW123 blue` (red where no colour is given).
+- **Wi-Fi** shows the network the screen is on; a tap lists the networks in reach (the screen scans for them, or uses
+  ESPHome's own scans while it has no network), strongest first, and **Other network** for a hidden one by its name.
+  After the password, **Join** keeps the menu's changes, saves the network and restarts the screen to join it (ESPHome
+  changes networks only by losing the one it is on). The screen keeps one network: if it cannot join the new one, it
+  opens **Skyscope Setup** after a minute, and the network can be chosen again there or in the menu.
 
 ## The web page and API
 
@@ -105,7 +131,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
-| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), and where each plane is |
+| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), and where each plane is |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -130,6 +156,8 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [USGS National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) | topographic | public domain, United States |
 | [FAA aeronautical charts](https://www.faa.gov/air_traffic/flight_info/aeronav) | sectional, IFR | public domain, United States; not for navigation |
 | [FAA ADDS](https://adds-faa.opendata.arcgis.com) | airspace and runways (optional) | public domain, United States; not for navigation |
+| [FAA airports](https://adds-faa.opendata.arcgis.com) | the menu's place search: airports by code or name | public domain, United States |
+| [Nominatim](https://operations.osmfoundation.org/policies/nominatim/) | the menu's place search: anything else | at most one request a second, with a User-Agent, none as you type, OpenStreetMap credited (all done) |
 
 The screen asks for planes every 10 seconds by default (3 at the least). Each exchange sets its own limits and may change
 them with its load, so the screen keeps to what each one announces: never more often than its `x-ratelimit-limit` header
@@ -147,7 +175,7 @@ receiver's range, are missing, and positions may be late.
 
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
-  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`) are plain C++.
+  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
   ESPHome downloaded.
@@ -164,7 +192,8 @@ receiver's range, are missing, and positions may be late.
   put back, and it prints nothing of the screen's place):
   - `make test-esp32 DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
     aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
-    stepped, cancelled and saved, paged, recoloured; Check and Install's second tap; a plane's card; the address;
+    stepped, cancelled and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and
+    Install's second tap; a plane's card; the address;
     a drag on the brightness strip).
   - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.

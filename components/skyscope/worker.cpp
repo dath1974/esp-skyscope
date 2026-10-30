@@ -1,5 +1,6 @@
-// The worker task: the planes from the ADS-B exchange, and the map's tiles into the base frame. Everything here may
-// take seconds (a TLS handshake, a slow tile server), so none of it runs on ESPHome's loop.
+// The worker task: the planes from the ADS-B exchange, the map's tiles into the base frame, and the places typed in the
+// menu (places.h). Everything here may take seconds (a TLS handshake, a slow tile server), so none of it runs on
+// ESPHome's loop.
 #include "skyscope.h"
 
 #include "decode.h"
@@ -94,6 +95,49 @@ struct Pending {
   uint32_t due = 0;      // millis() when it may be asked again
   int failures = 0, unreadable = 0;
 };
+
+// The places a search typed in the menu finds (places.h): an airport by its code, and nothing more when there is one;
+// else airports by their name and OpenStreetMap's places. Nominatim is asked at most once a second, however quickly
+// searches come; `nominatim_at` is when it was last asked.
+std::vector<places::Found> find_places(const std::string &q, http::Body &body, const std::string &agent,
+                                       uint32_t &nominatim_at, std::string &error) {
+  using namespace places;
+  std::vector<Found> named, osm;
+  JsonDocument doc;
+  std::string why;
+  auto ask = [&](const std::string &url) {
+    body.clear();
+    const http::Result r = http::get(url, body, MOST_REPLY_BYTES, agent, "application/json");
+    if (r.status != 200 && why.empty()) why = "The search had no answer (" + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")";
+    return r.status == 200;
+  };
+  const char *text = nullptr;
+  const std::string code = code_url(q);
+  if (!code.empty() && ask(code)) {
+    text = reinterpret_cast<const char *>(body.data);
+    if (!read_faa(text, body.size, doc, named, why)) named.clear();
+    if (!named.empty()) {
+      named.resize(1);
+      return named;
+    }
+  }
+  const std::string by_name = named_url(q);
+  if (!by_name.empty() && ask(by_name)) {
+    text = reinterpret_cast<const char *>(body.data);
+    if (!read_faa(text, body.size, doc, named, why)) named.clear();
+  }
+  const uint32_t since = millis() - nominatim_at;
+  if (nominatim_at && since < 1100) vTaskDelay(pdMS_TO_TICKS(1100 - since));
+  nominatim_at = millis() | 1;
+  if (ask(nominatim_url(q))) {
+    text = reinterpret_cast<const char *>(body.data);
+    read_nominatim(text, body.size, q, doc, osm, why);
+  }
+  body.clear();
+  std::vector<Found> all = in_order(named, osm);
+  if (all.empty()) error = why;
+  return all;
+}
 }  // namespace
 
 void Skyscope::worker_main(void *self) { static_cast<Skyscope *>(self)->worker_(); }
@@ -112,13 +156,21 @@ void Skyscope::worker_() {
   std::string airspace_asked;  // the requests (airspace.h Ask) the airspace shown answered
   uint32_t airspace_due = 0, airspace_wait = 0;
   const int width = width_, height = height_;
+  uint32_t search_rev = 0, nominatim_at = 0;
   while (true) {
     bool online;
+    std::string search;
+    bool connected;
     {
       std::lock_guard<std::mutex> guard(lock_);
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
       // download has the network to itself.
       online = shared_.online && !shared_.asleep && !shared_.updating;
+      connected = shared_.online;
+      if (shared_.search_rev != search_rev) {
+        search = shared_.search;
+        search_rev = shared_.search_rev;
+      }
       if (shared_.settings_rev != settings_rev) {
         settings = shared_.settings;
         settings_rev = shared_.settings_rev;
@@ -127,6 +179,20 @@ void Skyscope::worker_() {
         plan = shared_.plan;
         plan_rev = shared_.plan_rev;
       }
+    }
+    // ---- A place to find, typed in the menu: before anything else, as someone is waiting for it, and with no place
+    // set yet (it is how one is set).
+    if (!search.empty()) {
+      std::vector<places::Found> found;
+      std::string error;
+      if (connected) found = find_places(search, body, agent_, nominatim_at, error);
+      else error = "The screen is not on a network";
+      if (found.empty() && error.empty()) error = "Nothing found";
+      ESP_LOGI(TAG, "Search: %u places found", (unsigned) found.size());
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.found = std::move(found);
+      shared_.search_error = error;
+      shared_.found_rev = search_rev;
     }
     const uint32_t now = millis();
     if (!online || !settings.located || plan.view.width == 0) {

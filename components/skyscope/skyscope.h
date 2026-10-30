@@ -7,13 +7,15 @@
 //   the rings drawn over it, places the planes (overlay.h) and paints them (view.cpp), and answers fingers.
 //
 // They meet in `Shared` under `lock_`, and the base frame under `frame_lock_`. The web page and its API (web.cpp) run
-// in the HTTP server's task and only ever read a copy of the settings or hand a new one to the loop.
+// in the HTTP server's task and only ever read a copy of the settings or hand a new one to the loop. The worker also
+// finds the places typed in the menu (places.h).
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/font/font.h"
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/output/float_output.h"
 #include "esphome/components/web_server_base/web_server_base.h"
+#include "esphome/components/wifi/wifi_component.h"
 #ifdef USE_TIME
 #include "esphome/components/time/real_time_clock.h"
 #endif
@@ -34,7 +36,9 @@
 #include "beam.h"
 #include "feed.h"
 #include "firmware.h"
+#include "keyboard.h"
 #include "overlay.h"
+#include "places.h"
 #include "providers.h"
 #include "touch.h"
 #include "settings.h"
@@ -47,7 +51,7 @@ using namespace ::sky;
 // The screen's own IPv4 address on its network, "" while it has none.
 std::string own_address();
 
-class Skyscope : public Component, public AsyncWebHandler {
+class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScanResultsListener {
  public:
   void set_web_server_base(web_server_base::WebServerBase *base) { base_ = base; }
   void set_lvgl(lvgl::LvglComponent *lvgl) { lvgl_ = lvgl; }
@@ -80,6 +84,8 @@ class Skyscope : public Component, public AsyncWebHandler {
   void handleRequest(AsyncWebServerRequest *request) override;
   void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override;
   bool isRequestHandlerTrivial() const override { return false; }
+  // The Wi-Fi networks in reach, after each scan (editor.cpp), on the loop.
+  void on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results) override;
 
  protected:
   struct Shared {
@@ -116,6 +122,11 @@ class Skyscope : public Component, public AsyncWebHandler {
       std::string latest, summary, release_url, error;
       float progress = 0;  // percent, while installing
     } firmware;
+    // loop -> worker: a place to find, typed in the menu; worker -> loop: what was found for the search found_rev.
+    std::string search;
+    uint32_t search_rev = 0, found_rev = 0;
+    std::vector<places::Found> found;
+    std::string search_error;
   };
 
   // worker.cpp
@@ -145,12 +156,35 @@ class Skyscope : public Component, public AsyncWebHandler {
   void refresh_menu_();
   void menu_step_(int index, int step);
   void menu_action_(int action);
+  void apply_menu_(const Settings &changed);  // the menu's changes, where there are any
   void refresh_menu_firmware_();  // the menu's firmware part, from what the update entity last said
+  void refresh_menu_wifi_();      // the network the screen is on
   // A key of the menu: a row's step back or on (row >= 0), or one of its actions (row < 0, MENU_* in menu.cpp). Its
   // face is `label`, or an arrow drawn (`arrow` one of menu.cpp's ARROW_*) where `label` is nullptr. A primary key is
   // filled with the accent.
   lv_obj_t *key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height, int arrow = -1,
                  bool primary = false);
+  lv_obj_t *button_(lv_obj_t *parent, const char *label, int width, int height, int arrow = -1, bool primary = false);
+  // The keyboard (editor.cpp), over the menu: a row's value, a place to find, or a Wi-Fi network's name or password.
+  enum Typing : uint8_t { TYPING_ROW, TYPING_PLACE, TYPING_NETWORK, TYPING_PASSWORD };
+  void open_row_editor_(int row);
+  void open_editor_(Typing what, const std::string &title, const std::string &text, keyboard::Pad pad, size_t most,
+                    const std::string &hint);
+  void build_keys_();  // the keys of the keyboard's page now
+  void press_key_(int index);
+  void refresh_editor_();
+  void editor_done_();
+  void close_editor_();
+  // A list to pick from, over the keyboard or the menu (editor.cpp): the places a search found, or the networks in reach.
+  enum Picking : uint8_t { PICKING_PLACES, PICKING_NETWORKS };
+  void open_picker_(Picking what);
+  void refresh_picker_();       // its line, from the search or the scan under way
+  void fill_picker_();          // its items, built again
+  void picker_pick_(int index);
+  void close_picker_();
+  void scan_networks_();
+  void networks_from_(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results);
+  void join_network_(const std::string &name, const std::string &password);
   void set_brightness_now_(int percent);
 #ifdef SKYSCOPE_TEST_API
   // Tests without a finger (probe.cpp): a touch as a second input device, and what the glass shows.
@@ -243,6 +277,36 @@ class Skyscope : public Component, public AsyncWebHandler {
   std::vector<lv_obj_t *> menu_groups_;  // each group's heading and card, by row: the group the row is in
   lv_obj_t *menu_fw_line_{nullptr}, *menu_fw_install_{nullptr}, *menu_fw_check_{nullptr};
   lv_obj_t *menu_save_{nullptr}, *menu_cancel_{nullptr}, *menu_up_{nullptr}, *menu_down_{nullptr};
+  std::vector<lv_obj_t *> menu_fields_;  // by row: the field a tap types in, nullptr where the row is not typed
+  lv_obj_t *menu_wifi_{nullptr}, *menu_wifi_value_{nullptr};
+  // The keyboard: what is typed, for which row, and its objects. Its keys by index, as built for the page showing.
+  lv_obj_t *editor_{nullptr}, *editor_title_{nullptr}, *editor_field_{nullptr}, *editor_text_{nullptr};
+  lv_obj_t *editor_cursor_{nullptr}, *editor_hint_{nullptr}, *editor_keys_{nullptr}, *editor_done_key_{nullptr};
+  lv_obj_t *editor_show_{nullptr};
+  Typing typing_{TYPING_ROW};
+  int typing_row_{-1};
+  keyboard::Board board_;
+  std::vector<keyboard::Key> board_keys_;
+  std::vector<lv_obj_t *> board_key_objs_;
+  std::string editor_hint_text_, editor_error_;
+  bool editor_masked_{false};  // a password, shown as stars until Show
+  // The list to pick from, and what it lists: the places found for the search asked (search_rev_), or the networks.
+  lv_obj_t *picker_{nullptr}, *picker_back_{nullptr}, *picker_line_{nullptr}, *picker_list_{nullptr};
+  lv_obj_t *picker_scan_{nullptr};
+  Picking picking_{PICKING_PLACES};
+  uint32_t search_rev_{0};
+  bool searching_{false};
+  std::vector<places::Found> found_;
+  std::string found_error_;
+  struct Network {
+    std::string name;
+    int rssi;
+    bool secured;
+  };
+  std::vector<Network> networks_;
+  uint32_t scanning_until_{0};  // a scan asked for, until it answers or this
+  std::string network_name_;   // the network whose password is being typed
+  std::string joining_;        // the network the screen restarts to join
   uint32_t menu_install_armed_until_{0};  // Install takes a second tap before this
   uint32_t menu_checking_until_{0}, menu_checking_from_{0};  // a check asked for in the menu, and the reports then
   uint32_t firmware_reports_{0};  // the update entity's reports so far

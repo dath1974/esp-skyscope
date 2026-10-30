@@ -327,6 +327,8 @@ void Skyscope::setup() {
     base_->init();
     base_->add_handler(this);
   }
+  // The networks in reach, for the menu's Wi-Fi list (editor.cpp).
+  if (wifi::global_wifi_component) wifi::global_wifi_component->add_scan_results_listener(this);
 #ifdef USE_UPDATE
   if (firmware_) firmware_->add_on_state_callback([this]() {
     ++firmware_reports_;
@@ -399,6 +401,8 @@ void Skyscope::loop() {
     // A failed check publishes nothing: looked at here too.
     firmware_changed_();
     refresh_menu_firmware_();
+    refresh_menu_wifi_();
+    refresh_picker_();  // a search answered, a scan given up
   }
 }
 
@@ -536,6 +540,12 @@ void Skyscope::build_ui_() {
   setup_body_ = label(setup_, ui::fonts.label, colours::INK);
   lv_label_set_long_mode(setup_body_, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(setup_body_, lv_pct(100));
+  // A long press here opens the menu too: the network and the place can be set on the glass.
+  lv_obj_add_flag(setup_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(setup_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (!self->install_.updating && self->joining_.empty()) self->open_menu_();
+  }, LV_EVENT_LONG_PRESSED, this);
 
   ui_built_ = true;
   restyle_();
@@ -854,16 +864,29 @@ void Skyscope::update_status_(uint32_t now) {
   if (install_.updating) {
     title = "Updating";
     body = "New firmware is being installed. The screen restarts by itself when it is done.";
+  } else if (!joining_.empty()) {
+    title = "Joining Wi-Fi";
+    body = "The screen restarts to join \"" + joining_ + "\". If it cannot, it opens its own network \"" +
+           (setup_network_.empty() ? App.get_name() : setup_network_) + "\" again after a minute.";
   } else if (portal) {
     title = "Set up Wi-Fi";
     body = "On a phone or computer, join the Wi-Fi network \"" + (setup_network_.empty() ? App.get_name() : setup_network_) +
-           "\". A page opens to choose your network (or go to http://192.168.4.1).";
+           "\". A page opens to choose your network (or go to http://192.168.4.1). Or hold a finger here to choose it on "
+           "the screen.";
   } else if (!online) {
     title = "Connecting";
-    body = "Joining the Wi-Fi network...";
+    // The network ESPHome is trying: the one saved by the setup page, Improv or the menu.
+    std::string name;
+    if (wifi::global_wifi_component && wifi::global_wifi_component->has_sta()) {
+      const StringRef ssid = wifi::global_wifi_component->get_sta().get_ssid();
+      name.assign(ssid.c_str(), ssid.size());
+    }
+    body = (name.empty() ? std::string("Joining the Wi-Fi network") : "Joining \"" + name + "\"") +
+           "... Hold a finger here to choose another.";
   } else if (!settings_.located) {
     title = "Where are you?";
-    body = "Open http://" + own_address() + "/ in a browser on the same network and set the place to watch.";
+    body = "Hold a finger here to find the place to watch, or open http://" + own_address() +
+           "/ in a browser on the same network.";
   }
   set_shown(setup_, !title.empty());
   if (!title.empty()) {

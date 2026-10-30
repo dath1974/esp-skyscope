@@ -1,7 +1,7 @@
 """Skyscope: live aircraft over a map, fetched and drawn by an ESP32-S3 screen on its own."""
 
 import esphome.codegen as cg
-from esphome.components import esp32, font, output, time
+from esphome.components import esp32, font, output, time, wifi
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
@@ -113,6 +113,9 @@ async def to_code(config):
         cg.add_define("SKYSCOPE_TEST_API")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
+    # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
+    wifi.request_wifi_scan_results_listener()
+    wifi.request_wifi_scan_results()
     if CONF_BRIGHTNESS_OUTPUT in config:
         out = await cg.get_variable(config[CONF_BRIGHTNESS_OUTPUT])
         cg.add(var.set_brightness_output(out))

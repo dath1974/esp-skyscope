@@ -9,9 +9,11 @@ guide; read it for what the screen does and how it is set up.
 - `skyscope.yaml`: the device config (version, update server, packages). `boards/`: one file per board.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `settings.h`, `feed.h`,
-    `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h` (namespace `sky`). Keep
+    `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`
+    (namespace `sky`). Keep
     them that way; logic that can be tested on a PC belongs here.
-  - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`
+  - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `web.cpp`, `http.cpp`,
+    `probe.cpp`
     (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.

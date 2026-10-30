@@ -4,7 +4,8 @@
 //                     at the screen's own coordinates (as LVGL takes them, the rotation applied); answers how long
 //                     it takes
 //   GET  /api/ui      what the glass shows: the status line, the plane's card, the brightness level, the menu (its
-//                     rows, values and keys, where each key is), and where each plane is, to touch them by
+//                     rows, values and keys, where each key is), its keyboard (the text, the hint and every key) and
+//                     the list over it (its line and items), and where each plane is, to touch them by
 //
 // A touch goes in as a second input device beside the touch panel: LVGL reads it as it reads a finger, so the same
 // objects get the same events (a long press, a drag along the brightness strip, a click on a key). While the screen
@@ -117,9 +118,43 @@ void Skyscope::describe_ui_(JsonObject out) {
     r["shown"] = shown(menu_rows_[i]);
     r["value"] = text_of(menu_values_[i]);
     r["pending"] = menu::shown(table[i], menu_settings_) != menu::shown(table[i], settings_);
-    // The row's children: its name, the key back, its value, the key on.
-    place(r["back"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 1));
-    place(r["on"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 3));
+    // The row's children: its name, the key back, its value (or the field it is typed in), the key on.
+    if (menu::steps(table[i])) {
+      place(r["back"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 1));
+      place(r["on"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 3));
+    }
+    if (menu_fields_[i]) place(r["edit"].to<JsonObject>(), menu_fields_[i]);
+  }
+  if (menu_wifi_) {
+    menu["wifi"] = text_of(menu_wifi_value_);
+    place(keys["wifi"].to<JsonObject>(), menu_wifi_);
+  }
+  if (editor_) {
+    JsonObject ed = menu["editor"].to<JsonObject>();
+    ed["title"] = text_of(editor_title_);
+    ed["text"] = text_of(editor_text_);
+    ed["hint"] = text_of(editor_hint_);
+    ed["refused"] = !editor_error_.empty();
+    place(ed["done"].to<JsonObject>(), editor_done_key_);
+    JsonArray ks = ed["keys"].to<JsonArray>();
+    for (size_t i = 0; i < board_keys_.size() && i < board_key_objs_.size(); ++i) {
+      JsonObject k = ks.add<JsonObject>();
+      // A key by what it types, or what it does: "Del", "<", ">", "Aa", "123".
+      k["key"] = board_.face(board_keys_[i]);
+      place(k, board_key_objs_[i]);
+    }
+  }
+  if (picker_) {
+    JsonObject pk = menu["picker"].to<JsonObject>();
+    pk["line"] = text_of(picker_line_);
+    place(pk["back"].to<JsonObject>(), picker_back_);
+    JsonArray items = pk["items"].to<JsonArray>();
+    for (uint32_t i = 0; i < lv_obj_get_child_count(picker_list_); ++i) {
+      lv_obj_t *item = lv_obj_get_child(picker_list_, i);
+      JsonObject it = items.add<JsonObject>();
+      it["name"] = text_of(lv_obj_get_child(item, 0));
+      place(it, item);
+    }
   }
 }
 

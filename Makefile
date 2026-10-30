@@ -5,6 +5,8 @@
 #
 # Firmware
 #   make firmware         compile skyscope.yaml with ESPHOME_VERSION
+#   make firmware-flash   compile it and install it on DEVICE=<address or
+#                         serial port>; without DEVICE, ESPHome asks which
 #   make firmware-esphome install ESPHome ESPHOME_VERSION
 #   make firmware-esphome-version
 #                         print ESPHOME_VERSION
@@ -54,7 +56,7 @@ SKYSCOPE_VERSION = $(shell sed -nE 's/^  version: "?([^"]+)"?$$/\1/p' \
 # The tag's message, from the environment so that quotes in it are safe.
 export MSG
 
-.PHONY: all firmware firmware-esphome firmware-esphome-version \
+.PHONY: all firmware firmware-flash firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers \
 	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak \
 	release-version release-tag release clean help
@@ -67,6 +69,10 @@ firmware:
 	  { echo "ESPHome $$v, not $(ESPHOME_VERSION): make firmware-esphome"; \
 	    exit 2; }
 	esphome compile skyscope.yaml
+
+# Over Wi-Fi to an address, or over USB to a serial port (/dev/ttyACM0).
+firmware-flash: firmware
+	esphome upload skyscope.yaml $(if $(DEVICE),--device $(DEVICE))
 
 # With pipx where there is one (as ESPHome suggests), else with pip.
 firmware-esphome:

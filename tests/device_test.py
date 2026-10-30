@@ -18,7 +18,8 @@ It never prints the screen's place. Python's standard library only. Nothing here
   how long it takes to draw; the radar without its scope in each phosphor, and no beam turning then;
 - touches (unless --no-touch, or the firmware is built with `test_api: false`), through /api/touch and /api/ui: a
   long press opens the menu; its arrows step a value without applying it; Cancel drops it and Save applies it; the
-  paging arrows scroll; another appearance rebuilds the menu in its colours; Check asks the update server, and
+  paging arrows scroll; a range typed on its keyboard is refused out of reach and shown, not applied, within it; the
+  Wi-Fi list finds networks and goes back; another appearance rebuilds the menu in its colours; Check asks the update server, and
   Install takes a second tap (never given); a tap on a plane opens its card and a second closes it; a tap on the map
   shows the screen's address; a drag up the right edge brightens it;
 - --maps: each map in turn, every tile drawn without an error, and memory after;
@@ -262,6 +263,21 @@ class Glass:
         m = self.menu()
         return next((r for r in (m or {}).get("rows", []) if r["key"] == key), None)
 
+    def reach_row(self, key: str, part: str = "on"):
+        """The row `key`, scrolled to until its `part` ("back", "on", "edit") is in reach; None where it is not."""
+        if not self.scroll_to(lambda m: (self.row(key) or {}).get(part)):
+            return None
+        return self.row(key)
+
+    def type_in(self, editor: dict, text: str) -> bool:
+        """Clears the keyboard's text and types `text` (digits and letters on the page showing), then presses Done."""
+        keys = {k["key"]: k for k in editor["keys"]}
+        for _ in range(len(editor["text"]) + 1):
+            self.tap_key(keys["Del"])
+        if not all(c in keys and self.tap_key(keys[c]) for c in text):
+            return False
+        return self.tap_key(editor["done"])
+
     def scroll_to(self, reachable) -> dict:
         """Pages down (from the top) until `reachable(menu)` gives something a finger reaches; that, or None."""
         m = self.menu()
@@ -310,7 +326,7 @@ def test_touch(screen: Screen, run: Run, original: dict):
     if not run.check(m is not None, "a long press on the map opens the menu"):
         return
     run.check(all(m["keys"][k]["reachable"] for k in ("cancel", "save", "up", "down")), "Cancel, Save and the arrows")
-    row = glass.row("range_nm")
+    row = glass.reach_row("range_nm")
     was = row["value"]
     glass.tap_key(row["on"])
     row = glass.row("range_nm")
@@ -324,7 +340,7 @@ def test_touch(screen: Screen, run: Run, original: dict):
 
     # Save applies what the menu shows.
     glass.open_menu()
-    before = glass.row("range_nm")["value"]
+    before = glass.reach_row("range_nm")["value"]
     glass.tap_key(glass.row("range_nm")["on"])
     shown = glass.row("range_nm")["value"]
     run.check(shown != before, f"the range steps again ({before} to {shown})")
@@ -332,6 +348,40 @@ def test_touch(screen: Screen, run: Run, original: dict):
     applied = screen.json("/api/settings")[1]["range_nm"]
     run.check(shown == f"{applied} NM", f"and applies the range it showed ({shown})", f"{applied} NM applied")
     screen.json("/api/settings", {"range_nm": original["range_nm"]})
+
+    # The keyboard: a range typed, refused beyond what the settings take, shown with its unit and not yet applied.
+    glass.open_menu()
+    row = glass.reach_row("range_nm", "edit")
+    if run.check(row is not None, "the range has a field to type in"):
+        glass.tap_key(row["edit"])
+        editor = wait_for(lambda: (glass.menu() or {}).get("editor"), 5, 0.3)
+        if run.check(editor is not None, "a tap on it opens the keyboard"):
+            glass.type_in(editor, "999")
+            editor = wait_for(lambda: (glass.menu() or {}).get("editor"), 2, 0.3)
+            run.check(editor is not None and editor["refused"], "999 NM is refused, and the keyboard stays")
+            if editor:
+                glass.type_in(editor, "12")
+            run.check(wait_for(lambda: not (glass.menu() or {}).get("editor"), 5, 0.3) is not None, "Done closes it")
+            row = glass.row("range_nm")
+            run.check(row["value"] == "12 NM" and row["pending"], f"and the range shows what was typed ({row['value']})")
+    run.check(glass.close_menu("cancel"), "Cancel closes the menu")
+    run.check(not differing(screen, original), "and what was typed is not applied", differing(screen, original))
+
+    # The Wi-Fi list: the networks in reach and Other network; Back goes back to the menu. Nothing is joined, and no
+    # network's name is printed.
+    glass.open_menu()
+    wifi = glass.scroll_to(lambda m: m["keys"].get("wifi"))
+    if run.check(wifi is not None, "the menu has the Wi-Fi network"):
+        glass.tap_key(wifi)
+        picker = wait_for(lambda: (glass.menu() or {}).get("picker"), 5, 0.3)
+        if run.check(picker is not None, "a tap on it lists the networks"):
+            listed = wait_for(lambda: (lambda p: p if p and len(p["items"]) > 1 else None)(glass.menu().get("picker")), 15, 1)
+            run.check(listed is not None, f"a scan finds networks ({len(listed['items']) - 1 if listed else 0})")
+            run.check(glass.menu()["picker"]["items"][-1]["name"] == "Other network", "and offers one by its name")
+            glass.tap_key(glass.menu()["picker"]["back"])
+            gone = wait_for(lambda: (lambda m: m if m and not m.get("picker") else None)(glass.menu()), 5, 0.3)
+            run.check(gone is not None, "Back goes back to the menu")
+    run.check(glass.close_menu("cancel"), "Cancel closes the menu")
 
     # The paging arrows, and the menu rebuilt in another appearance's colours.
     m = glass.open_menu()
