@@ -107,8 +107,11 @@ constexpr int MOST_UP = 3, MOST_DOWN = 1;
 struct Key {
   uint8_t style, z;
   uint32_t x, y;
-  uint8_t layer = 0;
-  bool operator==(const Key &o) const { return style == o.style && z == o.z && x == o.x && y == o.y && layer == o.layer; }
+  uint8_t layer = 0;  // 0 the map, 1 its place names, 2 the weather radar (radar.h)
+  uint32_t time = 0;  // the radar's: its scan, in minutes since 1970
+  bool operator==(const Key &o) const {
+    return style == o.style && z == o.z && x == o.x && y == o.y && layer == o.layer && time == o.time;
+  }
 };
 
 struct Plan {
@@ -188,7 +191,8 @@ inline Format format_of(const uint8_t *data, size_t size) {
 // night), then the map brightness the person set, in either appearance.
 struct Filter {
   Night night = NIGHT_NONE;
-  uint16_t keep = 256;  // of 256: the map brightness
+  uint16_t keep = 256;    // of 256: the map brightness
+  uint8_t opacity = 255;  // of 255: how much of the tile covers what is under it (the radar's, part see-through)
 };
 inline Filter filter_of(const Settings &s) {
   return {s.theme == DARK && s.map != CUSTOM ? source(s).night : NIGHT_NONE, (uint16_t) (s.map_brightness * 256 / 100)};

@@ -33,6 +33,10 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   address and range in the status line. Pinch to zoom and drag to pan (see [Zoom and pan](#zoom-and-pan)): a preview,
   kept with **Save**. Swipe along the bottom edge to change the map (see
   [Changing the map with a swipe](#changing-the-map-with-a-swipe)).
+- **Aviation weather** (see [Aviation weather](#aviation-weather)): a swipe up from the bottom edge shows a page of the
+  nearest station's METAR (decoded too), its TAF and GFS MOS, and the SIGMETs, G-AIRMETs and pilot reports round the
+  place, with its flight category in colour. The NEXRAD radar can go over any map of tiles, as the latest scan or a loop
+  of the last hour.
 - **Set up like any ESPHome device**: Wi-Fi through the screen's own setup network (captive portal) or over USB with
   Improv, or on the glass itself; everything else on the screen's own web page or its menu.
 
@@ -152,6 +156,31 @@ downloaded until the swipes have stopped for two seconds, so going through sever
 is then drawn and saved, as from the menu. A swipe back undoes it. A drag that starts in that strip never pans, and a
 tap there still picks a plane.
 
+## Aviation weather
+
+A swipe up from the bottom edge of the map (or **Show the weather** in the menu's Weather group) opens the weather
+page, for a station: the one set in the menu or on the web page, or with none set the nearest to the place that
+reports. Its title is the station and its flight category, in the charts' colours (VFR green, MVFR blue, IFR red,
+LIFR magenta). Its tabs:
+
+- **METAR**: the latest, as sent and in words (wind, visibility, sky, ceiling, temperature and dew point, altimeter).
+- **TAF**: a line for each change (from, temporarily, becoming, with a probability).
+- **MOS**: the GFS MOS, three hours a line: temperature and dew point, wind, sky, the flight category its ceiling and
+  visibility make, and the chance of precipitation. Stations in the United States only.
+- **Area**: the SIGMETs (convective ones too) and G-AIRMETs within the range (at least 50 NM) of the place, and the
+  pilot reports there in the last two hours. The FAA's area forecasts are now issued only for Alaska, Hawaii and the
+  Gulf, and the G-AIRMETs take their place elsewhere.
+
+The page asks for the weather only while it is shown: when it opens with nothing from the last ten minutes, at
+**Refresh**, and every ten minutes while it stays open. Not for flight planning.
+
+**Radar** (in the menu's Weather group, or on the web page) draws the NWS's NEXRAD composite over any map of tiles,
+part see-through, with the time of its scan in the credits; the United States only. The screen asks for the latest
+scan every five minutes, and draws it over a copy of the map kept without it, so the map is never drawn again for it.
+**Radar loop** plays the last hour, a scan every 0.7 seconds and the latest for 2.5: each scan's tiles are fetched once
+(they are asked for by the scan's time, and the tile cache keeps them), and what each scan changed is kept (in PSRAM,
+1.2 MB at most), so after the first time round the loop asks for nothing but each new scan.
+
 ## The web page and API
 
 The screen serves its settings page at `/` and a small JSON API beside it:
@@ -160,7 +189,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -168,7 +197,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/networks` | with the test API only: `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
-| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, and where each plane is |
+| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -193,6 +222,8 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [USGS National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map) | topographic | public domain, United States |
 | [FAA aeronautical charts](https://www.faa.gov/air_traffic/flight_info/aeronav) | sectional, IFR | public domain, United States; not for navigation |
 | [FAA ADDS](https://adds-faa.opendata.arcgis.com) | airspace and runways (optional) | public domain, United States; not for navigation |
+| [Aviation Weather Center](https://aviationweather.gov/data/api/) | METARs, TAFs, SIGMETs, G-AIRMETs, pilot reports (the weather page) | US government; at most 100 requests a minute, with a User-Agent; the page asks a few every ten minutes while it is shown |
+| [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu) | the GFS MOS, and the NEXRAD radar composite (optional) | Iowa State University; free, credited on the glass; each radar tile fetched once |
 | [FAA airports](https://adds-faa.opendata.arcgis.com) | the menu's place search: airports by code or name | public domain, United States |
 | [Nominatim](https://operations.osmfoundation.org/policies/nominatim/) | the menu's place search: anything else | at most one request a second, with a User-Agent, none as you type, OpenStreetMap credited (all done) |
 
@@ -217,7 +248,7 @@ receiver's range, are missing, and positions may be late.
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
   `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
-  `wifi_list.h`) are plain C++.
+  `wifi_list.h`, `weather.h`, `radar.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
   ESPHome downloaded.
@@ -236,7 +267,7 @@ receiver's range, are missing, and positions may be late.
     aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
     stepped, cancelled and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and
     Install's second tap; the known Wi-Fi networks (a made-up one moved and forgotten, never joined); a plane's card;
-    the address; a swipe between maps and back;
+    the address; a swipe between maps and back; the weather page and its tabs; the weather radar and its loop;
     a drag on the brightness strip).
   - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.

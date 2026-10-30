@@ -10,10 +10,10 @@ guide; read it for what the screen does and how it is set up.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `settings.h`, `feed.h`,
     `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`,
-    `pinch.h`, `swipe.h`, `wifi_list.h` (namespace `sky`). Keep them that way; logic that can be tested on a PC belongs
-    here.
+    `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h` (namespace `sky`). Keep them that way; logic that can be
+    tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
-    `networks.cpp`, `web.cpp`, `http.cpp`, `probe.cpp` (namespace `esphome::skyscope`).
+    `networks.cpp`, `wxpage.cpp`, `web.cpp`, `http.cpp`, `probe.cpp` (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
@@ -38,8 +38,9 @@ guide; read it for what the screen does and how it is set up.
 - **Memory.** Internal RAM is scarce and has run out before (black screens, broken replies). Large buffers and TLS go
   in PSRAM (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`). Watch for leaks: the soak test exists
   because of one.
-- **Public services.** adsb.fi, adsb.lol, Esri, OSM, USGS and FAA have terms; keep to them. Respect rate-limit headers
-  and backoff in `feed.h`, keep the User-Agent and tile caching, and keep attribution as each source requires.
+- **Public services.** adsb.fi, adsb.lol, Esri, OSM, USGS, FAA, the Aviation Weather Center and the Iowa Environmental
+  Mesonet have terms; keep to them. Respect rate-limit headers and backoff in `feed.h`, keep the User-Agent and tile
+  caching, and keep attribution as each source requires.
 - **Test endpoints** (`/api/touch`, `/api/ui`) are compiled out with `test_api: false`; keep them behind that flag.
 - **README.** Features, settings, the API table and the `make` targets are documented there. Update it in the same
   change.

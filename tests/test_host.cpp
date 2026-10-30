@@ -21,6 +21,7 @@
 #include "../components/skyscope/places.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
+#include "../components/skyscope/radar.h"
 #include "../components/skyscope/schedule.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
@@ -1221,6 +1222,46 @@ static void test_weather() {
   CHECK(read_pireps("", 0, doc, reports, error) && reports.empty());
 }
 
+static void test_radar() {
+  using namespace radar;
+  JsonDocument doc;
+  // IEM's note of the latest scan, its time as IEM names it, and an hour of them for a loop.
+  const std::string latest = R"({"meta": {"vcp": null, "product": "N0Q", "valid": "2026-10-30T08:10:00Z"}})";
+  const uint32_t at = read_latest(latest.c_str(), latest.size(), doc);
+  CHECK(at == 1793347800 / 60 && stamp(at) == "202610300810" && clock(at) == "0810Z");
+  CHECK(read_latest("{}", 2, doc) == 0 && read_latest("x", 1, doc) == 0);
+  CHECK(stamp(0) == "197001010000" && stamp(26092800) == "201908120000");
+  const auto one = frames(at, false), hour = frames(at, true);
+  CHECK(one.size() == 1 && one[0] == at && hour.size() == 12 && hour.back() == at && hour.front() == at - 55);
+  CHECK(frames(0, true).empty());
+  // A radar tile for each square of the map, not of its place names; asked for by its scan.
+  Settings s;
+  s.lat = 40.64;
+  s.lon = -73.78;
+  s.map = STREETS;
+  const tiles::Plan p = tiles::plan(s, 600, 450, 2);
+  const auto keys = radar::keys(p, at);
+  size_t maps = 0;
+  for (const auto &k : p.keys) maps += k.layer == 0;
+  CHECK(!keys.empty() && keys.size() == maps && keys[0].layer == LAYER && keys[0].time == at);
+  CHECK(tile_url(keys[0]).find("ridge::USCOMP-N0Q-202610300810/" + std::to_string(keys[0].z) + "/") != std::string::npos);
+  // Another scan is another tile.
+  tiles::Key later = keys[0];
+  later.time += STEP_MINUTES;
+  CHECK(!(later == keys[0]));
+  CHECK(filter().opacity == OPACITY && filter().opacity < 255);
+  // What a scan changed, kept as runs and put back exactly; past the most pixels, not kept at all.
+  std::vector<uint16_t> clean(100, 7), with = clean;
+  for (int i : {0, 1, 2, 40, 41, 99}) with[i] = (uint16_t) (100 + i);
+  Overlay o;
+  CHECK(difference(with.data(), clean.data(), 100, 10, o) && o.starts.size() == 3 && o.pixels.size() == 6);
+  std::vector<uint16_t> back = clean;
+  apply(o, back.data());
+  CHECK(back == with);
+  CHECK(!difference(with.data(), clean.data(), 100, 5, o) && o.pixels.empty() && o.starts.empty());
+  CHECK(difference(clean.data(), clean.data(), 100, 0, o) && o.starts.empty());
+}
+
 static void test_schedule() {
   using namespace schedule;
   Zone z;
@@ -1426,6 +1467,7 @@ int main(int argc, char **argv) {
   test_swipe();
   test_wifi_list();
   test_weather();
+  test_radar();
   test_schedule();
   test_firmware();
   test_touch();

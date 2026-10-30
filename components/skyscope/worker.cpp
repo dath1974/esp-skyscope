@@ -5,6 +5,7 @@
 
 #include "decode.h"
 #include "http.h"
+#include "radar.h"
 #include "colours.h"
 #include "ui.h"
 
@@ -214,6 +215,13 @@ void Skyscope::worker_() {
   bool gave_up = false;
   uint32_t kept_at = 0, tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
   uint64_t tile_bytes_fetched = 0;
+  // The radar (radar.h): the latest scan and when to ask again; what the map kept without it shows (frame_key);
+  // whether the frame has a scan on it, which, which of the loop's, and when the next is due.
+  uint32_t radar_latest = 0, radar_check_due = 0, radar_shown = 0, radar_step_due = 0;
+  size_t radar_index = 0;
+  std::string clean_key;
+  bool radar_drawn = false, radar_looping = false;
+  std::vector<radar::Overlay> overlays;  // what each scan drawn over the clean map changed (radar.h)
   uint32_t feed_due = 0;
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
   std::string receiver_url;  // the receiver's address the last request was for
@@ -412,7 +420,10 @@ void Skyscope::worker_() {
       // The frame just drawn is kept if it is whole; the frame wanted, if it is the one kept, comes back at once, with
       // no tile decoded (a map swiped away and back, a preview dropped). Frames older than the tiles kept are not.
       const std::string wanted = tiles::frame_key(settings, plan);
-      const bool whole = !painting_key.empty() && pending.empty() && !gave_up;
+      // A frame with the radar on it is not kept: its scan goes old.
+      const bool whole = !painting_key.empty() && pending.empty() && !gave_up && !radar_drawn;
+      radar_drawn = false;
+      radar_shown = 0;
       const uint32_t at = millis();
       bool again = false;
       {
@@ -514,6 +525,140 @@ void Skyscope::worker_() {
         shared_.frame_rev++;
       }
       continue;
+    }
+
+    // ---- The radar over the map (radar.h), once the map is whole: each scan drawn over a copy of the map kept
+    // without it, so the map is never drawn again for it.
+    const bool radar_wanted = settings.radar_overlay && !plan.keys.empty();
+    if (radar_wanted && (int32_t) (millis() - radar_check_due) >= 0) {
+      body.clear();
+      const http::Result r = http::get(radar::LATEST_URL, body, 4096, agent_, "application/json");
+      JsonDocument doc;
+      const uint32_t latest =
+          r.status == 200 ? radar::read_latest(reinterpret_cast<const char *>(body.data), body.size, doc) : 0;
+      body.clear();
+      if (latest) radar_latest = latest;
+      else ESP_LOGW(TAG, "Radar: no latest scan (%s)", r.error.empty() ? "unreadable" : r.error.c_str());
+      radar_check_due = millis() + (latest ? radar::CHECK_MS : 60000);
+    }
+    if (pending.empty() && radar_wanted && radar_latest) {
+      const size_t bytes = (size_t) width * height * 2;
+      if (clean_key != painting_key || !clean_frame_) {
+        if (!clean_frame_)
+          clean_frame_ = static_cast<uint16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (clean_frame_) {
+          std::lock_guard<std::mutex> frame(frame_lock_);
+          std::memcpy(clean_frame_, base_frame_, bytes);
+          clean_key = painting_key;
+        }
+        overlays.clear();  // of another map
+      }
+      const std::vector<uint32_t> frames = radar::frames(radar_latest, settings.radar_loop);
+      // The loop switched on or off: on at once, from its first scan; off, what its scans changed goes.
+      if (settings.radar_loop != radar_looping) {
+        radar_looping = settings.radar_loop;
+        radar_step_due = millis();
+        radar_index = frames.size() - 1;
+        if (!radar_looping) std::vector<radar::Overlay>().swap(overlays);
+      }
+      if (clean_frame_ && !frames.empty() && (int32_t) (millis() - radar_step_due) >= 0) {
+        // The loop's next scan, or the latest alone.
+        radar_index = settings.radar_loop ? (radar_index + 1) % frames.size() : frames.size() - 1;
+        const uint32_t scan = frames[radar_index];
+        // Scans gone out of the hour are forgotten.
+        overlays.erase(std::remove_if(overlays.begin(), overlays.end(), [&](const radar::Overlay &o) {
+                         return std::find(frames.begin(), frames.end(), o.scan) == frames.end();
+                       }),
+                       overlays.end());
+        auto known = std::find_if(overlays.begin(), overlays.end(), [&](const radar::Overlay &o) { return o.scan == scan; });
+        if (known != overlays.end() && (scan != radar_shown || !radar_drawn)) {
+          // A scan drawn before: what it changed, put back over the map.
+          {
+            std::lock_guard<std::mutex> frame(frame_lock_);
+            std::memcpy(base_frame_, clean_frame_, bytes);
+            radar::apply(*known, base_frame_);
+          }
+          radar_shown = scan;
+          radar_drawn = true;
+          std::lock_guard<std::mutex> guard(lock_);
+          shared_.frame_rev++;
+          shared_.radar_scan = scan;
+        } else if (scan != radar_shown || !radar_drawn) {
+          const std::vector<tiles::Key> keys = radar::keys(plan, scan);
+          // Its tiles first (fetched once: the cache keeps them), then all of them at once over the map.
+          for (const tiles::Key &key : keys) {
+            if (cache.find(key, millis())) {
+              ++tiles_from_cache;
+              continue;
+            }
+            body.clear();
+            ui::worker_phase = ui::TILE_FETCH;
+            const http::Result r = http::get(radar::tile_url(key), body, MOST_TILE_BYTES, agent_, "image/png");
+            ui::worker_phase = ui::IDLE;
+            if (r.status == 200) {
+              ++tiles_fetched;
+              tile_bytes_fetched += body.size;
+              cache.keep(key, body.data, body.size, millis());
+            } else if (r.status == 404 || r.status == 204) {
+              cache.keep(key, nullptr, 0, millis());
+            }
+            body.clear();
+          }
+          {
+            std::lock_guard<std::mutex> frame(frame_lock_);
+            std::memcpy(base_frame_, clean_frame_, bytes);
+            ui::worker_phase = ui::TILE_DECODE;
+            for (const tiles::Key &key : keys) {
+              Cached *tile = cache.find(key, millis());
+              std::string error;
+              if (tile && tile->size)
+                decode::draw(tile->data, tile->size, base_frame_, width, height,
+                             geo::tile_origin(plan.view, key.z, key.x, key.y), radar::filter(), error);
+            }
+            ui::worker_phase = ui::IDLE;
+            // What it changed, kept for the loop's next time round while the loop's scans together fit.
+            if (settings.radar_loop) {
+              size_t used = 0;
+              for (const radar::Overlay &o : overlays) used += o.pixels.size();
+              radar::Overlay o;
+              // Each more than 4 KB from the start, so they are PSRAM's: allocations of 4 KB or less are internal
+              // RAM's (__init__.py), and twelve scans' runs took 140 KB of it.
+              o.starts.reserve(radar::RESERVE_RUNS);
+              o.lengths.reserve(radar::RESERVE_RUNS);
+              o.pixels.reserve(radar::RESERVE_PIXELS);
+              if (used < radar::MOST_OVERLAY_PIXELS &&
+                  radar::difference(base_frame_, clean_frame_, (size_t) width * height, radar::MOST_OVERLAY_PIXELS - used, o)) {
+                o.scan = scan;
+                overlays.push_back(std::move(o));
+              }
+            }
+          }
+          radar_shown = scan;
+          radar_drawn = true;
+          std::lock_guard<std::mutex> guard(lock_);
+          shared_.frame_rev++;
+          shared_.radar_scan = scan;
+          shared_.tiles_fetched = tiles_fetched;
+          shared_.tiles_from_cache = tiles_from_cache;
+          shared_.tile_bytes_fetched = tile_bytes_fetched;
+          shared_.cache_bytes = cache.bytes();
+          shared_.cached_tiles = cache.size();
+        }
+        const bool last = radar_index + 1 == frames.size();
+        radar_step_due = millis() + (settings.radar_loop ? (last ? radar::LOOP_HOLD_MS : radar::LOOP_STEP_MS) : 30000);
+      }
+    } else if (pending.empty() && radar_drawn && clean_frame_ && clean_key == painting_key) {
+      // Switched off: the map as it was, and no scan kept.
+      std::vector<radar::Overlay>().swap(overlays);
+      {
+        std::lock_guard<std::mutex> frame(frame_lock_);
+        std::memcpy(base_frame_, clean_frame_, (size_t) width * height * 2);
+      }
+      radar_drawn = false;
+      radar_shown = 0;
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.frame_rev++;
+      shared_.radar_scan = 0;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }

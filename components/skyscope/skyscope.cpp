@@ -939,6 +939,7 @@ void Skyscope::update_status_(uint32_t now) {
   Feed source = ADSB_FI;
   uint32_t feed_at;
   int done, total;
+  uint32_t radar_scan = 0;
   {
     std::lock_guard<std::mutex> guard(lock_);
     sources = shared_.providers;
@@ -948,6 +949,7 @@ void Skyscope::update_status_(uint32_t now) {
     feed_at = shared_.feed_at;
     done = shared_.tiles_done;
     total = shared_.tiles_total;
+    radar_scan = shared_.radar_scan;
   }
   const uint32_t ink = chrome_().ink;
   uint32_t colour = ink;
@@ -962,6 +964,9 @@ void Skyscope::update_status_(uint32_t now) {
   if (settings_.airspace && credit.find("FAA") == std::string::npos)
     credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "FAA";
   if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
+  // The radar's scan, at its time (a loop's goes by), and its source as IEM asks.
+  if (settings_.radar_overlay && radar_scan)
+    credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "Radar " + radar::clock(radar_scan) + " NEXRAD/IEM";
   set_text(credit_, credit);
   const Feed preferred = settings_.feed;
   const providers::State &first = sources.state(preferred);

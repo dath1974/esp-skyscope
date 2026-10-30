@@ -43,6 +43,7 @@
 #include "networks.h"
 #include "overlay.h"
 #include "pinch.h"
+#include "radar.h"
 #include "places.h"
 #include "providers.h"
 #include "touch.h"
@@ -135,6 +136,7 @@ class Skyscope : public Component,
     uint32_t tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
     uint64_t tile_bytes_fetched = 0;
     size_t cache_bytes = 0;
+    uint32_t radar_scan = 0;  // the radar scan drawn over the map, minutes since 1970; 0 for none
     // The airspace and runways of the last place and range asked (airspace.h), which may be an earlier frame's while a
     // new one comes, and why the last request failed.
     std::shared_ptr<const airspace::Map> airspace;
@@ -388,6 +390,8 @@ class Skyscope : public Component,
   // The worker's: the last frame of tiles it drew whole, for its view and map wanted again (a map swiped away and
   // back). Swapped with base_frame_ under frame_lock_.
   uint16_t *kept_frame_{nullptr};
+  // The worker's: the map whole, without the weather radar drawn over it (radar.h), while the radar is shown.
+  uint16_t *clean_frame_{nullptr};
   TaskHandle_t worker_task_{nullptr};
 
   // The preview: the fingers, the settings as they were (kept until Save), the view previewed, when it is planned

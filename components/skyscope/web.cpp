@@ -227,6 +227,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     cache["fetched_kb"] = (uint32_t) (shared_.tile_bytes_fetched / 1024);
     cache["from_cache"] = shared_.tiles_from_cache;
     cache["frames_again"] = shared_.frames_again;
+    // The weather radar's scan drawn over the map (radar.h), as IEM names it; "" for none.
+    out["radar_scan"] = shared_.radar_scan ? radar::stamp(shared_.radar_scan) : std::string();
     // The airspace shown (airspace.h): its areas and runways, its replies' bytes, and why the last request failed.
     out["airspace_areas"] = shared_.airspace ? shared_.airspace->areas.size() : 0;
     out["airspace_runways"] = shared_.airspace ? shared_.airspace->runways.size() : 0;

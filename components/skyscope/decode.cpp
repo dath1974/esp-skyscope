@@ -44,7 +44,7 @@ void png_draw(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, co
       const uint32_t px = x + dx, py = y + dy;
       if (px >= TILE || py >= TILE) continue;
       scratch.colour[py * TILE + px] = colour;
-      scratch.alpha[py * TILE + px] = rgba[3];
+      scratch.alpha[py * TILE + px] = d.filter.opacity == 255 ? rgba[3] : (uint8_t) (rgba[3] * d.filter.opacity / 255);
     }
 }
 
@@ -61,7 +61,7 @@ int jpeg_draw(JPEGDRAW *j) {
           d.filter.night == tiles::NIGHT_NONE && d.filter.keep >= 256
               ? c
               : tiles::paint(d.filter, (c >> 8 & 0xF8) | c >> 13, (c >> 3 & 0xFC) | (c >> 9 & 0x3), (c << 3 & 0xF8) | (c >> 2 & 0x7));
-      scratch.alpha[py * TILE + px] = 255;
+      scratch.alpha[py * TILE + px] = d.filter.opacity;
     }
   }
   return 1;

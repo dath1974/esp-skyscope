@@ -22,7 +22,7 @@ It never prints the screen's place. Python's standard library only. Nothing here
   Wi-Fi list finds networks and goes back; another appearance rebuilds the menu in its colours; Check asks the update server, and
   Install takes a second tap (never given); a tap on a plane opens its card and a second closes it; a tap on the map
   shows the screen's address; a drag up the right edge brightens it; a swipe along the bottom changes the map and one
-  back undoes it;
+  back undoes it; a swipe up opens the weather page, whose tabs fill in; the weather radar's scan and its loop;
 - --maps: each map in turn, every tile drawn without an error, and memory after;
 - --reboot: a restart keeps every setting;
 - --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap;
@@ -525,6 +525,42 @@ def test_touch(screen: Screen, run: Run, original: dict):
     back = wait_for(lambda: (lambda m: m if m == was else None)(screen.json("/api/settings")[1]["map"]), 8, 0.5)
     run.check(back is not None, f"a swipe the other way goes back ({was})")
     screen.json("/api/settings", {"map": was})
+
+    # The weather page: a swipe up from the strip opens it; it fills in, a tab at a time, and Close closes it. Nothing
+    # of what it says is printed (the station would give the place away): only its shape.
+    screen.json("/api/touch", {"gesture": "drag", "x": w // 2, "y": y, "x1": w // 2 + 10, "y1": y - 150, "ms": 400})
+    page = wait_for(lambda: glass.ui().get("weather"), 3, 0.3)
+    if run.check(page is not None, "a swipe up from the bottom opens the weather page"):
+        filled = wait_for(lambda: (lambda p: p if p and "Asking" not in p["line"] else None)(glass.ui().get("weather")), 45, 1)
+        run.check(filled is not None, "and it is answered")
+        tabs = (filled or page)["tabs"]
+        counts = []
+        for t in range(len(tabs)):
+            glass.tap_key(tabs[t])
+            time.sleep(0.5)
+            counts.append(len(glass.ui()["weather"]["lines"]))
+        run.check(len(counts) == 4 and all(counts), f"each of its four tabs shows something ({counts} lines)")
+        glass.tap_key(glass.ui()["weather"]["close"])
+        run.check(wait_for(lambda: "weather" not in glass.ui(), 3, 0.3) is not None, "and Close closes it")
+
+    # The weather radar over a map of tiles: a scan drawn, and the loop going through the last hour's; put back after.
+    radar_was = {k: screen.json("/api/settings")[1][k] for k in ("radar_overlay", "radar_loop")}
+    if screen.json("/api/settings")[1]["map"] != "radar":
+        screen.json("/api/settings", {"radar_overlay": True, "radar_loop": False})
+        scan = wait_for(lambda: screen.json("/api/status")[1].get("radar_scan") or None, 30, 1)
+        run.check(scan is not None, "the radar's latest scan over the map")
+        screen.json("/api/settings", {"radar_loop": True})
+        seen = set()
+        end = time.time() + 90
+        while time.time() < end and len(seen) < 3:
+            seen.add(screen.json("/api/status")[1].get("radar_scan"))
+            time.sleep(1)
+        run.check(len(seen) >= 3, f"and its loop goes through the scans ({len(seen)} seen)")
+        screen.json("/api/settings", radar_was)
+        run.check(wait_for(lambda: not screen.json("/api/status")[1].get("radar_scan"), 10, 1) is not None,
+                  "and goes when it is switched off")
+    else:
+        print("  (the radar scope: no map for the weather radar to go over)")
 
 
 def test_sleep(screen: Screen, run: Run, original: dict):
