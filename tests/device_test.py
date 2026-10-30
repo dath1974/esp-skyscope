@@ -21,7 +21,8 @@ It never prints the screen's place. Python's standard library only. Nothing here
   paging arrows scroll; a range typed on its keyboard is refused out of reach and shown, not applied, within it; the
   Wi-Fi list finds networks and goes back; another appearance rebuilds the menu in its colours; Check asks the update server, and
   Install takes a second tap (never given); a tap on a plane opens its card and a second closes it; a tap on the map
-  shows the screen's address; a drag up the right edge brightens it;
+  shows the screen's address; a drag up the right edge brightens it; a swipe along the bottom changes the map and one
+  back undoes it;
 - --maps: each map in turn, every tile drawn without an error, and memory after;
 - --reboot: a restart keeps every setting;
 - --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap;
@@ -467,6 +468,23 @@ def test_touch(screen: Screen, run: Run, original: dict):
     run.check(level is not None, f"the level shows while it is dragged ({level})")
     run.check(after > 20, f"and the drag up brightens it (20% to {after}%)")
     screen.json("/api/settings", {"brightness": start})
+
+    # The strip along the bottom: a swipe to the left shows the next map's name at once and changes the map once the
+    # swipes stop; one to the right goes back. The map is put back as it was whichever way it goes.
+    was = screen.json("/api/settings")[1]["map"]
+    y = h - 15
+    swipe = lambda x0, x1: screen.json("/api/touch", {"gesture": "drag", "x": x0, "y": y, "x1": x1, "y1": y, "ms": 400})
+    swipe(int(w * 0.6), int(w * 0.25))
+    named = wait_for(lambda: glass.ui().get("swipe"), 3, 0.2)
+    run.check(named is not None, f"a swipe along the bottom names the next map ({named})")
+    run.check(screen.json("/api/settings")[1]["map"] == was, "and does not change it yet")
+    swiped = wait_for(lambda: (lambda m: m if m != was else None)(screen.json("/api/settings")[1]["map"]), 6, 0.5)
+    run.check(swiped is not None, f"then changes it ({was} to {swiped})")
+    run.check(wait_for(lambda: not glass.ui().get("swipe"), 3, 0.3) is not None, "and the name goes")
+    swipe(int(w * 0.25), int(w * 0.6))
+    back = wait_for(lambda: (lambda m: m if m == was else None)(screen.json("/api/settings")[1]["map"]), 8, 0.5)
+    run.check(back is not None, f"a swipe the other way goes back ({was})")
+    screen.json("/api/settings", {"map": was})
 
 
 def test_sleep(screen: Screen, run: Run, original: dict):

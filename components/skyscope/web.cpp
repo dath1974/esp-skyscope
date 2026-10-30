@@ -108,7 +108,11 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
         std::lock_guard<std::mutex> guard(lock_);
         shared_.settings = current;
       }
-      this->defer([this, current]() { this->use_settings_(current); });
+      this->defer([this, current]() {
+        // A view previewed with two fingers is what the page showed, and so is kept.
+        if (this->previewing_) this->end_preview_(true);
+        this->use_settings_(current);
+      });
     }
     JsonDocument out;
     to_json(current, out.to<JsonObject>());

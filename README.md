@@ -30,8 +30,9 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
   [The menu](#the-menu)): its arrows step a value, and a tap on a value's field types it on a keyboard on the glass. It
   also finds a place, changes the Wi-Fi network, and shows the firmware and installs a new release. Tap a plane for
   its card (type, registration, altitude, climb, speed, heading, operator, squawk); tap the map to see the screen's
-  address and range in the status line. The screen has no zoom or pan keys, which are too slow on a small embedded
-  display: the range is a setting.
+  address and range in the status line. Pinch to zoom and drag to pan (see [Zoom and pan](#zoom-and-pan)): a preview,
+  kept with **Save**. Swipe along the bottom edge to change the map (see
+  [Changing the map with a swipe](#changing-the-map-with-a-swipe)).
 - **Set up like any ESPHome device**: Wi-Fi through the screen's own setup network (captive portal) or over USB with
   Improv, or on the glass itself; everything else on the screen's own web page or its menu.
 
@@ -117,6 +118,36 @@ for **Save**; **Cancel** drops them.
   changes networks only by losing the one it is on). The screen keeps one network: if it cannot join the new one, it
   opens **Skyscope Setup** after a minute, and the network can be chosen again there or in the menu.
 
+## Zoom and pan
+
+Two fingers on the map zoom it (spread or pinched) and pan it (moved together), as on a phone; one finger dragged
+across the map pans it too (a tap that moves less than 3 mm is still a tap, and a long press for the menu is a finger
+held still). The touch panel often takes two fingers close together for one, so a pan works either way. As they land,
+the screen freezes what it shows, planes and labels included, and while they move it stretches and shifts that picture
+to follow them; nothing is downloaded. Three seconds after the fingers lift, the screen plans that view once, and asks
+for its map tiles and planes as for any other place and range (tiles it already holds come from its cache). More
+gestures before then cost nothing more. The frozen picture stays until the new map is whole, and the live planes come
+back with it.
+
+A bar along the bottom edge shows the range and a 60-second countdown, with **Cancel** and **Save**. **Save** keeps
+the view as the place and range (the place keeps its name if the middle hardly moved); **Cancel**, or the countdown
+running out, goes back to the view saved before. Nothing is stored until **Save**. Opening the menu or the screen
+going to sleep drops the preview too.
+
+The range is any whole number from 1 to 250 NM, by a pinch or typed in the menu's Range field. A drawn map's scale
+moves in whole tile levels (each twice the last), so after the three seconds a pinched map may settle a little larger
+or smaller than the fingers left it; the rings and the planes asked for are at the exact range. The radar has no tiles
+and shows any range as it is.
+
+## Changing the map with a swipe
+
+A swipe left or right along the bottom edge of the map (its lowest 6 mm) changes the map: to the left the next one,
+to the right the one before, in the menu's order (Custom only where a tile server is set). Each swipe shows the map's
+name at once, large in the middle, with a row of dots above the edge, one a map and the one chosen lit. Nothing is
+downloaded until the swipes have stopped for two seconds, so going through several costs only the last one; the map
+is then drawn and saved, as from the menu. A swipe back undoes it. A drag that starts in that strip never pans, and a
+tap there still picks a plane.
+
 ## The web page and API
 
 The screen serves its settings page at `/` and a small JSON API beside it:
@@ -131,7 +162,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
-| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), and where each plane is |
+| `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, and where each plane is |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -175,7 +206,8 @@ receiver's range, are missing, and positions may be late.
 
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
-  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`) are plain C++.
+  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`) are plain
+  C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
   ESPHome downloaded.
@@ -193,7 +225,7 @@ receiver's range, are missing, and positions may be late.
   - `make test-esp32 DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
     aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
     stepped, cancelled and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and
-    Install's second tap; a plane's card; the address;
+    Install's second tap; a plane's card; the address; a swipe between maps and back;
     a drag on the brightness strip).
   - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
     settings, and the screen going off and waking at a tap that does nothing else.

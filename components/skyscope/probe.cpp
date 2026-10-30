@@ -5,7 +5,8 @@
 //                     it takes
 //   GET  /api/ui      what the glass shows: the status line, the plane's card, the brightness level, the menu (its
 //                     rows, values and keys, where each key is), its keyboard (the text, the hint and every key) and
-//                     the list over it (its line and items), and where each plane is, to touch them by
+//                     the list over it (its line and items), the map a swipe went to, and where each plane is, to
+//                     touch them by
 //
 // A touch goes in as a second input device beside the touch panel: LVGL reads it as it reads a finger, so the same
 // objects get the same events (a long press, a drag along the brightness strip, a click on a key). While the screen
@@ -80,6 +81,7 @@ void Skyscope::describe_ui_(JsonObject out) {
   out["brightness"] = drag_level_ >= 0 ? drag_level_ : settings_.brightness;
   if (shown(level_)) out["level"] = text_of(level_text_);
   out["picked"] = picked_;
+  if (swipe_name_) out["swipe"] = text_of(swipe_name_);  // the map a swipe went to, until it is planned
   if (shown(card_)) {
     JsonObject card = out["card"].to<JsonObject>();
     card["title"] = text_of(card_title_);

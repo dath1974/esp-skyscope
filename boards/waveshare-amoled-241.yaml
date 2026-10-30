@@ -126,5 +126,7 @@ skyscope:
   font_label: font_label
   font_title: font_title
   brightness_output: panel_brightness
+  # The FT6336 tracks two fingers: pinch to zoom, two fingers to pan.
+  touchscreen_id: touch
   # The RM690B0's tearing signal (OLED_TE): GPIO21 on Rev 2.0 of the board.
   panel_te_pin: 21

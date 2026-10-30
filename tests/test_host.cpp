@@ -13,6 +13,7 @@
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/geo.h"
+#include "../components/skyscope/pinch.h"
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/overlay.h"
@@ -23,6 +24,7 @@
 #include "../components/skyscope/schedule.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
+#include "../components/skyscope/swipe.h"
 #include "../components/skyscope/tiles.h"
 #include "../components/skyscope/touch.h"
 
@@ -975,6 +977,89 @@ static void test_places() {
   CHECK(all.size() == 3 && all[0].name == "KJFK" && all[1].name == "ZRH" && all[2].name == "Zürich");
 }
 
+static void test_pinch() {
+  using namespace pinch;
+  Settings st;
+  st.lat = 40.64;
+  st.lon = -73.78;
+  st.range_nm = 20;
+  st.map = RADAR;  // a view of any zoom, not only whole ones
+  const geo::View from = tiles::plan(st, 600, 450, 1).view;
+  CHECK(range_nm(from) == 20);
+  Fingers p;
+  p.start({200, 200}, {300, 200}, from);
+  // Still fingers: the same view.
+  geo::View v = p.moved({200, 200}, {300, 200});
+  CHECK(near(v.zoom, from.zoom, 1e-9) && near(v.lat, from.lat, 1e-9) && near(v.lon, from.lon, 1e-9));
+  // Twice as far apart: one zoom closer, half the range, and the place between them stays between them.
+  v = p.moved({150, 200}, {350, 200});
+  CHECK(near(v.zoom, from.zoom + 1, 1e-9) && range_nm(v) == 10);
+  const geo::Place under = from.place(250, 200), now = v.place(250, 200);
+  CHECK(near(under.lat, now.lat, 1e-6) && near(under.lon, now.lon, 1e-6));
+  // Moved together: the map moves with them, the middle's place now 100 pixels right of the middle.
+  v = p.moved({300, 200}, {400, 200});
+  const geo::Pixel was_middle = v.point(from.lat, from.lon);
+  CHECK(near(was_middle.x, 400, 1e-6) && near(was_middle.y, 225, 1e-6) && range_nm(v) == 20);
+  // One finger (two the panel takes for one): it pans, and never zooms.
+  Fingers one;
+  one.start({300, 200}, {300, 200}, from);
+  v = one.moved({250, 260}, {250, 260});
+  const geo::Pixel middle_now = v.point(from.lat, from.lon);
+  CHECK(near(v.zoom, from.zoom, 1e-9) && near(middle_now.x, 250, 1e-6) && near(middle_now.y, 285, 1e-6));
+  // As far as the range goes, either way.
+  CHECK(range_nm(p.moved({0, 200}, {599, 200 + 1})) >= MIN_RANGE_NM);
+  CHECK(range_nm(p.moved({249, 200}, {250, 200})) >= MAX_RANGE_NM - 2);  // measured where the middle moved to
+  CHECK(range_nm(p.moved({-50000, 200}, {50000, 200})) == MIN_RANGE_NM);
+  // The frame drawn for one view, drawn again for another: every place lands where the other view has it.
+  v = p.moved({120, 150}, {380, 260});
+  const Transform t = transform(from, v);
+  for (const geo::Place &q : {geo::Place{40.70, -73.90}, geo::Place{40.55, -73.60}, geo::Place{st.lat, st.lon}}) {
+    const geo::Pixel a = from.point(q.lat, q.lon), b = v.point(q.lat, q.lon);
+    CHECK(near(a.x * t.scale + t.dx, b.x, 1e-6) && near(a.y * t.scale + t.dy, b.y, 1e-6));
+  }
+  CHECK(transform(from, from).identity() && !t.identity());
+  // Across the date line, the short way.
+  Settings fiji = st;
+  fiji.lat = -17;
+  fiji.lon = 179.9;
+  const geo::View east = tiles::plan(fiji, 600, 450, 1).view;
+  fiji.lon = -179.9;
+  const geo::View west = tiles::plan(fiji, 600, 450, 1).view;
+  CHECK(std::fabs(transform(east, west).dx) < 600);
+
+  // Stretched: as it was, shifted with the ground where nothing was, and twice as large about the corner.
+  const int w = 8, h = 6;
+  std::vector<uint16_t> frame(w * h), out(w * h);
+  for (int i = 0; i < w * h; ++i) frame[i] = (uint16_t) (i + 1);
+  std::vector<int> columns;
+  stretch(frame.data(), out.data(), w, h, Transform{}, 0, columns);
+  CHECK(out == frame);
+  stretch(frame.data(), out.data(), w, h, Transform{1, 2, -1}, 0, columns);
+  CHECK(out[0] == 0 && out[1] == 0 && out[2] == frame[1 * w + 0] && out[(h - 1) * w + 3] == 0);
+  stretch(frame.data(), out.data(), w, h, Transform{2, 0, 0}, 0, columns);
+  CHECK(out[0] == frame[0] && out[1] == frame[0] && out[2] == frame[1] && out[w * 2 + 3] == frame[w + 1]);
+}
+
+static void test_swipe() {
+  using namespace swipe;
+  // The strip along the bottom: its last `strip_px` rows, nothing above.
+  CHECK(in_strip(449, 450, 73) && in_strip(377, 450, 73) && !in_strip(376, 450, 73) && !in_strip(450, 450, 73));
+  // Sideways far enough, and more sideways than not: to the left the next map, to the right the one before.
+  CHECK(direction(300, 420, 180, 430, 98) == 1 && direction(180, 420, 300, 410, 98) == -1);
+  CHECK(direction(300, 420, 250, 420, 98) == 0);   // too short
+  CHECK(direction(300, 440, 180, 370, 98) == 0);   // not twice as far across as up
+  // The maps in the menu's order, the custom server only where there is one; a swipe steps as the menu's arrows do.
+  Settings s;
+  auto all = maps(s);
+  CHECK(all.size() == 8 && all.front() == RADAR && all.back() == IFR_HIGH);
+  s.custom_url = "https://t.example/{z}/{x}/{y}.png";
+  all = maps(s);
+  CHECK(all.size() == 9 && all.back() == CUSTOM);
+  s.map = RADAR;
+  CHECK(menu::stepped(map_row(), s, 1) && s.map == STREETS);
+  CHECK(menu::stepped(map_row(), s, -1) && menu::stepped(map_row(), s, -1) && s.map == CUSTOM);
+}
+
 static void test_schedule() {
   using namespace schedule;
   Zone z;
@@ -1175,6 +1260,8 @@ int main(int argc, char **argv) {
   test_menu();
   test_keyboard();
   test_places();
+  test_pinch();
+  test_swipe();
   test_schedule();
   test_firmware();
   test_touch();

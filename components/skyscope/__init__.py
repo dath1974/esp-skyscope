@@ -24,6 +24,7 @@ CONF_SETUP_NETWORK = "setup_network"
 CONF_BRIGHTNESS_OUTPUT = "brightness_output"
 CONF_PANEL_TE_PIN = "panel_te_pin"
 CONF_TIME_ID = "time_id"
+CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_UPDATE_ID = "update_id"
 CONF_TEST_API = "test_api"
 
@@ -36,6 +37,9 @@ CONF_LVGL_ID = "lvgl_id"
 
 web_server_base_ns = cg.esphome_ns.namespace("web_server_base")
 WebServerBase = web_server_base_ns.class_("WebServerBase")
+
+touchscreen_ns = cg.esphome_ns.namespace("touchscreen")
+Touchscreen = touchscreen_ns.class_("Touchscreen")
 
 http_request_ns = cg.esphome_ns.namespace("http_request")
 HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
@@ -63,6 +67,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_PANEL_TE_PIN, default=-1): cv.int_range(min=-1, max=48),
         # The clock bedtime goes by (an sntp time with `timezone: UTC0`; the zone is a setting, applied at any time).
         cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+        # The touch panel itself, for two fingers at once (zoom and pan): LVGL is told of only the first.
+        cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
         # Firmware from the internet (an http_request update): the web page shows it and installs it.
         cv.Optional(CONF_UPDATE_ID): cv.use_id(HttpRequestUpdate),
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
@@ -78,6 +84,8 @@ def _final_validate(config):
     from esphome.components.lvgl import defines as lvgl_defines
 
     lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj", "line")
+    # A picture of the glass as two fingers land on it, which they then zoom and pan (preview.cpp).
+    lvgl_defines.add_define("LV_USE_SNAPSHOT", "1")
     for key in (CONF_FONT_SMALL, CONF_FONT_LABEL, CONF_FONT_TITLE):
         lvgl_defines.get_esphome_fonts_used().add(config[key])
     return config
@@ -107,6 +115,8 @@ async def to_code(config):
     cg.add(var.set_setup_network(config[CONF_SETUP_NETWORK]))
     cg.add(var.set_version(version))
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
+    if CONF_TOUCHSCREEN_ID in config:
+        cg.add(var.set_touchscreen(await cg.get_variable(config[CONF_TOUCHSCREEN_ID])))
     if CONF_TIME_ID in config:
         cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
     if config[CONF_TEST_API]:

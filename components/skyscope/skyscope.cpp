@@ -45,8 +45,13 @@ constexpr int DIM_LOWEST = 5;
 constexpr float DRAG_SPAN = 0.7f;
 constexpr int DRAG_PX = 6;
 constexpr uint32_t LEVEL_MS = 1500;
+// A long press is a finger that moved no farther than this.
+constexpr float STILL_MM = 1.5f;
 // A part of the map comes at most this often while its tiles arrive; the last one at once.
 constexpr uint32_t FRAME_EVERY_MS = 600;
+// After two fingers chose another view (preview.cpp), its old frame stays stretched to it this long at most, until the
+// new one is whole.
+constexpr uint32_t WHOLE_FRAME_MS = 8000;
 // Planes that glide move this often, each in a small part of the glass.
 constexpr uint32_t GLIDE_FRAME_MS = 200;
 
@@ -181,7 +186,16 @@ void Skyscope::load_settings_() {
 void Skyscope::save_settings_() {
   Stored stored{};
   JsonDocument doc;
-  to_json(settings_, doc.to<JsonObject>());
+  // While two fingers preview another view, the view saved stays the one before them until Save (preview.cpp).
+  Settings kept = settings_;
+  if (previewing_) {
+    kept.located = held_.located;
+    kept.lat = held_.lat;
+    kept.lon = held_.lon;
+    kept.range_nm = held_.range_nm;
+    kept.place = held_.place;
+  }
+  to_json(kept, doc.to<JsonObject>());
   const size_t n = serializeJson(doc, stored.json, sizeof(stored.json) - 1);
   if (n == 0 || n >= sizeof(stored.json) - 1) {
     ESP_LOGE(TAG, "The settings are too long to store");
@@ -390,6 +404,8 @@ void Skyscope::loop() {
     set_shown(level_, false);
   }
   update_frame_();
+  preview_tick_(now);
+  swipe_tick_(now);
   update_planes_(now);
   if (now - last_tick_ >= GLIDE_FRAME_MS) {
     last_tick_ = now;
@@ -445,10 +461,25 @@ void Skyscope::build_ui_() {
     }
     self->on_tap_(e);
   }, LV_EVENT_CLICKED, this);
-  // A long press on the map: the settings menu.
+  // A long press on the map: the settings menu. Only for a finger held still: one that moves is panning the map
+  // (preview.cpp), and the touch panel takes two fingers close together for one.
+  lv_obj_add_event_cb(canvas_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (lv_indev_t *indev = lv_indev_active()) lv_indev_get_point(indev, &self->pressed_at_);
+  }, LV_EVENT_PRESSED, this);
+  // A swipe along the bottom strip changes the map (swipe.cpp).
+  lv_obj_add_event_cb(canvas_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    lv_point_t p{};
+    if (lv_indev_t *indev = lv_indev_active()) lv_indev_get_point(indev, &p);
+    self->on_released_(p);
+  }, LV_EVENT_RELEASED, this);
   lv_obj_add_event_cb(canvas_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
     if ((int32_t) (millis() - self->taps_from_) < 0) return;
+    lv_point_t p{};
+    if (lv_indev_t *indev = lv_indev_active()) lv_indev_get_point(indev, &p);
+    if (std::hypot(p.x - self->pressed_at_.x, p.y - self->pressed_at_.y) > ui::mm(STILL_MM)) return;
     self->long_pressed_ = true;
     self->open_menu_();
   }, LV_EVENT_LONG_PRESSED, this);
@@ -659,6 +690,8 @@ void Skyscope::wake_by_clock_() {
 void Skyscope::go_to_sleep_(const std::string &why) {
   if (asleep_) return;
   if (menu_) close_menu_();
+  end_preview_(false);
+  finish_swipe_();
   // Dark, and nothing drawn: an AMOLED shows black as off. The worker asks for no planes or tiles meanwhile.
   asleep_ = true;
   if (brightness_) brightness_->set_level(0);
@@ -737,6 +770,10 @@ void Skyscope::update_frame_() {
   if (radar && !new_plan && !new_airspace) return;
   const uint32_t now = millis();
   if (!radar && !new_plan && !new_airspace && done < total && now - copied_at_ < FRAME_EVERY_MS) return;
+  // A picture two fingers move (preview.cpp) stays while they choose, and until the view's own frame is whole.
+  if (frozen_shown_ &&
+      (fingers_.active || settle_at_ || (!radar && done < total && now - planned_at_ < WHOLE_FRAME_MS)))
+    return;
   if (radar) {
     lv_canvas_fill_bg(canvas_, lv_color_hex(colours::tint(settings_.tint).ground), LV_OPA_COVER);
   } else {
@@ -778,6 +815,7 @@ void Skyscope::update_frame_() {
     painter_.set_tint(colours::tint(settings_.tint));
   }
   lv_obj_invalidate(canvas_);
+  unfreeze_();
   if (new_plan) {
     framed_plan_rev_ = plan_rev_;
     view::new_frame(view_);

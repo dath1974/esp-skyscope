@@ -14,6 +14,9 @@
 #include "esphome/components/font/font.h"
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/output/float_output.h"
+#ifdef USE_TOUCHSCREEN
+#include "esphome/components/touchscreen/touchscreen.h"
+#endif
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/components/wifi/wifi_component.h"
 #ifdef USE_TIME
@@ -38,6 +41,7 @@
 #include "firmware.h"
 #include "keyboard.h"
 #include "overlay.h"
+#include "pinch.h"
 #include "places.h"
 #include "providers.h"
 #include "touch.h"
@@ -51,7 +55,14 @@ using namespace ::sky;
 // The screen's own IPv4 address on its network, "" while it has none.
 std::string own_address();
 
-class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScanResultsListener {
+class Skyscope : public Component,
+                 public AsyncWebHandler,
+                 public wifi::WiFiScanResultsListener
+#ifdef USE_TOUCHSCREEN
+    ,
+                 public touchscreen::TouchListener
+#endif
+{
  public:
   void set_web_server_base(web_server_base::WebServerBase *base) { base_ = base; }
   void set_lvgl(lvgl::LvglComponent *lvgl) { lvgl_ = lvgl; }
@@ -70,6 +81,12 @@ class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScan
   void set_brightness_output(output::FloatOutput *out) { brightness_ = out; }
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
+#ifdef USE_TOUCHSCREEN
+  // Every finger on the glass, for two-finger zoom and pan (preview.cpp): LVGL is told of the first finger only.
+  void set_touchscreen(touchscreen::Touchscreen *touch) { touch->register_listener(this); }
+  void update(const touchscreen::TouchPoints_t &points) override;
+  void release() override;
+#endif
 #ifdef USE_UPDATE
   void set_firmware(http_request::HttpRequestUpdate *firmware) { firmware_ = firmware; }
 #endif
@@ -186,6 +203,25 @@ class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScan
   void networks_from_(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results);
   void join_network_(const std::string &name, const std::string &password);
   void set_brightness_now_(int percent);
+  // Two fingers zoom and pan a preview of another view (preview.cpp): a picture of the glass as they landed, stretched
+  // and shifted as they move, the view planned once they have been still for a while, and kept or dropped by the bar's
+  // Save and Cancel (or dropped when its countdown ends).
+  bool can_pinch_() const;
+  void begin_preview_();
+  bool freeze_();       // the picture taken, the live planes hidden
+  void draw_frozen_();  // the picture into the canvas, as the view previewed shows it
+  void unfreeze_();     // a frame of the plan's own is in the canvas: the live planes again
+  void end_pinch_();
+  void settle_preview_();
+  void use_view_(const Settings &s);
+  void end_preview_(bool keep);
+  void preview_tick_(uint32_t now);
+  // A swipe along the strip at the bottom changes the map (swipe.cpp): its name shown at once, the map planned and
+  // saved once the swipes have stopped for a while.
+  void on_released_(lv_point_t at);
+  void show_swipe_();
+  void swipe_tick_(uint32_t now);
+  void finish_swipe_();  // the map swiped to, at once (the menu opening, the screen going off)
 #ifdef SKYSCOPE_TEST_API
   // Tests without a finger (probe.cpp): a touch as a second input device, and what the glass shows.
   void make_probe_input_();
@@ -311,6 +347,7 @@ class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScan
   uint32_t menu_checking_until_{0}, menu_checking_from_{0};  // a check asked for in the menu, and the reports then
   uint32_t firmware_reports_{0};  // the update entity's reports so far
   bool long_pressed_{false};  // the click that ends a long press (which opened the menu) is no tap
+  lv_point_t pressed_at_{};   // where the finger on the map came down
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
   uint16_t *canvas_buffer_{nullptr};
@@ -325,6 +362,30 @@ class Skyscope : public Component, public AsyncWebHandler, public wifi::WiFiScan
   std::mutex frame_lock_;
   uint16_t *base_frame_{nullptr};
   TaskHandle_t worker_task_{nullptr};
+
+  // The preview: the fingers, the settings as they were (kept until Save), the view previewed, when it is planned
+  // (settle_at_) and dropped (preview_until_). The picture taken as the fingers landed and its view: in the canvas
+  // (frozen_shown_) until a frame of the plan's own is whole.
+  pinch::Fingers fingers_;
+  size_t finger_count_{0};      // the fingers the gesture is following: 1 (a drag) or 2
+  bool touch_down_{false};      // a finger is on the glass
+  bool touch_on_map_{false};    // and it came down on the map itself, not on what lies over it
+  bool gestured_{false};        // this touch zoomed or panned: no tap, long press or drag comes of it
+  pinch::Point touch_from_;     // where the first finger came down
+  bool previewing_{false};
+  Settings held_;
+  geo::View target_view_, frozen_view_;
+  uint32_t settle_at_{0}, preview_until_{0}, planned_at_{0}, drawn_frozen_at_{0};
+  uint16_t *frozen_{nullptr};
+  bool frozen_shown_{false}, frozen_dirty_{false};
+  std::vector<int> frozen_columns_;
+  lv_obj_t *preview_bar_{nullptr}, *preview_text_{nullptr};
+  bool touch_in_strip_{false};  // the finger came down in the swipe's strip: no pan
+  // The swipes: the settings with the map swiped to, and when it is planned; the name and dots shown meanwhile.
+  Settings swiped_;
+  bool swiping_{false};
+  uint32_t swipe_at_{0};
+  lv_obj_t *swipe_card_{nullptr}, *swipe_name_{nullptr}, *swipe_dots_{nullptr};
 
   // The body of a POST on its way in (the HTTP server's task).
   std::string body_;

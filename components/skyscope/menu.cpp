@@ -37,6 +37,8 @@ constexpr uint32_t CHECKING_MS = 20000;  // a check unanswered for this long is 
 
 void Skyscope::open_menu_() {
   if (menu_) return;
+  end_preview_(false);  // the view two fingers chose goes, as the menu shows the settings saved
+  finish_swipe_();      // the map swiped to stays, and the menu shows it
   menu_settings_ = settings_;
   build_menu_();
   // The planes stop being drawn under it.
