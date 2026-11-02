@@ -13,6 +13,7 @@
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/geo.h"
+#include "../components/skyscope/glass.h"
 #include "../components/skyscope/pinch.h"
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
@@ -537,6 +538,24 @@ static void test_overlay() {
   CHECK(east.vx > 0 && std::abs(east.vy) <= 1);
   CHECK(near(east.vx / (225.0 / 20), 7.5, 0.3));
   CHECK(east.band == 4);
+  // On round glass a plane in a corner is off the glass: not shown, so it takes no place from one that is.
+  {
+    Settings r = s;
+    tiles::Plan q = tiles::plan(r, 720, 720, 1);
+    q.view.round = true;
+    const geo::Place corner = q.view.place(30, 30), rim = q.view.place(360, 20);
+    std::vector<feed::Flight> two(2, flights[0]);
+    two[0].hex = "corner";
+    two[0].lat = corner.lat;
+    two[0].lon = corner.lon;
+    two[1].hex = "rim";
+    two[1].lat = rim.lat;
+    two[1].lon = rim.lon;
+    const auto seen = overlay::shown(two, r, q.view);
+    CHECK(seen.size() == 1 && seen[0]->hex == "rim");
+    q.view.round = false;
+    CHECK(overlay::shown(two, r, q.view).size() == 2);
+  }
   // A busy sky cut to what can be shown: the nearest `most` and the extra, each watched one, nothing off the map.
   {
     std::vector<feed::Flight> sky;
@@ -1306,6 +1325,45 @@ static void test_labels() {
   CHECK(placed[0].shown && placed[1].shown && placed[2].shown);
   CHECK(!plan::overlaps(placed[0].box, placed[1].box));
   CHECK(placed[2].box.x + placed[2].box.w <= 600);
+
+  // On round glass a plane near the circle's edge has its label on the glass, not in the corner beyond it.
+  std::vector<plan::Label> rim(1);
+  rim[0] = {{620, 620}, 6, 60, 20, false};
+  const auto square = plan::place_labels(rim, 720, 720, 4, 20);
+  CHECK(square[0].shown && square[0].spot == 0);  // beside it, to the right, in the corner
+  const auto round = plan::place_labels(rim, 720, 720, 4, 20, {}, true);
+  const glass::Shape circle{720, 720, true};
+  CHECK(round[0].shown && round[0].spot != 0);
+  const plan::Box &b = round[0].box;
+  CHECK(glass::holds_box(circle, b.x, b.y, b.w, b.h));
+}
+
+static void test_glass() {
+  const glass::Shape rect{600, 450, false}, circle{720, 720, true};
+  // A rectangle holds its corners; a circle does not.
+  CHECK(glass::holds(rect, 0, 0) && glass::holds(rect, 600, 450) && !glass::holds(rect, 601, 0));
+  CHECK(glass::holds(circle, 360, 0) && glass::holds(circle, 0, 360) && !glass::holds(circle, 0, 0));
+  CHECK(!glass::holds(circle, 40, 40) && glass::holds(circle, 40, 40, 400));
+  CHECK(glass::holds_box(rect, 0, 0, 600, 450) && !glass::holds_box(rect, 1, 0, 600, 450));
+  CHECK(glass::holds_box(circle, 260, 260, 200, 200) && !glass::holds_box(circle, 0, 300, 100, 20));
+
+  // Nothing moves in from the edge of a rectangle; on a circle, the wider the box the further in.
+  CHECK(glass::edge_inset(rect, 500) == 0);
+  CHECK(glass::edge_inset(circle, 0) == 0);
+  const int narrow = glass::edge_inset(circle, 200), wide = glass::edge_inset(circle, 500);
+  CHECK(narrow > 0 && wide > narrow && glass::edge_inset(circle, 800) == 360);
+  // A box that wide, that far in, has its corners on the glass, and one pixel less would not.
+  CHECK(glass::holds_box(circle, 360 - 250, wide, 500, 30) && glass::holds_box(circle, 360 - 250, 720 - wide - 30, 500, 30));
+  CHECK(!glass::holds_box(circle, 360 - 250, wide - 2, 500, 30));
+
+  // A page: padded alike on a rectangle; on a circle its content is the largest square inside it.
+  const glass::Insets r = glass::page(rect, 6);
+  CHECK(r.left == 6 && r.top == 6 && r.right == 6 && r.bottom == 6 && glass::page_width(rect, 6) == 588);
+  const glass::Insets c = glass::page(circle, 0);
+  const int side = glass::page_width(circle, 0);
+  CHECK(near(side, 720 / std::sqrt(2.0), 2) && c.left == c.top && c.right == c.bottom);
+  CHECK(glass::holds_box(circle, c.left, c.top, side, 720 - c.top - c.bottom));
+  CHECK(glass::page_width(circle, 10) == side - 20);
 }
 
 static void test_pixels() {
@@ -1456,6 +1514,7 @@ int main(int argc, char **argv) {
   test_frame_key();
   test_overlay();
   test_labels();
+  test_glass();
   test_sprites();
   test_shapes();
   test_beam();

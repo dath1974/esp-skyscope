@@ -47,6 +47,7 @@ struct View {
   double lat = 0, lon = 0, zoom = 10;
   int width = 0, height = 0;
   double left = 0, top = 0;  // world pixels of the frame's top-left corner
+  bool round = false;        // the frame is a circle as wide as it (glass.h): its corners are not on the glass
 
   View() = default;
   View(double lat_, double lon_, double zoom_, int w, int h) : lat(lat_), lon(lon_), width(w), height(h) {

@@ -4,7 +4,11 @@
 #include "lvgl.h"
 
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
+
+#include "glass.h"
 
 namespace sky::ui {
 // Reference pixels are those of a 200 dpi glass.
@@ -15,6 +19,39 @@ inline int mm(float millimetres) { return (int) std::lround(millimetres * px_per
 inline void set_dpi(float dpi) {
   density = dpi / 200.0f;
   px_per_mm = dpi / 25.4f;
+}
+
+// The glass's size and shape (glass.h), once LVGL's display is known.
+inline glass::Shape shape;
+
+// A page over the whole glass, padded `pad` all round, and on round glass kept inside the circle.
+inline void pad_page(lv_obj_t *page, int pad) {
+  const glass::Insets in = glass::page(shape, pad);
+  lv_obj_set_style_pad_left(page, in.left, 0);
+  lv_obj_set_style_pad_top(page, in.top, 0);
+  lv_obj_set_style_pad_right(page, in.right, 0);
+  lv_obj_set_style_pad_bottom(page, in.bottom, 0);
+}
+
+// A box along the top or bottom edge, aligned as LVGL aligns it (`align` one of the TOP_ or BOTTOM_ ones, `x` and `y`
+// from there). On round glass it is centred instead, `y` in from the edge plus as far as its width needs to lie wholly
+// on the glass, and moved again whenever its size changes: a status that grows, a card with more rows.
+inline void place_on_edge(lv_obj_t *o, bool top, int gap) {
+  const int in = glass::edge_inset(shape, lv_obj_get_width(o)) + gap;
+  lv_obj_align(o, top ? LV_ALIGN_TOP_MID : LV_ALIGN_BOTTOM_MID, 0, top ? in : -in);
+}
+inline void hug_edge(lv_obj_t *o, lv_align_t align, int x, int y) {
+  if (!shape.round) {
+    lv_obj_align(o, align, x, y);
+    return;
+  }
+  const bool top = align == LV_ALIGN_TOP_LEFT || align == LV_ALIGN_TOP_MID || align == LV_ALIGN_TOP_RIGHT;
+  const intptr_t packed = (intptr_t) std::abs(y) << 1 | (top ? 1 : 0);
+  place_on_edge(o, top, std::abs(y));
+  lv_obj_add_event_cb(o, [](lv_event_t *e) {
+    const intptr_t packed = (intptr_t) lv_event_get_user_data(e);
+    place_on_edge(lv_event_get_current_target_obj(e), packed & 1, (int) (packed >> 1));
+  }, LV_EVENT_SIZE_CHANGED, (void *) packed);
 }
 
 // Frames of the glass LVGL has started, and how long they took (skyscope.cpp counts them): what /api/status reports.

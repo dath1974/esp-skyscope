@@ -441,7 +441,7 @@ static void draw(lv_event_t *e) {
       const auto found = id.empty() ? view->spot_of.end() : view->spot_of.find(id);
       kept[i] = found != view->spot_of.end() ? found->second : id.empty() && i < view->spots.size() ? view->spots[i] : ap::NO_SPOT;
     }
-    view->placed = ap::place_labels(labels, frame_w, frame_h, s.gap, line_h, kept);
+    view->placed = ap::place_labels(labels, frame_w, frame_h, s.gap, line_h, kept, ui::shape.round);
     view->spots.assign(view->placed.size(), ap::NO_SPOT);
     view->laid_at = places;
     view->boxes.assign(o.planes.size(), {0, 0, 0, 0});

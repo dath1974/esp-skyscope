@@ -44,7 +44,7 @@ lv_obj_t *panel(int width, int height, uint32_t ground) {
   lv_obj_set_size(p, width, height);
   lv_obj_set_style_bg_color(p, lv_color_hex(ground), 0);
   lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(p, ui::mm(1), 0);
+  ui::pad_page(p, ui::mm(1));
   lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(p, ui::mm(0.8f), 0);
   lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched

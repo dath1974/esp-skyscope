@@ -84,6 +84,7 @@ class Skyscope : public Component,
   void set_brightness_output(output::FloatOutput *out) { brightness_ = out; }
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
+  void set_round(bool round) { round_ = round; }
   void set_networks(Networks *networks) { known_networks_ = networks; }
 #ifdef USE_TOUCHSCREEN
   // Every finger on the glass, for two-finger zoom and pan (preview.cpp): LVGL is told of the first finger only.
@@ -286,6 +287,7 @@ class Skyscope : public Component,
   float dpi_{200};
   int tile_scale_{1};
   int panel_te_pin_{-1};
+  bool round_{false};  // the glass is a circle (glass.h)
   std::string agent_{"esp-skyscope"}, setup_network_, version_;
 
   // The loop's own.

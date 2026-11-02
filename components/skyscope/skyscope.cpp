@@ -292,6 +292,7 @@ void Skyscope::replan_locked_() {
   if (width_ <= 0) return;
   const int scale = settings_.tile_scale ? settings_.tile_scale : tile_scale_;
   plan_ = tiles::plan(settings_, width_, height_, scale);
+  plan_.view.round = round_;
   shared_.plan = plan_;
   plan_rev_ = ++shared_.plan_rev;
 }
@@ -437,6 +438,7 @@ void Skyscope::build_ui_() {
   if (lvgl_ && settings_.rotation >= 0) lvgl_->set_rotation(settings_.rotation);
   width_ = lv_display_get_horizontal_resolution(display);
   height_ = lv_display_get_vertical_resolution(display);
+  ui::shape = {width_, height_, round_};
   const size_t pixels = (size_t) width_ * height_;
   canvas_buffer_ = static_cast<uint16_t *>(heap_caps_calloc(pixels, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   base_frame_ = static_cast<uint16_t *>(heap_caps_calloc(pixels, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -525,23 +527,23 @@ void Skyscope::build_ui_() {
   lv_obj_set_style_radius(status_, ui::px(6), 0);
   lv_obj_set_style_pad_hor(status_, ui::px(6), 0);
   lv_obj_set_style_pad_ver(status_, ui::px(2), 0);
-  lv_obj_align(status_, LV_ALIGN_TOP_LEFT, ui::px(6), ui::px(6));
+  ui::hug_edge(status_, LV_ALIGN_TOP_LEFT, ui::px(6), ui::px(6));
   // As wide as its text, at most the glass's width: a long message (an error, a countdown) wraps onto more lines.
-  lv_obj_set_style_max_width(status_, width_ - 2 * ui::px(6), 0);
+  lv_obj_set_style_max_width(status_, glass::page_width(ui::shape, ui::px(6)), 0);
   lv_label_set_long_mode(status_, LV_LABEL_LONG_WRAP);
   lv_obj_remove_flag(status_, LV_OBJ_FLAG_CLICKABLE);
 
   credit_ = label(screen, ui::fonts.small, colours::MUTED);
-  lv_obj_align(credit_, LV_ALIGN_BOTTOM_LEFT, ui::px(6), -ui::px(4));
+  ui::hug_edge(credit_, LV_ALIGN_BOTTOM_LEFT, ui::px(6), -ui::px(4));
   lv_obj_set_style_text_opa(credit_, LV_OPA_80, 0);
 
   // The card of the plane picked.
   card_ = panel(screen);
-  lv_obj_set_width(card_, std::min(width_ - 2 * ui::px(8), ui::mm(60)));
+  lv_obj_set_width(card_, std::min(glass::page_width(ui::shape, ui::px(8)), ui::mm(60)));
   lv_obj_set_height(card_, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(card_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(card_, ui::px(2), 0);
-  lv_obj_align(card_, LV_ALIGN_BOTTOM_MID, 0, -ui::px(8));
+  ui::hug_edge(card_, LV_ALIGN_BOTTOM_MID, 0, -ui::px(8));
   lv_obj_set_style_bg_opa(card_, LV_OPA_90, 0);
   card_title_ = label(card_, ui::fonts.title, colours::INK);
   for (auto &row : card_rows_) {
@@ -564,7 +566,7 @@ void Skyscope::build_ui_() {
   lv_obj_set_size(setup_, width_, height_);
   lv_obj_set_style_bg_color(setup_, lv_color_hex(colours::BACKGROUND), 0);
   lv_obj_set_style_bg_opa(setup_, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(setup_, ui::mm(3), 0);
+  ui::pad_page(setup_, ui::mm(3));
   lv_obj_set_flex_flow(setup_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(setup_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(setup_, ui::mm(2), 0);

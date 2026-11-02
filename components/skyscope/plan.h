@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "glass.h"
+
 namespace sky::plan {
 enum Marker : uint8_t { DOT, ARROW, PLANE };
 // Bands of altitude (overlay.h BANDS): on the ground, below 5,000 ft, below 15,000, below 30,000, above.
@@ -148,7 +150,7 @@ inline Box label_box(Point c, int reach, int w, int h, int frame_w, int frame_h,
 // placed first, then the rest in the order given. A label with no clear spot is left out (`shown` false), as a pile of
 // text helps nobody; a watched plane's takes the spot it overlaps
 // least instead, so its label always shows. A label keeps the spot it had (`kept`) while that spot stays clear, so
-// labels hold still while their planes glide.
+// labels hold still while their planes glide. On `round` glass a spot is inside the frame only inside its circle.
 constexpr int LABEL_DIRECTIONS = 8, LABEL_RINGS = 6, LABEL_SPOTS = LABEL_DIRECTIONS * (LABEL_RINGS + 1), NO_SPOT = -1;
 
 struct Label {
@@ -190,7 +192,8 @@ inline Box spot_box(const Label &l, int spot, int gap, int step) {
 }
 
 inline std::vector<Placed> place_labels(const std::vector<Label> &labels, int frame_w, int frame_h, int gap, int step,
-                                        const std::vector<int> &kept = {}) {
+                                        const std::vector<int> &kept = {}, bool round = false) {
+  const glass::Shape frame{frame_w, frame_h, round};
   std::vector<Placed> out(labels.size());
   std::vector<Box> markers;
   markers.reserve(labels.size());
@@ -207,7 +210,7 @@ inline std::vector<Placed> place_labels(const std::vector<Label> &labels, int fr
   for (const size_t i : order) {
     const Label &l = labels[i];
     if (l.w <= 0 || l.h <= 0) continue;
-    auto inside = [&](const Box &b) { return b.x >= 0 && b.y >= 0 && b.x + b.w <= frame_w && b.y + b.h <= frame_h; };
+    auto inside = [&](const Box &b) { return glass::holds_box(frame, b.x, b.y, b.w, b.h); };
     auto cost = [&](const Box &b) {
       long sum = 0;
       for (const auto &p : placed) sum += overlap_area(b, p);

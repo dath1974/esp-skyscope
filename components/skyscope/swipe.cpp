@@ -69,7 +69,7 @@ void Skyscope::show_swipe_() {
     lv_obj_set_style_radius(swipe_dots_, ui::mm(1.5f), 0);
     lv_obj_set_style_pad_all(swipe_dots_, ui::mm(0.8f), 0);
     lv_obj_remove_flag(swipe_dots_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(swipe_dots_, LV_ALIGN_BOTTOM_MID, 0, -ui::mm(swipe::STRIP_MM));
+    ui::hug_edge(swipe_dots_, LV_ALIGN_BOTTOM_MID, 0, -ui::mm(swipe::STRIP_MM));
   }
   set_label(swipe_name_, menu::shown(swipe::map_row(), swiped_));
   lv_obj_clean(swipe_dots_);

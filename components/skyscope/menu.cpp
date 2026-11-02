@@ -57,7 +57,7 @@ void Skyscope::build_menu_() {
   lv_obj_set_size(menu_, width_, height_);
   lv_obj_set_style_bg_color(menu_, lv_color_hex(c.card), 0);
   lv_obj_set_style_bg_opa(menu_, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(menu_, ui::mm(1), 0);
+  ui::pad_page(menu_, ui::mm(1));
   lv_obj_set_flex_flow(menu_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(menu_, ui::mm(1), 0);
   lv_obj_add_flag(menu_, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched

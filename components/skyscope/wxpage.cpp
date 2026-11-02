@@ -54,7 +54,7 @@ void Skyscope::open_weather_() {
   lv_obj_set_size(wx_, width_, height_);
   lv_obj_set_style_bg_color(wx_, lv_color_hex(c.card), 0);
   lv_obj_set_style_bg_opa(wx_, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(wx_, ui::mm(1), 0);
+  ui::pad_page(wx_, ui::mm(1));
   lv_obj_set_flex_flow(wx_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(wx_, ui::mm(0.8f), 0);
   lv_obj_add_flag(wx_, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched

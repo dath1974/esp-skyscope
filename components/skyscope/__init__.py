@@ -23,6 +23,7 @@ CONF_USER_AGENT = "user_agent"
 CONF_SETUP_NETWORK = "setup_network"
 CONF_BRIGHTNESS_OUTPUT = "brightness_output"
 CONF_PANEL_TE_PIN = "panel_te_pin"
+CONF_ROUND = "round"
 CONF_TIME_ID = "time_id"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_UPDATE_ID = "update_id"
@@ -70,6 +71,8 @@ CONFIG_SCHEMA = cv.Schema(
         # A panel with its own memory (a QSPI AMOLED) whose tearing signal reaches a GPIO: each frame waits for it, so
         # the radar's beam never shows in steps (panel_sync.h).
         cv.Optional(CONF_PANEL_TE_PIN, default=-1): cv.int_range(min=-1, max=48),
+        # Glass that is a circle the size of the display: the map fills it, and everything else stays inside it.
+        cv.Optional(CONF_ROUND, default=False): cv.boolean,
         # The clock bedtime goes by (an sntp time with `timezone: UTC0`; the zone is a setting, applied at any time).
         cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
         # The touch panel itself, for two fingers at once (zoom and pan): LVGL is told of only the first.
@@ -123,6 +126,7 @@ async def to_code(config):
     cg.add(var.set_setup_network(config[CONF_SETUP_NETWORK]))
     cg.add(var.set_version(version))
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
+    cg.add(var.set_round(config[CONF_ROUND]))
     if CONF_TOUCHSCREEN_ID in config:
         cg.add(var.set_touchscreen(await cg.get_variable(config[CONF_TOUCHSCREEN_ID])))
     if CONF_TIME_ID in config:

@@ -10,6 +10,7 @@
 
 #include "feed.h"
 #include "geo.h"
+#include "glass.h"
 #include "plan.h"
 #include "settings.h"
 #include "shapes.h"
@@ -75,14 +76,14 @@ inline int watch_colour(const feed::Flight &f, const std::vector<Watch> &watch) 
   return 0;
 }
 
-// The planes the frame shows: within the altitudes, on the ground only when asked, inside the frame, the closest to its
-// middle first, at most `most`; then every watched plane inside the frame, whatever the rest says.
+// The planes the frame shows: within the altitudes, on the ground only when asked, inside the frame (on round glass,
+// inside its circle, so a plane in a corner nobody sees takes no place from one they do), the closest to its middle
+// first, at most `most`; then every watched plane inside the frame, whatever the rest says.
 inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &flights, const Settings &s, const geo::View &view) {
   std::vector<std::pair<double, const feed::Flight *>> near;
   std::vector<const feed::Flight *> watched;
-  auto inside = [&](const geo::Pixel &p) {
-    return p.x >= -MARGIN && p.x <= view.width + MARGIN && p.y >= -MARGIN && p.y <= view.height + MARGIN;
-  };
+  const glass::Shape frame{view.width, view.height, view.round};
+  auto inside = [&](const geo::Pixel &p) { return glass::holds(frame, p.x, p.y, MARGIN); };
   for (const auto &f : flights) {
     const geo::Pixel p = view.point(f.lat, f.lon);
     if (watch_colour(f, s.watch)) {

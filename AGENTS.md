@@ -8,10 +8,10 @@ guide; read it for what the screen does and how it is set up.
 
 - `skyscope.yaml`: the device config (version, update server, packages). `boards/`: one file per board.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
-  - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `settings.h`, `feed.h`,
-    `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`,
-    `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h` (namespace `sky`). Keep them that way; logic that can be
-    tested on a PC belongs here.
+  - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
+    `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
+    `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h` (namespace `sky`). Keep them
+    that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `web.cpp`, `http.cpp`, `probe.cpp` (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
@@ -42,6 +42,9 @@ guide; read it for what the screen does and how it is set up.
   Mesonet have terms; keep to them. Respect rate-limit headers and backoff in `feed.h`, keep the User-Agent and tile
   caching, and keep attribution as each source requires.
 - **Test endpoints** (`/api/touch`, `/api/ui`) are compiled out with `test_api: false`; keep them behind that flag.
+- **Round glass.** On a board with `round: true` the corners are not there. Place anything new on the glass through
+  `glass.h` and `ui.h` (`ui::pad_page` for a page, `ui::hug_edge` for a box along the top or bottom edge), never by
+  the display's width and height alone.
 - **README.** Features, settings, the API table and the `make` targets are documented there. Update it in the same
   change.
 

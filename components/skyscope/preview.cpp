@@ -171,8 +171,8 @@ void Skyscope::end_pinch_() {
   menu_settings_ = settings_;  // the keys' colours (menu.cpp button_)
   const Chrome c = chrome_();
   preview_bar_ = plain(lv_screen_active());
-  lv_obj_set_size(preview_bar_, width_ - 2 * ui::mm(1), LV_SIZE_CONTENT);
-  lv_obj_align(preview_bar_, LV_ALIGN_BOTTOM_MID, 0, -ui::mm(1));
+  lv_obj_set_size(preview_bar_, glass::page_width(ui::shape, ui::mm(1)), LV_SIZE_CONTENT);
+  ui::hug_edge(preview_bar_, LV_ALIGN_BOTTOM_MID, 0, -ui::mm(1));
   lv_obj_set_style_bg_color(preview_bar_, lv_color_hex(c.card), 0);
   lv_obj_set_style_bg_opa(preview_bar_, LV_OPA_90, 0);
   lv_obj_set_style_radius(preview_bar_, ui::mm(1.6f), 0);

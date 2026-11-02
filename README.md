@@ -246,8 +246,8 @@ receiver's range, are missing, and positions may be late.
 ## Development
 
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
-  share the work. The parts that need no screen (`geo.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`,
-  `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
+  share the work. The parts that need no screen (`geo.h`, `glass.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`,
+  `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
   `wifi_list.h`, `weather.h`, `radar.h`) are plain C++.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
