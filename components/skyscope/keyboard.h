@@ -1,8 +1,9 @@
 #pragma once
 // The keyboard the menu types with (editor.cpp draws it): which keys each page has, and what pressing one does to the
 // text being typed. A key's width is in twentieths of its row, so a row of ten letters is ten keys of 2. The fonts have
-// only letters and punctuation (no symbols), so the keys that are not characters say what they do in words, and the
-// cursor's keys are drawn as arrows.
+// only letters and punctuation (no symbols), so the cursor's keys, the erase and the shift are drawn (a key's text is
+// then only its name, which the test API reports), and the others say what they do in words. The page of numbers is
+// "?123", as on a phone, so it is plain the punctuation is there.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -48,14 +49,14 @@ inline std::vector<Row> layout(Pad pad, Page page) {
     return a;
   };
   if (pad == WORDS) {
-    const Row bottom_letters = {{"123", TO_NUMBERS, 4}, {"<", LEFT, 3}, {" ", TYPE, 10}, {">", RIGHT, 3}};
+    const Row bottom_letters = {{"?123", TO_NUMBERS, 4}, {"<", LEFT, 3}, {" ", TYPE, 10}, {">", RIGHT, 3}};
     const Row bottom_others = {{"abc", TO_LETTERS, 4}, {"<", LEFT, 3}, {" ", TYPE, 10}, {">", RIGHT, 3}};
     if (page == NUMBERS)
       return {keys("1234567890"), keys("-/:;()$&@\""),
               join(join({{"#+=", TO_SYMBOLS, 3}}, keys(".,?!'", 2)), {{"Del", ERASE, 7}}), bottom_others};
     if (page == SYMBOLS)
       return {keys("[]{}#%^*+="), keys("_\\|~<>`"),
-              join(join({{"123", TO_NUMBERS, 3}}, keys(".,?!'", 2)), {{"Del", ERASE, 7}}), bottom_others};
+              join(join({{"?123", TO_NUMBERS, 3}}, keys(".,?!'", 2)), {{"Del", ERASE, 7}}), bottom_others};
     return {keys("qwertyuiop"), keys("asdfghjkl"), join(join({{"Aa", SHIFT, 3}}, keys("zxcvbnm")), {{"Del", ERASE, 3}}),
             bottom_letters};
   }
@@ -153,17 +154,16 @@ struct Board {
     editor.start(text, most);
   }
   std::vector<Row> keys() const { return layout(pad, page); }
-  // What a key shows: a letter as it would go in.
+  // What a key shows: a letter as it would go in. The space bar shows nothing, as on a phone.
   std::string face(const Key &k) const {
     if (k.action == TYPE && caps && is_letter(k.text)) return std::string(1, (char) (k.text[0] - 32));
-    if (k.action == TYPE && k.text[0] == ' ') return "space";
     return k.text;
   }
   // A key pressed. True when the keys change (another page, or the shift).
   bool press(const Key &k) {
     switch (k.action) {
       case TYPE:
-        editor.type(face(k) == "space" ? " " : face(k).c_str());
+        editor.type(face(k).c_str());
         return false;
       case ERASE: editor.erase(); return false;
       case LEFT: editor.left(); return false;

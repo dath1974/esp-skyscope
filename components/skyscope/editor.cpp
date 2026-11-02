@@ -187,10 +187,14 @@ void Skyscope::build_keys_() {
     };
     if (width < keyboard::ROW_WIDTH) spacer();
     for (const auto &k : row) {
-      const bool drawn = k.action == keyboard::LEFT || k.action == keyboard::RIGHT;
-      const int arrow_of = k.action == keyboard::LEFT ? ARROW_LEFT : ARROW_RIGHT;
+      // The cursor's keys, the erase and the shift are drawn; the rest say what they type.
+      const int shape = k.action == keyboard::LEFT    ? ARROW_LEFT
+                        : k.action == keyboard::RIGHT ? ARROW_RIGHT
+                        : k.action == keyboard::ERASE ? ICON_ERASE
+                        : k.action == keyboard::SHIFT ? ICON_SHIFT
+                                                      : -1;
       const std::string face = board_.face(k);
-      lv_obj_t *b = button_(line, drawn ? nullptr : face.c_str(), 0, ui::mm(4), drawn ? arrow_of : -1,
+      lv_obj_t *b = button_(line, shape >= 0 ? nullptr : face.c_str(), 0, ui::mm(4), shape,
                             k.action == keyboard::SHIFT && board_.caps);
       lv_obj_set_height(b, lv_pct(100));
       lv_obj_set_flex_grow(b, k.width);

@@ -154,8 +154,9 @@ the keyboard at a tap, and a few (the range, the brightness) have both. Typed va
 one the screen cannot take is refused, with what it may be shown under the text. Changes show in the accent and wait
 for **Save**; **Cancel** drops them.
 
-- **The keyboard** has letters, numbers and a page of symbols (every printable ASCII character), **Aa** for capitals,
-  arrows to move the cursor and **Del**. Numbers and times get a pad of digits.
+- **The keyboard** has letters, numbers and a page of symbols (every printable ASCII character), laid out as on a
+  phone: the up arrow for capitals, **?123** for numbers and punctuation, arrows to move the cursor and the backspace
+  key. Numbers and times get a pad of digits.
 - **Place** finds a place as the page does, but from the screen itself: an airport code (KJFK, JFK) in the FAA's
   airport data, an airport's name there too, then anything in OpenStreetMap's Nominatim, at most once a second and
   only when **Search** is pressed. Pick one of what it found; an airport is named by its code. Latitude and longitude

@@ -221,7 +221,7 @@ lv_obj_t *Skyscope::button_(lv_obj_t *parent, const char *label, int width, int 
   lv_obj_set_style_bg_opa(b, primary ? LV_OPA_COVER : LV_OPA_20, 0);
   lv_obj_set_style_bg_opa(b, primary ? LV_OPA_70 : LV_OPA_50, LV_STATE_PRESSED);
   lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_t *f = label ? text(b, ui::fonts.label, face, label) : arrow(b, arrow_of, face);
+  lv_obj_t *f = label ? text(b, ui::fonts.label, face, label) : drawn(b, arrow_of, face);
   lv_obj_center(f);
   return b;
 }

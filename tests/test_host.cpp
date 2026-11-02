@@ -1010,7 +1010,7 @@ static void test_keyboard() {
   b.press(key(b, "Aa"));
   b.press(key(b, "j"));
   b.press(key(b, " "));
-  CHECK(b.press(key(b, "123")) && b.page == NUMBERS);
+  CHECK(b.press(key(b, "?123")) && b.page == NUMBERS);
   b.press(key(b, "1"));
   CHECK(b.editor.text == "Kj 1");
   b.press(key(b, "<"));
