@@ -273,10 +273,13 @@ function zooms(){const [a,b,d]=ZOOMS[$('dl_map').value];$('dl_zoom').textContent
  $('dl_zoom').value=d}
 // About how long: a tile every second or so.
 function dl_time(n){const m=Math.ceil(n/60);return m<90?m+' min':Math.round(m/60)+' h'}
+// An area's estimate: its tiles, what they take of the card (whole blocks) and download, and whether that fits.
+function estimate_words(j){let t='About '+j.tiles+' tiles: '+gb(j.card_mb)+' of the card ('+gb(j.mb)+' to download), zoom '+j.z_min+' to '+j.z_max+'; some '+dl_time(j.tiles)+'.';
+ if(j.free_mb!==undefined&&j.card_mb>j.free_mb)t+=' More than the card has free ('+gb(j.free_mb)+'): it stops when the card is full.';return t}
 function dl_area(){return{map:$('dl_map').value,lat:Number($('lat').value),lon:Number($('lon').value),radius_nm:Number($('dl_radius').value),z_max:Number($('dl_zoom').value)}}
 async function dl_ask(what){if($('lat').value===''){$('dl_estimate').textContent='Set the place above first.';return null}
  const r=await fetch('api/card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[what]:dl_area()})});
- const j=await r.json();$('dl_estimate').textContent=r.ok?'About '+j.tiles+' tiles, '+j.mb+' MB, zoom '+j.z_min+' to '+j.z_max+'; some '+dl_time(j.tiles)+'.':j.error;return r.ok?j:null}
+ const j=await r.json();$('dl_estimate').textContent=r.ok?estimate_words(j):j.error;return r.ok?j:null}
 $('dl_map').onchange=()=>{zooms();dl_ask('estimate')};$('dl_radius').onchange=()=>dl_ask('estimate');$('dl_zoom').onchange=()=>dl_ask('estimate');
 $('dl_start').onclick=async()=>{if(await dl_ask('download'))$('dl_progress').textContent='Starting...';setTimeout(status,1500)};
 async function card_post(body){await fetch('api/card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});setTimeout(status,1500)}

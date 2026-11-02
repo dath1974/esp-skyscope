@@ -188,6 +188,7 @@ class Skyscope : public Component,
       std::string error;  // why there is none
       bool unformatted = false;  // there is a card, with no FAT32 on it: the page offers to format it
       uint64_t total = 0, free = 0;
+      uint32_t cluster = 0;  // its clusters' bytes, 0 while not known
       // Tiles cleared away and still being deleted, and how many files and folders went so far.
       bool clearing = false;
       uint32_t cleared = 0;

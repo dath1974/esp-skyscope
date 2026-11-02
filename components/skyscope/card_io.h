@@ -28,8 +28,8 @@ bool format(std::string &error);
 bool mounted();
 // The last mount found a card, with no FAT32 on it: it can be formatted.
 bool unformatted();
-// The card's size and free bytes (false when it is not mounted).
-bool space(uint64_t &total, uint64_t &free);
+// The card's size and free bytes, and its clusters' bytes (false when it is not mounted).
+bool space(uint64_t &total, uint64_t &free, uint32_t &cluster);
 
 // A tile's header and bytes (into `body`, without the header), or false: not on the card, or not readable.
 bool read(const sky::tiles::Key &k, sky::card::Header &h, sky::http::Body &body);

@@ -269,9 +269,11 @@ void Skyscope::worker_() {
   Shared::Card card_state;
   auto card_space = [&]() {
     uint64_t total = 0, free = 0;
-    if (card_io::space(total, free)) {
+    uint32_t cluster = 0;
+    if (card_io::space(total, free, cluster)) {
       card_state.total = total;
       card_state.free = free;
+      card_state.cluster = cluster;
       card_room = free >= CARD_RESERVE_BYTES;
     }
   };

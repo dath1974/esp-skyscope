@@ -151,3 +151,12 @@ test("a download's time is told in minutes, or hours when long", () => {
   assert.equal(dl_time(860), '15 min');
   assert.equal(dl_time(20000), '6 h');
 });
+
+test("an area's estimate says what it takes of the card, and warns when it does not fit", () => {
+  const { estimate_words } = load('gb', 'dl_time', 'estimate_words');
+  assert.equal(estimate_words({ tiles: 950, mb: 37, card_mb: 52, z_min: 8, z_max: 11, free_mb: 7000 }),
+    'About 950 tiles: 52 MB of the card (37 MB to download), zoom 8 to 11; some 16 min.');
+  assert.match(estimate_words({ tiles: 40000, mb: 1563, card_mb: 2198, z_min: 0, z_max: 12, free_mb: 900 }),
+    /2\.1 GB of the card \(1\.5 GB to download\).* More than the card has free \(900 MB\): it stops when the card is full\.$/);
+  assert.doesNotMatch(estimate_words({ tiles: 1, mb: 1, card_mb: 1, z_min: 8, z_max: 8 }), /free/);
+});

@@ -313,7 +313,11 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       std::string error;
       const bool ok = area_of(in[ask].as<JsonObjectConst>(), area, plan, error);
       out["tiles"] = plan.total;
-      out["mb"] = (uint32_t) ((card::estimate_bytes(plan) + 512 * 1024) / (1024 * 1024));
+      // What it downloads, and what it takes of the card (whole clusters), with what the card has free.
+      auto mb = [](uint64_t bytes) { return (uint32_t) ((bytes + 512 * 1024) / (1024 * 1024)); };
+      out["mb"] = mb(card::estimate_bytes(plan));
+      out["card_mb"] = mb(card::card_bytes(plan, state.cluster));
+      if (state.mounted) out["free_mb"] = (uint32_t) (state.free / (1024 * 1024));
       out["z_min"] = card::first_zoom(area.style);
       out["z_max"] = area.z_max;
       if (!ok) {
@@ -537,6 +541,7 @@ void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
   out["cleared"] = c.cleared;
   out["total_mb"] = (uint32_t) (c.total / (1024 * 1024));
   out["free_mb"] = (uint32_t) (c.free / (1024 * 1024));
+  out["cluster_kb"] = c.cluster / 1024;
   // Tiles since the start: read from the card, written to it, and writes that failed; off a network, the frame's
   // tiles the card does not have.
   out["read"] = c.read;

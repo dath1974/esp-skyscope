@@ -12,6 +12,8 @@
 #include <driver/gpio.h>
 #include <driver/sdmmc_host.h>
 #include <esp_vfs_fat.h>
+#include <ff.h>
+#include <diskio_sdmmc.h>  // after ff.h, whose types it uses
 #include <sdmmc_cmd.h>
 #ifdef CONFIG_IDF_TARGET_ESP32P4
 #include <sd_pwr_ctrl_by_on_chip_ldo.h>
@@ -154,9 +156,22 @@ bool mounted() { return card_ != nullptr; }
 bool unformatted() { return unformatted_; }
 uint32_t errors() { return errors_; }
 
-bool space(uint64_t &total, uint64_t &free) {
+bool space(uint64_t &total, uint64_t &free, uint32_t &cluster) {
   if (!card_) return false;
-  return esp_vfs_fat_info(sky::card::ROOT, &total, &free) == ESP_OK;
+  if (esp_vfs_fat_info(sky::card::ROOT, &total, &free) != ESP_OK) return false;
+  // The cluster from FAT itself (its free count is held from the call above, so this reads nothing more).
+  const char drive[3] = {(char) ('0' + ff_diskio_get_pdrv_card(card_)), ':', 0};
+  DWORD clusters = 0;
+  FATFS *fs = nullptr;
+  cluster = 0;
+  if (f_getfree(drive, &clusters, &fs) == FR_OK && fs) {
+#if FF_MAX_SS != FF_MIN_SS
+    cluster = (uint32_t) fs->csize * fs->ssize;
+#else
+    cluster = (uint32_t) fs->csize * FF_MAX_SS;
+#endif
+  }
+  return true;
 }
 
 bool read(const sky::tiles::Key &k, sky::card::Header &h, sky::http::Body &body) {
@@ -302,7 +317,7 @@ bool unformatted() { return false; }
 int remove_some(const std::string &, int) { return -1; }
 bool mounted() { return false; }
 uint32_t errors() { return 0; }
-bool space(uint64_t &, uint64_t &) { return false; }
+bool space(uint64_t &, uint64_t &, uint32_t &) { return false; }
 bool read(const sky::tiles::Key &, sky::card::Header &, sky::http::Body &body) {
   body.clear();
   return false;

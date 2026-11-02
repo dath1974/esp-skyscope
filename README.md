@@ -120,13 +120,15 @@ tiles in a folder `tiles` on the card, one file each, and leaves everything else
 
 On the web page, **Map card** shows the card's free space and downloads an area ahead of time: the FAA sectional, the
 IFR low or high charts, or the USGS topographic map, round the place, to a radius of up to 250 NM, every zoom of the map
-down to the one chosen. The page estimates the tiles, megabytes and time first (a 100 NM sectional is some 950 tiles, 37
-MB, a quarter of an hour). The screen asks for a tile at a time, only while the map shown is whole, waits after a
-failure (2 seconds, then twice as long each time, at most 5 minutes) and leaves a tile out after six tries. It keeps
-going while the screen is off and carries on after a restart; tiles the card has already are skipped. Only these maps
-are downloaded ahead: they are works of the United States government, free to copy, while OpenStreetMap's and Esri's ask
-that their tiles are fetched only as they are looked at. The card is looked for when the screen starts (or at **Look for
-the card again** on the page); a card that stops answering is let go.
+down to the one chosen. The page estimates the tiles, the room they take on the card and the time first, and says when
+an area is more than the card has free (a 100 NM sectional is some 950 tiles: 37 MB to download, about 52 MB of the
+card, since every file fills whole blocks of the card, and a quarter of an hour). The screen asks for a tile at a time,
+only while the map shown is whole, waits after a failure (2 seconds, then twice as long each time, at most 5 minutes)
+and leaves a tile out after six tries. It keeps going while the screen is off and carries on after a restart; tiles the
+card has already are skipped. Only these maps are downloaded ahead: they are works of the United States government, free
+to copy, while OpenStreetMap's and Esri's ask that their tiles are fetched only as they are looked at. The card is
+looked for when the screen starts (or at **Look for the card again** on the page); a card that stops answering is let
+go.
 
 **Formatting and clearing, on the screen.** A card must be FAT32. One that is not (a new card larger than 32 GB comes as
 exFAT, or a blank one) is formatted by **Format the card** on the page, FAT32 whatever its size, with no computer; it
@@ -288,8 +290,8 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `GET /api/networks` | the Wi-Fi networks the screen knows, first choice first: their names only, never a password |
 | `POST /api/networks` | with the test API only: `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
-| `GET /api/card` | the map card: mounted or why not, its size and free space, tiles read from it, written and failed since the start, the frame's tiles not on it (offline), old tiles still being deleted (`clearing`, `cleared`), whether a card has no FAT32 (`unformatted`), and the download (map, radius, zoom, how far, fetched, skipped, left out, waiting) |
-| `POST /api/card` | `{"estimate": area}` the tiles and megabytes an area takes, `{"download": area}` downloads it, `{"stop": true}` stops, `{"mount": true}` looks for the card again, `{"clear": true}` deletes the screen's tiles, `{"format": true}` formats the card FAT32 (erasing it); an area is `{"map", "lat", "lon", "radius_nm", "z_max"}`, its map `sectional`, `ifr_low`, `ifr_high` or `topo` |
+| `GET /api/card` | the map card: mounted or why not, its size, free space and cluster size, tiles read from it, written and failed since the start, the frame's tiles not on it (offline), old tiles still being deleted (`clearing`, `cleared`), whether a card has no FAT32 (`unformatted`), and the download (map, radius, zoom, how far, fetched, skipped, left out, waiting) |
+| `POST /api/card` | `{"estimate": area}` the tiles an area takes, its megabytes to download (`mb`) and on the card in whole clusters (`card_mb`), and the card's free space, `{"download": area}` downloads it, `{"stop": true}` stops, `{"mount": true}` looks for the card again, `{"clear": true}` deletes the screen's tiles, `{"format": true}` formats the card FAT32 (erasing it); an area is `{"map", "lat", "lon", "radius_nm", "z_max"}`, its map `sectional`, `ifr_low`, `ifr_high` or `topo` |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |

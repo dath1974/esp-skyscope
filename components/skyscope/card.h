@@ -202,10 +202,18 @@ inline bool plan(const Area &a, Plan &out, std::string &error) {
   }
   return true;
 }
-// About how many bytes an area's tiles take: a chart's scanned tiles are larger than the topographic map's.
-inline uint64_t estimate_bytes(const Plan &p) {
-  const uint64_t each = p.area.style == tiles::SRC_TOPO ? 24 * 1024 : 40 * 1024;
-  return p.total * each;
+// About how many bytes a tile of this map is, as it is downloaded: a chart's scanned tiles are larger than the
+// topographic map's.
+inline uint32_t tile_bytes(uint8_t style) { return style == tiles::SRC_TOPO ? 24 * 1024 : 40 * 1024; }
+inline uint64_t estimate_bytes(const Plan &p) { return (uint64_t) p.total * tile_bytes(p.area.style); }
+// The card's clusters (its blocks), where it is not known yet: what FAT32 cards of 8 to 32 GB come formatted with,
+// and what the screen formats with (card.cpp).
+constexpr uint32_t CLUSTER_GUESS = 32 * 1024;
+// About how much of the card an area takes: every file fills whole clusters, so each tile (its bytes and its header)
+// takes on average half a cluster more than it is, the sizes of tiles being spread wider than a cluster.
+inline uint64_t card_bytes(const Plan &p, uint32_t cluster) {
+  if (!cluster) cluster = CLUSTER_GUESS;
+  return (uint64_t) p.total * (tile_bytes(p.area.style) + HEADER_BYTES + cluster / 2);
 }
 
 // A download under way, as it is kept on the card (so it carries on after a restart): its area and how far it got.

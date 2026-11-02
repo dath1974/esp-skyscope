@@ -413,6 +413,10 @@ static void test_card() {
     const std::string mine = card::path(Key{SRC_SECTIONAL, 11, (uint32_t) (here.x / 256), (uint32_t) (here.y / 256)});
     CHECK(std::binary_search(seen.begin(), seen.end(), mine));
     CHECK(card::estimate_bytes(p) == p.total * 40 * 1024);
+    // On the card, whole clusters: half of one more a tile on average, and the header.
+    CHECK(card::card_bytes(p, 32 * 1024) == p.total * (40 * 1024 + card::HEADER_BYTES + 16 * 1024));
+    CHECK(card::card_bytes(p, 0) == card::card_bytes(p, card::CLUSTER_GUESS));
+    CHECK(card::card_bytes(p, 64 * 1024) > card::card_bytes(p, 32 * 1024));
     // Wider takes more; what may not be downloaded, or is too much, is refused with words.
     card::Area wide = a;
     wide.radius_nm = 200;
