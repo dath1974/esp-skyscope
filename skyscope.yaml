@@ -1,6 +1,7 @@
-# Skyscope on a Waveshare ESP32-S3-Touch-AMOLED-2.41. Flash it once over USB (esphome run skyscope.yaml, or the
-# prebuilt firmware with ESPHome Web); after that it updates over Wi-Fi, from a build of your own (esphome run) or from
-# the project's releases, which its web page offers when a new one is out.
+# Skyscope on a Waveshare ESP32-S3-Touch-AMOLED-2.41 or ESP32-P4-WIFI6-Touch-LCD-4C (the board, below). Flash it once
+# over USB (esphome run skyscope.yaml, or the prebuilt firmware with ESPHome Web); after that it updates over Wi-Fi,
+# from a build of your own (esphome run) or from the project's releases, which its web page offers when a new one is
+# out.
 #
 # First start: the screen opens a Wi-Fi network named after it ("Skyscope ...") and shows how to join it. Join it with
 # a phone, choose your own network on the page that opens, and the screen joins that network. Then open the address it
@@ -14,12 +15,17 @@ substitutions:
   # Where the releases are published (GitHub Pages, by .github/workflows/release.yml). A build that should never be
   # offered them: remove the update: block and the skyscope: block's update_id.
   releases: https://dath1974.github.io/esp-skyscope
+  # The board, one of boards/*.yaml: waveshare-amoled-241 (ESP32-S3, 2.41-inch AMOLED) or waveshare-p4-lcd-4c
+  # (ESP32-P4, round 4-inch LCD). Build another with `esphome -s board <name> ...` or `make firmware BOARD=<name>`.
+  board: waveshare-amoled-241
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   # Each screen gets its own name (skyscope-1a2b3c), so two on one network do not clash.
   name_add_mac_suffix: true
+  # A build of each board of its own, so building one does not throw away the other's.
+  build_path: build/skyscope-${board}
   project:
     name: dath1974.esp-skyscope
     version: ${version}
@@ -30,7 +36,7 @@ external_components:
       path: components
 
 packages:
-  board: !include boards/waveshare-amoled-241.yaml
+  board: !include boards/${board}.yaml
 
 logger:
   level: INFO

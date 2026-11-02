@@ -1,7 +1,7 @@
 # esp-skyscope
 
-Live aircraft tracking on a self-contained ESP32-S3 touch screen: the ESP32-S3 fetches traffic information from a
-public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself.
+Live aircraft tracking on a self-contained ESP32 touch screen: the ESP32 (an S3 or a P4) fetches traffic information
+from a public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself.
 
 - **Maps**: a radar scope drawn on the screen (nothing downloaded), streets (Esri's gray maps, dark or light),
   OpenStreetMap, satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional, IFR area (low) and
@@ -44,11 +44,24 @@ public ADS-B exchange and the map tiles from public tile servers, decodes and dr
 
 | Board | File |
 |---|---|
-| Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` |
+| Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` (the default) |
+| Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720; not yet tried on a real one) | `boards/waveshare-p4-lcd-4c.yaml` |
 
-A board needs an ESP32-S3 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB) and an LVGL-capable
-display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:` block's `dpi`.  Any
-new board will require ample testing, noting the goal of this project is a physically small display size.
+`skyscope.yaml` builds the board its `board` substitution names: `esphome -s board waveshare-p4-lcd-4c run
+skyscope.yaml`, or `make firmware BOARD=waveshare-p4-lcd-4c`. Each board builds in a folder of its own
+(`.esphome/build/skyscope-<board>`), and a release carries a firmware for each, which a screen tells apart by its chip.
+
+The P4 board's file is for production P4 silicon (v3), which the 4C ships with; a board with an early chip (its
+boot log says `chip revision: v1.x`) would need `engineering_sample: true` in the file and a build of its own. The
+glass is round, and the screen keeps everything inside the circle: the pages and the keyboard in the largest square it
+holds, the status, the credit and a plane's card moved in from the edge as far as their width needs, and no plane or
+label in the corners beyond it (`skyscope:` `round: true`, `glass.h`).
+
+A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB)
+and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:`
+block's `dpi`, and a build of it in `.github/workflows/release.yml` and `tests.yml` (a test checks that every board is
+released, under its chip, and no two boards may share a chip). Any new board will require ample testing, noting the
+goal of this project is a physically small display size.
 
 ## Install
 
@@ -58,12 +71,12 @@ You need [ESPHome](https://esphome.io) 2026.9 or newer; releases are built with 
 ```sh
 git clone https://github.com/dath1974/esp-skyscope
 cd esp-skyscope
-esphome run skyscope.yaml          # over USB the first time
+esphome run skyscope.yaml          # over USB the first time; add -s board <name> for another board
 ```
 
 Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen's address>`, or
-`make firmware-flash DEVICE=<the screen's address>`, which builds with the Makefile's ESPHome version first (`DEVICE`
-can be a serial port too).
+`make firmware-flash DEVICE=<the screen's address>` (with `BOARD=<name>` for another board), which builds with the
+Makefile's ESPHome version first (`DEVICE` can be a serial port too).
 
 ## Updates
 
@@ -77,8 +90,9 @@ A build of your own offers the releases too, whenever its version differs. To le
 block and the `skyscope:` block's `update_id` from `skyscope.yaml`.
 
 Releasing (maintainers): `make release-version VERSION=0.4.0` sets `version` in `skyscope.yaml` and commits it;
-`make release-tag MSG="What changed, in one line"` checks that main is committed and current, builds the firmware,
-runs the tests and makes the annotated tag `v<version>`; `make release` asks, then pushes main and the tag.
+`make release-tag MSG="What changed, in one line"` checks that main is committed and current, builds the firmware
+for every board, runs the tests and makes the annotated tag `v<version>`; `make release` asks, then pushes main and the
+tag.
 `.github/workflows/release.yml` builds it, makes the GitHub release and publishes the firmware with its manifest
 (`tools/release_site.py`). The tag's message is the summary the page shows.
 
@@ -249,12 +263,13 @@ receiver's range, are missing, and positions may be late.
   share the work. The parts that need no screen (`geo.h`, `glass.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`,
   `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
   `wifi_list.h`, `weather.h`, `radar.h`) are plain C++.
-- `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE=<address>`).
+- `make` builds the firmware (for `BOARD`, the AMOLED 2.41 unless told another) and runs `make test` (and
+  `make test-esp32` too, given `DEVICE=<address>`). `make firmware-all` builds it for every board, as a release does.
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
   ESPHome downloaded.
 - `make test` runs everything that needs no screen, as CI does on every push and before every release. A push also
-  builds the firmware and draws the aircraft sheet (`make test-markers`), kept with the run as `markers`.
-  `make test` covers:
+  builds the firmware for every board and draws the aircraft sheet (`make test-markers`), kept with the run as
+  `markers`. `make test` covers:
   - `make test-host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers;
     needs a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
   - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads,
@@ -279,7 +294,7 @@ receiver's range, are missing, and positions may be late.
     waited out as long as it should be; answers chunked or redirected; an address that cannot be found, then
     corrected; falling back to an exchange and back. The update server: a release offered, its failures said, and
     installs that must fail (no image, cut short, a wrong digest, not an image) leaving the firmware as it is. With
-    `INSTALL=.esphome/build/skyscope/build/firmware.ota.bin`, that build installed from the mock. The
+    `INSTALL=.esphome/build/skyscope-<board>/build/firmware.ota.bin`, that build installed from the mock. The
     screen must be able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow
     inbound connections to it (see below).
   - `make test-esp32-soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every

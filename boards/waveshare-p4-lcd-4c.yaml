@@ -1,0 +1,118 @@
+# Waveshare ESP32-P4-WIFI6-Touch-LCD-4C: a round 4-inch 720 x 720 IPS panel (JD9365 over two-lane MIPI-DSI) with
+# GT9271 capacitive touch (read as a GT911), an ESP32-P4 (production v3 silicon) with 32 MB of flash and 32 MB of
+# PSRAM, and an ESP32-C6 beside it for Wi-Fi (ESP-Hosted over SDIO). The pins are those of Waveshare's own board support
+# package (esp32_p4_wifi6_touch_lcd_xc, shared with the 3.4-inch 3.4C) and of the ESP-Hosted link every Waveshare P4
+# board uses.
+#
+# The board's hardware and sizes only; what the screen does is components/skyscope.
+
+substitutions:
+  # 720 pixels across a 4-inch circle.
+  DISPLAY_DPI: "180"
+  # The panel is square: LVGL's angle 0 keeps the board's USB ports at the bottom.
+  ROTATION: "0"
+  # Map tiles at their own pixels: at 180 dpi a tile's words read well at 1:1.
+  TILE_SCALE: "1"
+  FONT_SMALL_PX: "16"
+  FONT_LABEL_PX: "20"
+  FONT_TITLE_PX: "26"
+
+esp32:
+  variant: esp32p4
+  # The chip has 32 MB, but ESPHome updates over the air past 16 MB only with ESP-IDF's experimental features: 16 MB
+  # holds two firmwares with room to spare.
+  flash_size: 16MB
+  # Production silicon is rated for 400 MHz, but ESPHome still marks it experimental (it may not boot) and Waveshare
+  # lists the board at up to 360 MHz.
+  cpu_frequency: 360MHz
+  # Production silicon (v3.x), as the 4C ships and Waveshare's own examples assume. A board with an early chip (its boot
+  # log says "chip revision: v1.x") would need engineering_sample: true and a build of its own: firmware for one does
+  # not start on the other.
+  framework:
+    type: esp-idf
+    version: recommended
+    advanced:
+      assertion_level: SILENT
+      loop_task_stack_size: 16384
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+# The MIPI-DSI PHY's supply, from the P4's own regulator.
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+# Wi-Fi comes from the ESP32-C6 on the board, which runs Espressif's ESP-Hosted firmware.
+esp32_hosted:
+  variant: ESP32C6
+  active_high: true
+  reset_pin: GPIO54
+  clk_pin: GPIO18
+  cmd_pin: GPIO19
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+
+i2c:
+  id: touch_bus
+  sda: GPIO7
+  scl: GPIO8
+  scan: false
+
+# The backlight's PWM, inverted on this board (Waveshare's own driver sets output_invert).
+output:
+  - platform: ledc
+    id: backlight
+    pin: GPIO26
+    inverted: true
+    frequency: 5kHz
+
+# The GT9271 answers as a GT911 does. Its reset and interrupt lines are not wired to the P4: it is read every 20 ms.
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: touch_bus
+    update_interval: 20ms
+    display: panel
+
+display:
+  - platform: mipi_dsi
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-4C
+    id: panel
+    reset_pin: GPIO27
+    update_interval: never
+    auto_clear_enabled: false
+
+lvgl:
+  displays: [panel]
+  touchscreens:
+    - touchscreen_id: touch
+  # All of the screen, in PSRAM, as on the other board: there is plenty of it here.
+  buffer_size: 100%
+  rotation: ${ROTATION}
+  log_level: WARN
+  default_font: font_label
+  # One empty page: the screen builds what it shows in C++ (components/skyscope).
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+
+font:
+  - {file: "gfonts://Roboto Condensed@500", id: font_small, size: "${FONT_SMALL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto Condensed@500", id: font_label, size: "${FONT_LABEL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto@500", id: font_title, size: "${FONT_TITLE_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+
+skyscope:
+  dpi: ${DISPLAY_DPI}
+  tile_scale: ${TILE_SCALE}
+  font_small: font_small
+  font_label: font_label
+  font_title: font_title
+  brightness_output: backlight
+  # The GT9271 tracks several fingers: pinch to zoom, two fingers to pan.
+  touchscreen_id: touch
+  # The glass is a circle: what the screen shows stays inside it.
+  round: true

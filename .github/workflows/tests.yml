@@ -34,6 +34,10 @@ jobs:
     # A release builds the firmware itself (release.yml), so not twice.
     if: github.ref_type != 'tag'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [waveshare-amoled-241, waveshare-p4-lcd-4c]
     steps:
       - uses: actions/checkout@v7
 
@@ -44,10 +48,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
-          restore-keys: platformio-${{ runner.os }}-
+          key: platformio-${{ runner.os }}-${{ matrix.board }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
+          restore-keys: platformio-${{ runner.os }}-${{ matrix.board }}-
 
       - name: make firmware
         run: |
           pip install "esphome==$(make -s firmware-esphome-version)"
-          make firmware
+          make firmware BOARD=${{ matrix.board }}

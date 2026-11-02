@@ -190,7 +190,9 @@ class Feed:
             return fault
 
 
-CHIP = "ESP32-S3"  # as tools/release_site.py names the screen's chip
+# Every board's chip, as tools/release_site.py names them: the release is offered to a screen of either (a firmware
+# given with --install is for one of them, and a screen of the other refuses it).
+CHIPS = ("ESP32-S3", "ESP32-P4")
 STAND_IN = bytes([0xE9]) + bytes((i * 7919 + 13) % 251 for i in range(256 * 1024 - 1))
 
 
@@ -232,10 +234,13 @@ class Firmware:
             md5 = hashlib.md5(self.image + b"!").hexdigest()
         ota = {"path": self.name(), "md5": md5, "summary": f"A test release, {self.version}",
                "release_url": f"https://example.com/releases/{self.version}"}
-        build = {"chipFamily": "ESP32-C3" if fault == "no-build" else CHIP, "parts": []}
-        if fault != "no-ota":
-            build["ota"] = ota
-        return {"name": "esp-skyscope", "version": self.version, "builds": [build]}
+        builds = []
+        for chip in ("ESP32-C3",) if fault == "no-build" else CHIPS:
+            build = {"chipFamily": chip, "parts": []}
+            if fault != "no-ota":
+                build["ota"] = ota
+            builds.append(build)
+        return {"name": "esp-skyscope", "version": self.version, "builds": builds}
 
 
 def handler_for(feed: Feed, firmware: Firmware):

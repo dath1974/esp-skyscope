@@ -104,7 +104,7 @@ class MockFeed(unittest.TestCase):
         manifest = json.loads(body)
         self.assertEqual((r.status, manifest["version"]), (200, "9.9.9"))
         ota = manifest["builds"][0]["ota"]
-        self.assertEqual(manifest["builds"][0]["chipFamily"], "ESP32-S3")
+        self.assertEqual([b["chipFamily"] for b in manifest["builds"]], ["ESP32-S3", "ESP32-P4"])
         r, image = self.get("/firmware/" + ota["path"])
         self.assertEqual((r.status, image[0], hashlib.md5(image).hexdigest()), (200, 0xE9, ota["md5"]))
         self.assertEqual(self.get("/firmware/skyscope-1.0.0.ota.bin")[0].status, 404)
@@ -119,7 +119,8 @@ class MockFeed(unittest.TestCase):
         with self.assertRaises(ValueError):
             json.loads(self.get("/firmware/manifest.json")[1])
         fw.set(fault="no-build", times=1)
-        self.assertNotEqual(json.loads(self.get("/firmware/manifest.json")[1])["builds"][0]["chipFamily"], "ESP32-S3")
+        builds = json.loads(self.get("/firmware/manifest.json")[1])["builds"]
+        self.assertFalse({"ESP32-S3", "ESP32-P4"} & {b["chipFamily"] for b in builds})
         fw.set(fault="no-ota", times=1)
         self.assertNotIn("ota", json.loads(self.get("/firmware/manifest.json")[1])["builds"][0])
         # An image's fault is left alone by the manifest, and used up by the image.

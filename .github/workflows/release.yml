@@ -59,18 +59,22 @@ jobs:
           key: platformio-${{ runner.os }}-${{ hashFiles('skyscope.yaml', 'boards/*.yaml', 'components/skyscope/__init__.py') }}
           restore-keys: platformio-${{ runner.os }}-
 
+      # Every board (boards/*.yaml), each in its own build folder (skyscope.yaml: build_path).
       - name: Build
         run: |
           pip install "esphome==$(make -s firmware-esphome-version)"
-          esphome compile skyscope.yaml
+          esphome -s board waveshare-amoled-241 compile skyscope.yaml
+          esphome -s board waveshare-p4-lcd-4c compile skyscope.yaml
 
       - name: The files for the screens
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SUMMARY: ${{ steps.version.outputs.summary }}
         run: |
-          python3 tools/release_site.py "$VERSION" .esphome/build/skyscope/build site --summary "$SUMMARY" \
-            --release-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          python3 tools/release_site.py "$VERSION" site \
+            --build=ESP32-S3=.esphome/build/skyscope-waveshare-amoled-241/build \
+            --build=ESP32-P4=.esphome/build/skyscope-waveshare-p4-lcd-4c/build \
+            --summary "$SUMMARY" --release-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
 
       - name: GitHub release
         env:

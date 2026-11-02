@@ -3,8 +3,9 @@
 #   make                  the firmware and the tests that need no hardware;
 #                         with DEVICE=<ESP32 IP Address>, test-esp32 too
 #
-# Firmware
+# Firmware, for BOARD=<one of boards/*.yaml> [waveshare-amoled-241]
 #   make firmware         compile skyscope.yaml with ESPHOME_VERSION
+#   make firmware-all     compile it for every board, as a release does
 #   make firmware-flash   compile it and install it on DEVICE=<address or
 #                         serial port>; without DEVICE, ESPHome asks which
 #   make firmware-esphome install ESPHome ESPHOME_VERSION
@@ -42,6 +43,9 @@
 #   make help             print this list
 
 DEVICE ?=
+# The board a firmware is built for (boards/<BOARD>.yaml), and every board.
+BOARD ?= waveshare-amoled-241
+BOARDS := $(basename $(notdir $(wildcard boards/*.yaml)))
 SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to
 # catch what a change leaves behind.
@@ -56,7 +60,7 @@ SKYSCOPE_VERSION = $(shell sed -nE 's/^  version: "?([^"]+)"?$$/\1/p' \
 # The tag's message, from the environment so that quotes in it are safe.
 export MSG
 
-.PHONY: all firmware firmware-flash firmware-esphome firmware-esphome-version \
+.PHONY: all firmware firmware-all firmware-flash firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers \
 	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak \
 	release-version release-tag release clean help
@@ -68,11 +72,16 @@ firmware:
 	test "$$v" = "$(ESPHOME_VERSION)" || \
 	  { echo "ESPHome $$v, not $(ESPHOME_VERSION): make firmware-esphome"; \
 	    exit 2; }
-	esphome compile skyscope.yaml
+	@test -f boards/$(BOARD).yaml || \
+	  { echo "No boards/$(BOARD).yaml: BOARD is one of $(BOARDS)"; exit 2; }
+	esphome -s board $(BOARD) compile skyscope.yaml
+
+firmware-all:
+	for b in $(BOARDS); do $(MAKE) firmware BOARD=$$b || exit 1; done
 
 # Over Wi-Fi to an address, or over USB to a serial port (/dev/ttyACM0).
 firmware-flash: firmware
-	esphome upload skyscope.yaml $(if $(DEVICE),--device $(DEVICE))
+	esphome -s board $(BOARD) upload skyscope.yaml $(if $(DEVICE),--device $(DEVICE))
 
 # With pipx where there is one (as ESPHome suggests), else with pip.
 firmware-esphome:
@@ -167,7 +176,8 @@ release-version:
 
 # Refuses unless everything committed is on main, nothing of origin's main
 # is missing, and v<version> is new here and on origin; then the firmware
-# and the tests (test-esp32 too, with DEVICE). Undone with git tag -d.
+# of every board and the tests (test-esp32 too, with DEVICE). Undone with git
+# tag -d.
 release-tag:
 	@test -n "$$MSG" || \
 	  { echo 'make release-tag MSG="What changed, in one line"'; exit 2; }
@@ -188,7 +198,7 @@ release-tag:
 	@! git ls-remote --exit-code --tags origin \
 	  "refs/tags/v$(SKYSCOPE_VERSION)" >/dev/null || \
 	  { echo "v$(SKYSCOPE_VERSION) is already on origin"; exit 2; }
-	$(MAKE) all
+	$(MAKE) firmware-all all
 	git tag -a "v$(SKYSCOPE_VERSION)" -m "$$MSG"
 
 # Asks first: once pushed, the release is built and offered to every screen.
