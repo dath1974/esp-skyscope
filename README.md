@@ -84,6 +84,14 @@ out each plane's identity, altitude, speed, track, squawk and place from them, a
 allowed the exchanges stand in while no stick is plugged in. The page's status shows how it is doing: messages a second,
 planes heard and placed, and samples dropped if the demodulator ever falls behind.
 
+**No network needed.** A screen with a radio works without Wi-Fi. When it has been off a network for 20 seconds (at
+start, or after losing one), it shows the radar with the planes the radio hears, whatever map, source, airspace or
+weather radar is set, and the status line ends with **no Wi-Fi**. Nothing is fetched meanwhile, and swiping the strip at
+the bottom changes nothing: there are no maps offline. The settings themselves stay as they were, so the map and source
+chosen come back as soon as the screen is on a network again; a connection lost for a few seconds keeps the map. The
+place cannot be looked up offline: type its latitude and longitude in the menu (a long press), or set it once while on
+a network and it is kept.
+
 The board file's `skyscope:` block turns it on and sets the tuner:
 
 ```yaml

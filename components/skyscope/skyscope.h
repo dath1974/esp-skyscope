@@ -42,6 +42,7 @@
 #include "firmware.h"
 #include "keyboard.h"
 #include "networks.h"
+#include "offline.h"
 #include "overlay.h"
 #include "pinch.h"
 #include "radar.h"
@@ -128,6 +129,7 @@ class Skyscope : public Component,
     tiles::Plan plan;
     uint32_t plan_rev = 0;
     bool online = false;
+    bool offline = false;  // the screen runs on its radio alone, off a network (offline.h)
     bool asleep = false;  // the screen is off: no planes or tiles are asked for
     bool updating = false;  // new firmware is on its way in: nothing else is asked for
     // worker -> loop
@@ -275,6 +277,10 @@ class Skyscope : public Component,
   static Chrome chrome_for_(const Settings &s);
   void restyle_();
   void set_status_colour_(uint32_t colour);
+  // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
+  // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
+  const Settings &shown_() const { return offline_ ? offline_settings_ : settings_; }
+  void go_offline_(bool offline);
   // settings
   void load_settings_();
   void save_settings_();
@@ -307,6 +313,9 @@ class Skyscope : public Component,
 
   // The loop's own.
   Settings settings_;
+  offline::Tracker offline_tracker_;
+  bool offline_{false};
+  Settings offline_settings_;  // offline::shown(settings_), while offline_
   ESPPreferenceObject pref_;
   uint32_t save_at_{0};
   bool save_pending_{false};

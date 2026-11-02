@@ -34,7 +34,8 @@ void Skyscope::on_released_(lv_point_t at) {
     return;
   }
   const int step = swipe::direction(pressed_at_.x, pressed_at_.y, at.x, at.y, ui::mm(swipe::SWIPE_MM));
-  if (!step || !can_pinch_() || previewing_) return;
+  // Off a network there is only the radar: no map to swipe to (offline.h).
+  if (!step || !can_pinch_() || previewing_ || offline_) return;
   taps_from_ = millis() + NO_TAP_MS;
   if (!swiping_) {
     swiped_ = settings_;

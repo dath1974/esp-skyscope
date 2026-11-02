@@ -233,6 +233,7 @@ void Skyscope::worker_() {
   uint32_t airspace_due = 0, airspace_wait = 0;
   const int width = width_, height = height_;
   uint32_t search_rev = 0, nominatim_at = 0, weather_ask = 0;
+  bool was_offline = false;
   while (true) {
     bool online;
     std::string search;
@@ -240,9 +241,15 @@ void Skyscope::worker_() {
     {
       std::lock_guard<std::mutex> guard(lock_);
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
-      // download has the network to itself.
-      online = shared_.online && !shared_.asleep && !shared_.updating;
+      // download has the network to itself. A screen running on its radio alone (offline.h) needs no network.
+      const bool radio_only = shared_.offline;
+      online = (shared_.online || radio_only) && !shared_.asleep && !shared_.updating;
       connected = shared_.online;
+      // Off a network, the settings as the loop shows them: the radar and the radio, nothing to fetch.
+      if (radio_only != was_offline) {
+        was_offline = radio_only;
+        settings_rev = 0;
+      }
       if (shared_.search_rev != search_rev) {
         search = shared_.search;
         search_rev = shared_.search_rev;
@@ -252,7 +259,7 @@ void Skyscope::worker_() {
         wants_weather = true;
       }
       if (shared_.settings_rev != settings_rev) {
-        settings = shared_.settings;
+        settings = radio_only ? offline::shown(shared_.settings) : shared_.settings;
         settings_rev = shared_.settings_rev;
       }
       if (shared_.plan_rev != plan_rev) {

@@ -228,6 +228,7 @@ void Skyscope::use_settings_(const Settings &s) {
   const bool new_zone = s.timezone != settings_.timezone;
   const bool new_bedtime = s.bedtime != settings_.bedtime || s.bed_off != settings_.bed_off || s.bed_on != settings_.bed_on;
   settings_ = s;
+  if (offline_) offline_settings_ = offline::shown(settings_);
   if (new_zone) use_timezone_();
   if (new_bedtime) bed_minute_ = -1;
   {
@@ -245,7 +246,7 @@ void Skyscope::use_settings_(const Settings &s) {
   save_at_ = millis() + SAVE_DELAY_MS;
 }
 
-Skyscope::Chrome Skyscope::chrome_() const { return chrome_for_(settings_); }
+Skyscope::Chrome Skyscope::chrome_() const { return chrome_for_(shown_()); }
 
 Skyscope::Chrome Skyscope::chrome_for_(const Settings &s) {
   if (s.map != RADAR) {
@@ -271,16 +272,30 @@ void Skyscope::restyle_() {
   lv_obj_set_style_text_color(credit_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_bg_color(card_, lv_color_hex(c.card), 0);
   lv_obj_set_style_border_color(card_, lv_color_hex(c.muted), 0);
-  lv_obj_set_style_border_width(card_, settings_.map == RADAR ? std::max(1, ui::px(1)) : 0, 0);
-  lv_obj_set_style_radius(card_, settings_.map == RADAR ? 0 : ui::px(8), 0);
+  const bool radar = shown_().map == RADAR;
+  lv_obj_set_style_border_width(card_, radar ? std::max(1, ui::px(1)) : 0, 0);
+  lv_obj_set_style_radius(card_, radar ? 0 : ui::px(8), 0);
   // The brightness bar: the scope's phosphor on the radar, the accent over a map.
   lv_obj_set_style_bg_color(level_, lv_color_hex(c.card), 0);
-  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(settings_.map == RADAR ? colours::tint(settings_.tint).glow
-                                                                             : colours::ACCENT), 0);
+  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(radar ? colours::tint(settings_.tint).glow : colours::ACCENT), 0);
   lv_obj_set_style_text_color(level_text_, lv_color_hex(c.ink), 0);
   for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
   last_status_ = 0;
   update_card_();
+}
+
+void Skyscope::go_offline_(bool radio_only) {
+  offline_ = radio_only;
+  if (offline_) offline_settings_ = offline::shown(settings_);
+  ESP_LOGI(TAG, "%s", offline_ ? "No network: the radar, with the radio's planes" : "On the network again");
+  {
+    // The worker told in the same turn of the lock as the new frame, so it never asks the network for the old one.
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.offline = offline_;
+    replan_locked_();
+  }
+  restyle_();
+  seen_flights_rev_ = AGAIN;
 }
 
 void Skyscope::replan_() {
@@ -291,7 +306,7 @@ void Skyscope::replan_() {
 void Skyscope::replan_locked_() {
   if (width_ <= 0) return;
   const int scale = settings_.tile_scale ? settings_.tile_scale : tile_scale_;
-  plan_ = tiles::plan(settings_, width_, height_, scale);
+  plan_ = tiles::plan(shown_(), width_, height_, scale);
   plan_.view.round = round_;
   shared_.plan = plan_;
   plan_rev_ = ++shared_.plan_rev;
@@ -388,6 +403,9 @@ void Skyscope::loop() {
     if (!ui_built_) return;
   }
   const bool online = wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected();
+  // A screen with a radio, off a network for a while: the radar from the radio alone (offline.h).
+  const bool radio_only = offline_tracker_.update(radio_fitted, online, now);
+  if (radio_only != offline_) go_offline_(radio_only);
   {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.online = online;
@@ -760,6 +778,7 @@ void Skyscope::on_dimmer_(lv_event_t *e) {
 }
 
 void Skyscope::update_frame_() {
+  const Settings &s = shown_();
   uint32_t frame_rev, frame_plan_rev, airspace_rev;
   int done, total;
   std::shared_ptr<const airspace::Map> airspace;
@@ -770,13 +789,13 @@ void Skyscope::update_frame_() {
     done = shared_.tiles_done;
     total = shared_.tiles_total;
     airspace_rev = shared_.airspace_rev;
-    if (settings_.airspace) airspace = shared_.airspace;
+    if (s.airspace) airspace = shared_.airspace;
   }
-  const bool radar = settings_.map == RADAR;
+  const bool radar = s.map == RADAR;
   const bool new_plan = framed_plan_rev_ != plan_rev_;
   // The airspace came, or was switched on or off: the frame again, with it or without.
   const bool new_airspace =
-      settings_.airspace != drawn_airspace_ || (settings_.airspace && airspace_rev != drawn_airspace_rev_);
+      s.airspace != drawn_airspace_ || (s.airspace && airspace_rev != drawn_airspace_rev_);
   // The radar draws itself; a map waits for its worker to start on the new plan.
   if (!radar && (frame_plan_rev != plan_rev_ || (frame_rev == seen_frame_rev_ && !new_airspace))) return;
   if (radar && !new_plan && !new_airspace) return;
@@ -787,7 +806,7 @@ void Skyscope::update_frame_() {
       (fingers_.active || settle_at_ || (!radar && done < total && now - planned_at_ < WHOLE_FRAME_MS)))
     return;
   if (radar) {
-    lv_canvas_fill_bg(canvas_, lv_color_hex(colours::tint(settings_.tint).ground), LV_OPA_COVER);
+    lv_canvas_fill_bg(canvas_, lv_color_hex(colours::tint(s.tint).ground), LV_OPA_COVER);
   } else {
     std::unique_lock<std::mutex> frame(frame_lock_, std::try_to_lock);
     if (!frame.owns_lock()) return;
@@ -795,22 +814,22 @@ void Skyscope::update_frame_() {
   }
   seen_frame_rev_ = frame_rev;
   copied_at_ = now;
-  const scope::Look look{radar, settings_.tint, settings_.theme == LIGHT};
+  const scope::Look look{radar, s.tint, s.theme == LIGHT};
   if (airspace) {
     const int64_t from = esp_timer_get_time();
     airspace::draw(canvas_buffer_, plan_.view, *airspace, scope::airspace_ink(look));
     airspace_draw_ms_ = (esp_timer_get_time() - from) / 1000.0f;
   }
-  drawn_airspace_ = settings_.airspace;
+  drawn_airspace_ = s.airspace;
   drawn_airspace_rev_ = airspace_rev;
   // The scope on the radar (unless it is switched off), the rings over a map.
-  if (radar ? scope_shown(settings_) : settings_.rings) {
+  if (radar ? scope_shown(s) : s.rings) {
     lv_layer_t layer;
     lv_canvas_init_layer(canvas_, &layer);
     scope::draw(&layer, plan_.view, look);
     lv_canvas_finish_layer(canvas_, &layer);
   }
-  if (sweeps(settings_)) {
+  if (sweeps(s)) {
     const size_t bytes = (size_t) width_ * height_ * 2;
     if (!scope_background_)
       scope_background_ = static_cast<uint16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -824,7 +843,7 @@ void Skyscope::update_frame_() {
     // To the rose, where the beam turns (as view.cpp's scope_reach).
     painter_.reach = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0) + 2;
     painter_.beam_width = std::max(2, ui::px(3));
-    painter_.set_tint(colours::tint(settings_.tint));
+    painter_.set_tint(colours::tint(s.tint));
   } else if (scope_background_) {
     // No beam to wipe away: the clean copy let go, or closing the menu would put back the scope as it last swept (in
     // the phosphor it had then).
@@ -843,6 +862,7 @@ void Skyscope::update_frame_() {
 }
 
 void Skyscope::update_planes_(uint32_t now) {
+  const Settings &s = shown_();
   const int64_t started_us = esp_timer_get_time();
   uint32_t rev;
   {
@@ -850,23 +870,23 @@ void Skyscope::update_planes_(uint32_t now) {
     rev = shared_.flights_rev;
     if (rev != tracked_rev_) flights_ = shared_.flights;
   }
-  if (rev == seen_flights_rev_ || framed_plan_rev_ != plan_rev_ || !settings_.located) return;
+  if (rev == seen_flights_rev_ || framed_plan_rev_ != plan_rev_ || !s.located) return;
   const bool new_report = rev != tracked_rev_;
   if (new_report) {
     tracks_.update(flights_, now);
     tracked_rev_ = rev;
   }
   seen_flights_rev_ = rev;
-  const bool radar = settings_.map == RADAR;
-  plan::Overlay o = overlay::build(flights_, settings_, plan_.view, tracks_, lv_tick_get(), ui::px_per_mm, radar);
-  o.light = settings_.theme == LIGHT && !radar;
+  const bool radar = s.map == RADAR;
+  plan::Overlay o = overlay::build(flights_, s, plan_.view, tracks_, lv_tick_get(), ui::px_per_mm, radar);
+  o.light = s.theme == LIGHT && !radar;
   if (radar) {
     o.radar.on = true;
-    o.radar.tint = settings_.tint;
+    o.radar.tint = s.tint;
     o.radar.x = width_ / 2;
     o.radar.y = height_ / 2;
     o.radar.rose = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0);
-    o.radar.sweep = sweeps(settings_);
+    o.radar.sweep = sweeps(s);
   }
   shown_count_ = o.planes.size();
   view::show(view_, planes_, o);
@@ -949,12 +969,12 @@ void Skyscope::update_status_(uint32_t now) {
     title = "Joining Wi-Fi";
     body = "The screen restarts to join \"" + joining_ + "\". If it cannot, it opens its own network \"" +
            (setup_network_.empty() ? App.get_name() : setup_network_) + "\" again after a minute.";
-  } else if (portal) {
+  } else if (portal && !offline_) {
     title = "Set up Wi-Fi";
     body = "On a phone or computer, join the Wi-Fi network \"" + (setup_network_.empty() ? App.get_name() : setup_network_) +
            "\". A page opens to choose your network (or go to http://192.168.4.1). Or hold a finger here to choose it on "
            "the screen.";
-  } else if (!online) {
+  } else if (!online && !offline_) {
     title = "Connecting";
     // The network ESPHome is trying: the one saved by the setup page, Improv or the menu.
     std::string name;
@@ -964,10 +984,15 @@ void Skyscope::update_status_(uint32_t now) {
     }
     body = (name.empty() ? std::string("Joining the Wi-Fi network") : "Joining \"" + name + "\"") +
            "... Hold a finger here to choose another.";
+    if (radio_fitted) body += " Without a network, the radar shows the planes the radio hears.";
   } else if (!settings_.located) {
     title = "Where are you?";
-    body = "Hold a finger here to find the place to watch, or open http://" + own_address() +
-           "/ in a browser on the same network.";
+    if (offline_)
+      body = "With no network, the place cannot be looked up: hold a finger here and type its latitude and longitude "
+             "in the menu.";
+    else
+      body = "Hold a finger here to find the place to watch, or open http://" + own_address() +
+             "/ in a browser on the same network.";
   }
   set_shown(setup_, !title.empty());
   if (!title.empty()) {
@@ -995,21 +1020,24 @@ void Skyscope::update_status_(uint32_t now) {
   const uint32_t ink = chrome_().ink;
   uint32_t colour = ink;
   if (address_until_ && (int32_t) (now - address_until_) < 0) {
-    set_text(status_, "http://" + own_address() + "/  \xC2\xB7  " + std::to_string(settings_.range_nm) + " NM");
+    const std::string address = own_address();
+    set_text(status_, (address.empty() ? std::string("No network") : "http://" + address + "/") + "  \xC2\xB7  " +
+                          std::to_string(settings_.range_nm) + " NM");
     set_status_colour_(chrome_().ink);
     return;
   }
   address_until_ = 0;
   // The credits: the map's, and the exchange the planes come from.
-  std::string credit = tiles::credit(settings_);
-  if (settings_.airspace && credit.find("FAA") == std::string::npos)
+  const Settings &shown = shown_();
+  std::string credit = tiles::credit(shown);
+  if (shown.airspace && credit.find("FAA") == std::string::npos)
     credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "FAA";
   if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
   // The radar's scan, at its time (a loop's goes by), and its source as IEM asks.
-  if (settings_.radar_overlay && radar_scan)
+  if (shown.radar_overlay && radar_scan)
     credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "Radar " + radar::clock(radar_scan) + " NEXRAD/IEM";
   set_text(credit_, credit);
-  const Feed preferred = settings_.feed;
+  const Feed preferred = shown.feed;
   const providers::State &first = sources.state(preferred);
   if (sources.order().size == 0) {
     // The receiver chosen with no address, or the radio on a screen without one, and no other source allowed.
@@ -1040,7 +1068,9 @@ void Skyscope::update_status_(uint32_t now) {
       colour = colours::WARNING;
     }
   }
-  if (settings_.map != RADAR) {
+  // Off a network, the planes are the radio's alone, and said so.
+  if (offline_) status += "  \xC2\xB7  no Wi-Fi";
+  if (shown.map != RADAR) {
     if (plan_.tile_z < 0) {
       status += "  \xC2\xB7  no map at this range";
     } else if (!tile_error.empty()) {
@@ -1050,7 +1080,7 @@ void Skyscope::update_status_(uint32_t now) {
       status += "  \xC2\xB7  map " + std::to_string(done) + "/" + std::to_string(total);
     }
   }
-  if (settings_.airspace && !airspace_error.empty()) {
+  if (shown.airspace && !airspace_error.empty()) {
     status += "  \xC2\xB7  airspace: " + airspace_error;
     colour = colour == ink ? colours::WARNING : colour;
   }

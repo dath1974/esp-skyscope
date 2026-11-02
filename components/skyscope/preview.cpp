@@ -154,7 +154,7 @@ void Skyscope::draw_frozen_() {
   drawn_frozen_at_ = millis();
   if (!frozen_ || !frozen_shown_ || !canvas_buffer_) return;
   // The ground where the picture does not reach: the radar's, or the screen's own colour.
-  const uint32_t ground = settings_.map == RADAR ? colours::tint(settings_.tint).ground : chrome_().card;
+  const uint32_t ground = shown_().map == RADAR ? colours::tint(settings_.tint).ground : chrome_().card;
   pinch::stretch(frozen_, canvas_buffer_, width_, height_, pinch::transform(frozen_view_, target_view_),
                  lv_color_to_u16(lv_color_hex(ground)), frozen_columns_);
   lv_obj_invalidate(canvas_);

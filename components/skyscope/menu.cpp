@@ -398,7 +398,7 @@ void Skyscope::close_menu_() {
   menu_fw_line_ = menu_fw_install_ = menu_fw_check_ = nullptr;
   menu_save_ = menu_cancel_ = menu_up_ = menu_down_ = nullptr;
   // The radar's scope clean again (its beam stopped where it was while the menu was open), then the planes and beam.
-  if (settings_.map == RADAR && scope_background_ && canvas_buffer_) {
+  if (shown_().map == RADAR && scope_background_ && canvas_buffer_) {
     std::memcpy(canvas_buffer_, scope_background_, (size_t) width_ * height_ * 2);
     lv_obj_invalidate(canvas_);
   }

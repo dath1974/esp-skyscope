@@ -19,6 +19,7 @@
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/modes.h"
+#include "../components/skyscope/offline.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/pixels.h"
 #include "../components/skyscope/places.h"
@@ -279,6 +280,45 @@ static void test_settings() {
     change["feed"] = "receiver";
     CHECK(apply(change.as<JsonObjectConst>(), r, error) && r.feed == RECEIVER);
   }
+}
+
+// Off a network, a screen with a radio shows the radar from it alone, after a while; back on one, at once.
+static void test_offline() {
+  using offline::AFTER_MS;
+  {
+    offline::Tracker t;
+    CHECK(!t.update(true, false, 1000));  // the start, no network yet
+    CHECK(!t.update(true, false, 1000 + AFTER_MS - 1));
+    CHECK(t.update(true, false, 1000 + AFTER_MS));
+    CHECK(!t.update(true, true, 1000 + AFTER_MS + 5));  // the network back: online at once
+    // A blip does not take the map away, and the wait starts again from the next loss.
+    CHECK(!t.update(true, false, 100000));
+    CHECK(!t.update(true, true, 100000 + AFTER_MS / 2));
+    CHECK(!t.update(true, false, 100000 + AFTER_MS));
+    CHECK(!t.update(true, false, 100000 + 2 * AFTER_MS - 1));
+    CHECK(t.update(true, false, 100000 + 2 * AFTER_MS));
+  }
+  {
+    // A screen without a radio never runs offline: it has nothing to show without the network.
+    offline::Tracker t;
+    CHECK(!t.update(false, false, 0) && !t.update(false, false, 10 * AFTER_MS) && !t.offline());
+  }
+  {
+    // millis() wrapping round counts as time going on.
+    offline::Tracker t;
+    CHECK(!t.update(true, false, UINT32_MAX - 100));
+    CHECK(t.update(true, false, AFTER_MS));
+  }
+  Settings s;
+  s.map = SECTIONAL;
+  s.feed = ADSB_LOL;
+  s.fallback = true;
+  s.airspace = s.radar_overlay = s.radar_loop = true;
+  s.tint = AMBER;
+  const Settings o = offline::shown(s);
+  CHECK(o.map == RADAR && o.feed == RADIO && !o.fallback && !o.airspace && !o.radar_overlay && !o.radar_loop);
+  CHECK(o.tint == AMBER && s.map == SECTIONAL);  // the rest as set, and the settings themselves kept
+  CHECK(!tiles::has_tiles(o.map) && tiles::plan(o, 400, 400, 1).keys.empty());
 }
 
 static const char *REPLY = R"({"ac":[
@@ -1786,6 +1826,7 @@ static void test_firmware() {
 int main(int argc, char **argv) {
   test_geo();
   test_settings();
+  test_offline();
   test_scope();
   test_airspace();
   test_feed();
