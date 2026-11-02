@@ -24,6 +24,7 @@
 #endif
 #ifdef USE_UPDATE
 #include "esphome/components/http_request/update/http_request_update.h"
+#include "esphome/components/update/update_entity.h"
 #endif
 
 #include <freertos/FreeRTOS.h>
@@ -94,6 +95,7 @@ class Skyscope : public Component,
 #endif
 #ifdef USE_UPDATE
   void set_firmware(http_request::HttpRequestUpdate *firmware) { firmware_ = firmware; }
+  void set_coprocessor(update::UpdateEntity *coprocessor) { coprocessor_ = coprocessor; }
 #endif
 
   void setup() override;
@@ -323,7 +325,11 @@ class Skyscope : public Component,
   firmware::Tracker install_;
 #ifdef USE_UPDATE
   http_request::HttpRequestUpdate *firmware_{nullptr};
+  update::UpdateEntity *coprocessor_{nullptr};
 #endif
+  // The Wi-Fi chip's firmware being brought in line with the one this firmware carries: tried once a start.
+  bool coprocessor_tried_{false}, coprocessor_updating_{false};
+  void update_coprocessor_();
   uint32_t taps_from_{0};  // taps before this (the one that woke the screen) do nothing
   // A drag on the brightness strip: where it started, the brightness then, whether it moved, and the level shown.
   int32_t drag_y_{0};

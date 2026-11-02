@@ -412,6 +412,7 @@ void Skyscope::loop() {
     last_tick_ = now;
     view::tick(view_, lv_tick_get());
   }
+  update_coprocessor_();
   if (now - last_status_ >= 500) {
     last_status_ = now;
     update_status_(now);
@@ -896,6 +897,27 @@ void Skyscope::update_card_() {
   set_shown(card_, true);
 }
 
+// A Wi-Fi chip (an ESP-Hosted coprocessor) running other firmware than the one this firmware carries is brought in line
+// at once: a mismatched one may give no Wi-Fi at all, so this cannot wait for a press on the page. The screen says so
+// first, and the install (which holds the loop until it is done, then restarts) starts once that is on the glass. A
+// failed one is not tried again until the next start.
+void Skyscope::update_coprocessor_() {
+#ifdef USE_UPDATE
+  if (!coprocessor_ || coprocessor_tried_ || coprocessor_->state != update::UPDATE_STATE_AVAILABLE) return;
+  coprocessor_tried_ = coprocessor_updating_ = true;
+  ESP_LOGW(TAG, "Wi-Fi chip runs %s, this firmware carries %s: installing it",
+           coprocessor_->update_info.current_version.c_str(), coprocessor_->update_info.latest_version.c_str());
+  update_status_(millis());
+  set_timeout("coprocessor", 1500, [this]() {
+    coprocessor_->perform();
+    // Done, the restart is on its way and the words stay up; failed, the screen goes on with the chip as it is.
+    if (coprocessor_->state == update::UPDATE_STATE_NO_UPDATE) return;
+    coprocessor_updating_ = false;
+    ESP_LOGE(TAG, "The Wi-Fi chip's update failed");
+  });
+#endif
+}
+
 void Skyscope::update_status_(uint32_t now) {
   std::string title, body;
   const bool online = wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected();
@@ -903,7 +925,11 @@ void Skyscope::update_status_(uint32_t now) {
 #ifdef USE_CAPTIVE_PORTAL
   portal = captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
 #endif
-  if (install_.updating) {
+  if (coprocessor_updating_) {
+    title = "Updating the Wi-Fi chip";
+    body = "Its firmware is being brought up to date with the screen's. The screen restarts by itself when it is done, "
+           "in a minute or so.";
+  } else if (install_.updating) {
     title = "Updating";
     body = "New firmware is being installed. The screen restarts by itself when it is done.";
   } else if (!joining_.empty()) {

@@ -51,8 +51,12 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
 skyscope.yaml`, or `make firmware BOARD=waveshare-p4-lcd-4c`. Each board builds in a folder of its own
 (`.esphome/build/skyscope-<board>`), and a release carries a firmware for each, which a screen tells apart by its chip.
 
-The P4 board's file is for production P4 silicon (v3), which the 4C ships with; a board with an early chip (its
-boot log says `chip revision: v1.x`) would need `engineering_sample: true` in the file and a build of its own. The
+The P4 board takes its Wi-Fi from the ESP32-C6 beside it, which runs Espressif's ESP-Hosted firmware. The P4's
+firmware carries the C6's (`boards/esp-hosted/`, checked by its SHA-256): at start, a C6 running any other version is
+updated over the link between the two chips, with **Updating the Wi-Fi chip** on the glass, so the C6 needs only some
+ESP-Hosted to begin with, as it has from Waveshare (`boards/esp-hosted/README.md` says what to do if not). Its file is
+for production P4 silicon (v3), which the 4C ships with; a board with an early chip (its boot log says `chip revision:
+v1.x`) would need `engineering_sample: true` in the file and a build of its own. The
 glass is round, and the screen keeps everything inside the circle: the pages and the keyboard in the largest square it
 holds, the status, the credit and a plane's card moved in from the edge as far as their width needs, and no plane or
 label in the corners beyond it (`skyscope:` `round: true`, `glass.h`).

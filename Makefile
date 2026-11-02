@@ -74,6 +74,15 @@ firmware:
 	    exit 2; }
 	@test -f boards/$(BOARD).yaml || \
 	  { echo "No boards/$(BOARD).yaml: BOARD is one of $(BOARDS)"; exit 2; }
+	@want=$$(sed -nE 's|.*network_adapter_[a-z0-9]+-([0-9.]+)\.bin.*|\1|p' \
+	  boards/$(BOARD).yaml | head -1); \
+	test -z "$$want" || { \
+	  py=$$(head -1 "$$(command -v esphome)" | sed 's/^#!//'); \
+	  have=$$($$py tools/esp_hosted_version.py) || exit 2; \
+	  test "$$want" = "$$have" || \
+	    { echo "boards/$(BOARD).yaml carries ESP-Hosted $$want for its" \
+	      "Wi-Fi chip; this ESPHome builds $$have:" \
+	      "boards/esp-hosted/README.md"; exit 2; }; }
 	esphome -s board $(BOARD) compile skyscope.yaml
 
 firmware-all:

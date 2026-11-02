@@ -14,4 +14,8 @@ Libraries the firmware is built with (fetched at build time, not copied here):
   JPEGDEC (https://github.com/bitbank2/JPEGDEC): Apache-2.0.
   Roboto and Roboto Condensed (Google Fonts): SIL Open Font License 1.1.
 
+Copied here: boards/esp-hosted/network_adapter_esp32c6-*.bin, Espressif's ESP-Hosted firmware for an ESP32-C6
+(https://github.com/espressif/esp-hosted-mcu), Apache-2.0, as ESPHome builds and publishes it
+(https://github.com/esphome/esp-hosted-firmware), unchanged. The P4 board's firmware carries it for its Wi-Fi chip.
+
 Data the screen downloads at run time belongs to its providers and comes under their terms (README.md, "Data sources").

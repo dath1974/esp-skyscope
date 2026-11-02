@@ -127,6 +127,24 @@ class TheReleaseMatchesTheConfig(unittest.TestCase):
             self.assertEqual(chip, "ESP32-" + variant.group(1).upper().removeprefix("ESP32"), board)
             self.assertIn(f"-s board {shlex.quote(board)} compile skyscope.yaml", workflow, board)
 
+    def test_the_wifi_chips_firmware_is_the_one_named(self):
+        # A board that carries its Wi-Fi chip's firmware names a file that is here, with the SHA-256 it has (ESPHome
+        # checks it again at build time), and a file named for the version inside it.
+        for board in sorted((ROOT / "boards").glob("*.yaml")):
+            config = board.read_text()
+            path = re.search(r"^    path: (boards/esp-hosted/network_adapter_\w+-([0-9.]+)\.bin)$", config, re.M)
+            if not path:
+                continue
+            image = (ROOT / path.group(1)).read_bytes()
+            sha = re.search(r"^    sha256: ([0-9a-f]{64})$", config, re.M)
+            self.assertIsNotNone(sha, board.name)
+            self.assertEqual(hashlib.sha256(image).hexdigest(), sha.group(1), board.name)
+            # The version ESP-IDF writes into the image (esp_app_desc_t, after the image and segment headers), which
+            # the screen compares with the chip's.
+            desc = 24 + 8
+            self.assertEqual(int.from_bytes(image[desc:desc + 4], "little"), 0xABCD5432, board.name)
+            self.assertEqual(image[desc + 16:desc + 48].split(b"\0")[0].decode(), path.group(2), board.name)
+
     def test_the_default_board_is_one(self):
         config = (ROOT / "skyscope.yaml").read_text()
         board = re.search(r"^  board: ([a-z0-9-]+)$", config, re.M)

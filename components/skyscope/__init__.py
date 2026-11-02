@@ -27,6 +27,7 @@ CONF_ROUND = "round"
 CONF_TIME_ID = "time_id"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_UPDATE_ID = "update_id"
+CONF_COPROCESSOR_UPDATE_ID = "coprocessor_update_id"
 CONF_TEST_API = "test_api"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
@@ -48,6 +49,9 @@ Touchscreen = touchscreen_ns.class_("Touchscreen")
 
 http_request_ns = cg.esphome_ns.namespace("http_request")
 HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
+
+update_ns = cg.esphome_ns.namespace("update")
+UpdateEntity = update_ns.class_("UpdateEntity")
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -79,6 +83,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
         # Firmware from the internet (an http_request update): the web page shows it and installs it.
         cv.Optional(CONF_UPDATE_ID): cv.use_id(HttpRequestUpdate),
+        # The Wi-Fi chip's own firmware, carried in this one (an esp32_hosted update, type embedded): installed at once
+        # whenever the chip runs another, with the screen saying so.
+        cv.Optional(CONF_COPROCESSOR_UPDATE_ID): cv.use_id(UpdateEntity),
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
         cv.Optional(CONF_TEST_API, default=True): cv.boolean,
@@ -135,6 +142,8 @@ async def to_code(config):
         cg.add_define("SKYSCOPE_TEST_API")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
+    if CONF_COPROCESSOR_UPDATE_ID in config:
+        cg.add(var.set_coprocessor(await cg.get_variable(config[CONF_COPROCESSOR_UPDATE_ID])))
     # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_scan_results()

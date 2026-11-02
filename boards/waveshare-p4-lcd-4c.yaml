@@ -56,6 +56,19 @@ esp32_hosted:
   d2_pin: GPIO16
   d3_pin: GPIO17
 
+# The C6's own firmware travels in this one: ESP-Hosted as ESPHome builds it (esphome/esp-hosted-firmware), the version
+# this ESPHome's host side is (ESPHome pins espressif/esp_hosted; `make firmware` checks the two agree). A C6 running
+# any other is updated over the same SDIO link at start (the skyscope: block's coprocessor_update_id), whatever the
+# board came with, as long as it runs some ESP-Hosted to take the update. One that does not:
+# boards/esp-hosted/README.md.
+update:
+  - platform: esp32_hosted
+    id: coprocessor
+    name: Wi-Fi chip firmware
+    type: embedded
+    path: boards/esp-hosted/network_adapter_esp32c6-2.12.13.bin
+    sha256: 09e4ed4ff648444ad045c1d934825af407648f58898586ce9f4275e53fdb23f6
+
 i2c:
   id: touch_bus
   sda: GPIO7
@@ -116,3 +129,4 @@ skyscope:
   touchscreen_id: touch
   # The glass is a circle: what the screen shows stays inside it.
   round: true
+  coprocessor_update_id: coprocessor
