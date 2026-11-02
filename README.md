@@ -24,7 +24,10 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
   coloured by altitude; labels kept apart from each other, their altitude in hundreds of feet as on a controller's
   scope (`025`, `350`, and `-001` below sea level) with an arrow after it for a climb or a descent of 200 ft a
-  minute or more; tracks of the last seconds; planes
+  minute or more. A label shows the callsign, the altitude, or the type and speed as well, or is a controller's
+  data block (`Scope`): the callsign over altitude, ground speed in tens of knots and the FAA's wake category
+  (`350 43 B`: A super to I lower small, by type from FAA Order JO 7360.1, `tools/wake_table.py`). Tracks of the
+  last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a

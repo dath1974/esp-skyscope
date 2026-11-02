@@ -47,8 +47,8 @@ inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
 // "plane" is one airliner for every aircraft; "type" each drawn as its kind (shapes.h): a helicopter, a heavy, a drone.
 enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE, MARKER_TYPE };
 inline constexpr Names<4> MARKERS{{"dot", "arrow", "plane", "type"}};
-enum LabelKind : uint8_t { LABEL_AUTO, LABEL_NONE, LABEL_CALLSIGN, LABEL_ALTITUDE, LABEL_FULL };
-inline constexpr Names<5> LABELS{{"auto", "none", "callsign", "altitude", "full"}};
+enum LabelKind : uint8_t { LABEL_AUTO, LABEL_NONE, LABEL_CALLSIGN, LABEL_ALTITUDE, LABEL_FULL, LABEL_SCOPE };
+inline constexpr Names<6> LABELS{{"auto", "none", "callsign", "altitude", "full", "scope"}};
 inline constexpr Names<6> WATCH_COLOURS{{"red", "orange", "amber", "green", "blue", "purple"}};
 
 inline constexpr int RANGES_NM[] = {2, 3, 5, 8, 10, 15, 20, 30, 40, 60, 80, 120, 160, 250};

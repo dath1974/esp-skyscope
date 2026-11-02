@@ -14,6 +14,7 @@
 #include "plan.h"
 #include "settings.h"
 #include "shapes.h"
+#include "wake.h"
 
 namespace sky::overlay {
 // Altitude bands a marker is coloured by (tar1090's rainbow): on the ground, below 5,000 ft, below 15,000, below
@@ -161,6 +162,23 @@ inline std::string speed_text(const feed::Flight &f, bool metric) {
   else std::snprintf(out, sizeof(out), "%ld kt", std::lround(f.speed));
   return out;
 }
+// The speed in a scope's data block: tens of knots ("43" for 430 kt), or tens of km/h on a metric screen.
+inline std::string block_speed(const feed::Flight &f, bool metric) {
+  if (!f.has_speed) return "";
+  char out[24];
+  std::snprintf(out, sizeof(out), "%02ld", std::lround((metric ? f.speed * 1.852 : f.speed) / 10));
+  return out;
+}
+// A plane's wake category as a controller's scope shows it, the FAA's Consolidated Wake Turbulence category: A
+// super, B upper heavy, C lower heavy, D non-pairwise heavy, E 757, F upper large, G lower large, H upper small, I
+// lower small. From its type (wake.h); a type the FAA's list does not have is told only where its transponder's class
+// leaves no doubt, a light aircraft (A1, under 15,500 lb) or a 757 (A4); "" otherwise.
+inline std::string wake_of(const feed::Flight &f) {
+  if (const char cwt = wake::of_type(f.type.c_str())) return std::string(1, cwt);
+  if (f.category == "A1") return "I";
+  if (f.category == "A4") return "E";
+  return "";
+}
 inline std::string name_of(const feed::Flight &f) {
   if (!f.callsign.empty()) return f.callsign;
   if (!f.registration.empty()) return f.registration;
@@ -169,7 +187,8 @@ inline std::string name_of(const feed::Flight &f) {
   return hex;
 }
 
-// A label, its lines joined by '\n': the name, then its altitude, then its speed and type.
+// A label, its lines joined by '\n': the name, then its altitude, then its speed and type (or on a scope's data block
+// its speed and wake category).
 inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) {
   if (kind == LABEL_NONE) return "";
   const std::string name = name_of(f);
@@ -177,6 +196,13 @@ inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) 
   std::string altitude = f.on_ground ? std::string("GND") : block_altitude(f, metric);
   if (!altitude.empty()) altitude += climb_arrow(f);
   if (kind == LABEL_ALTITUDE) return altitude.empty() ? name : name + "\n" + altitude;
+  if (kind == LABEL_SCOPE) {
+    // Like a controller's data block: "N1234" over "350 43 H", whatever the plane does not send left out.
+    std::string second;
+    for (const std::string &field : {altitude, block_speed(f, metric), wake_of(f)})
+      if (!field.empty()) second += (second.empty() ? "" : " ") + field;
+    return second.empty() ? name : name + "\n" + second;
+  }
   std::string first = name, second = altitude;
   if (!f.type.empty()) first += " " + f.type;
   const std::string speed = speed_text(f, metric);

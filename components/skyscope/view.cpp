@@ -226,8 +226,10 @@ static std::string style_of(const ap::Overlay &o, const ap::Plane &p) {
 static std::string label_key(const ap::Overlay &o, const ap::Plane &p, size_t i) {
   return (p.id.empty() ? "#" + std::to_string(i) : p.id) + '\x1f' + p.label + '\x1f' + style_of(o, p);
 }
+// Labels on the map are in the small font: the planes' labels crowd each other less, as a scope's data blocks do.
+static const lv_font_t *label_font() { return ui::fonts.small ? ui::fonts.small : ui::fonts.label; }
 static void render_labels(View *view) {
-  const lv_font_t *font = ui::fonts.label ? ui::fonts.label : ui::fonts.small;
+  const lv_font_t *font = label_font();
   if (!font || !view->layer) return;
   static lv_obj_t *canvas = nullptr;
   if (!canvas) {
@@ -444,7 +446,7 @@ static void draw(lv_event_t *e) {
   lap(ui::MARKERS);
   // The labels last, over everything: a soft pill of the card's colour with the plane's lines in ink, kept apart from each
   // other and from the markers, with a leader line to a label moved off its plane (aircraft_plan.h place_labels).
-  const lv_font_t *font = ui::fonts.label ? ui::fonts.label : ui::fonts.small;
+  const lv_font_t *font = label_font();
   if (!font) return;
   const int line_h = lv_font_get_line_height(font);
   const int frame_w = lv_area_get_width(&a), frame_h = lv_area_get_height(&a);

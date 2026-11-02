@@ -620,6 +620,39 @@ static void test_overlay() {
           overlay::label_of(flights[0], LABEL_FULL, false) == down + " 450 kt");
   }
   CHECK(overlay::label_of(flights[2], LABEL_CALLSIGN, false) == "ABC004");
+  {
+    // A scope's data block: altitude in hundreds of feet, speed in tens of knots, the wake category.
+    feed::Flight block = flights[0];
+    block.has_climb = false;
+    block.speed = 432;
+    CHECK(overlay::label_of(block, LABEL_SCOPE, false) == "TEST12\n350 43 F");
+    // The FAA's categories by type, A to I, else the transponder's class only where it leaves no doubt.
+    for (const auto &[type, cwt] : std::initializer_list<std::pair<const char *, const char *>>{
+             {"A388", "A"}, {"B77W", "B"}, {"B763", "C"}, {"B703", "D"}, {"B752", "E"}, {"A320", "F"},
+             {"CRJ9", "G"}, {"C56X", "H"}, {"C172", "I"}, {"A35K", "D"}}) {
+      block.type = type;
+      CHECK(overlay::wake_of(block) == cwt);
+    }
+    block.type = "XXXX";
+    block.category = "A1";
+    CHECK(overlay::wake_of(block) == "I");
+    block.category = "A4";
+    CHECK(overlay::wake_of(block) == "E");
+    block.category = "A5";
+    CHECK(overlay::wake_of(block) == "");
+    block.type = "";
+    block.category = "";
+    CHECK(overlay::wake_of(block) == "");
+    block.type = "B738";
+    block.speed = 95;
+    block.has_climb = true;
+    block.climb = 900;
+    CHECK(overlay::label_of(block, LABEL_SCOPE, false) == std::string("TEST12\n350") + plan::ARROW_UP + " 10 F");
+    CHECK(overlay::block_speed(block, true) == "18");
+    block.has_speed = false;
+    block.has_altitude = false;
+    CHECK(overlay::label_of(block, LABEL_SCOPE, false) == "TEST12\nF");
+  }
   CHECK(overlay::altitude_text(flights[2], false) == "2500 ft" && overlay::altitude_text(flights[2], true) == "760 m");
   CHECK(overlay::label_of(flights[2], LABEL_ALTITUDE, false) == "ABC004\n025");
   {

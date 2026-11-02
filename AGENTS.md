@@ -13,7 +13,7 @@ guide; read it for what the screen does and how it is set up.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
-    `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`
+    `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`, `wake.h`
     (namespace `sky`). Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, and the P4's radio, `rtlsdr.cpp` and `radio.cpp`
@@ -22,7 +22,8 @@ guide; read it for what the screen does and how it is set up.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
   `device_test.py` and `mock_feed.py` (against a real screen).
-- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet).
+- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `wake_table.py` (`wake.h`,
+  each type's wake category from the FAA's list).
 
 ## Build and test
 

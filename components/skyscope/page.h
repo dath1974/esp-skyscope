@@ -67,7 +67,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div><label for="alt_max">Highest (ft)</label><input id="alt_max" name="alt_max" type="number" min="0" max="60000" step="500"></div>
 <div><label for="most">Most shown</label><input id="most" name="most" type="number" min="1" max="60"></div></div>
 <div class="row3"><div><label for="marker">Marker</label><select id="marker" name="marker"><option value="type">plane by type</option><option>plane</option><option>arrow</option><option>dot</option></select></div>
-<div><label for="label">Label</label><select id="label" name="label"><option value="auto">Automatic</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option></select></div>
+<div><label for="label">Label</label><select id="label" name="label"><option value="auto">Automatic</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
 <div><label for="track_s">Track (s, 0 for none)</label><input id="track_s" name="track_s" type="number" min="0" max="300"></div></div>
 <label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Colour by altitude</label>
 <label class="check"><input type="checkbox" id="glide" name="glide"> Glide between reports</label>
