@@ -97,7 +97,8 @@ inline const std::vector<Row> &rows() {
        .hint = "A registration, callsign or ICAO hex and a colour (red, orange, amber, green, blue, purple), with a "
                "comma between: N12345 red, BAW123 blue",
        .most = 240},
-      {"feed", "Source", TEXT, {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}, {"receiver", "Receiver"}}},
+      {"feed", "Source", TEXT,
+       {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}, {"receiver", "Receiver"}, {"radio", "Radio"}}},
       {"fallback", "Use the other", FLAG, {}},
       {.key = "receiver_url", .name = "Receiver", .kind = TEXT, .pad = WORDS,
        .hint = "A receiver's aircraft.json: http://receiver.local/tar1090/data/aircraft.json", .most = 160},
@@ -222,7 +223,7 @@ inline std::string shown(const Row &row, const Settings &s) {
 
 // `s` with `row` one step on (`step` 1) or back (-1). Words go round; numbers stop at their ends, and a number between
 // two choices steps to the next one its way. The map skips the custom server, and the source a receiver, where none is
-// set. False when nothing changes or the settings refuse it.
+// set, and the radio on a screen without one. False when nothing changes or the settings refuse it.
 inline bool stepped(const Row &row, Settings &s, int step) {
   if (!steps(row)) return false;
   JsonDocument now;
@@ -263,6 +264,7 @@ inline bool stepped(const Row &row, Settings &s, int step) {
         if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "receiver" &&
             s.receiver_url.empty())
           continue;
+        if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "radio" && !radio_fitted) continue;
         break;
       }
       if (next == at) return false;

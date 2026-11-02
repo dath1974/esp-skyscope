@@ -214,6 +214,30 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       }
       if (s.paced_ms && providers::before(now_ms, s.paced_until)) e["paced_s"] = (s.paced_ms + 999) / 1000;
     }
+#ifdef USE_SKYSCOPE_RADIO
+    // The screen's own radio: what it is doing, and what it hears.
+    if (radio_) {
+      const Radio::Stats r = radio_->stats();
+      JsonObject o = out["radio"].to<JsonObject>();
+      o["state"] = r.state;
+      o["streaming"] = r.streaming;
+      o["tuner"] = r.tuner;
+      o["gain_db"] = r.gain_tenths < 0 ? -1.0f : r.gain_tenths / 10.0f;
+      o["samples_per_s"] = (uint32_t) r.samples_per_s;
+      o["messages_per_s"] = r.messages_per_s;
+      o["messages"] = r.messages;
+      o["mended"] = r.mended;
+      o["rejected"] = r.rejected;
+      o["unknown"] = r.unknown;
+      o["positions"] = r.positions;
+      o["bad_positions"] = r.bad_positions;
+      o["dropped_kb"] = (uint32_t) (r.dropped_bytes / 1024);
+      o["transfer_errors"] = r.transfer_errors;
+      o["noise"] = r.noise;
+      o["planes"] = r.planes;
+      o["placed"] = r.placed;
+    }
+#endif
     out["tiles_done"] = shared_.tiles_done;
     out["tiles_total"] = shared_.tiles_total;
     out["tile_error"] = shared_.tile_error;

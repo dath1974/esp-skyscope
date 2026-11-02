@@ -56,7 +56,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps (with the scope)</label>
 </section>
 <section><h2>Aircraft</h2>
-<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">Your own receiver</option></select></div>
+<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">Your own receiver</option><option value="radio" hidden>This screen's radio</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
 <div id="receiver"><label for="receiver_url">Receiver address</label><input id="receiver_url" name="receiver_url" placeholder="http://receiver.local/tar1090/data/aircraft.json">
 <p class="hint">The aircraft.json of a receiver on your network (readsb, tar1090, dump1090-fa). It lists every plane it hears; the screen shows the ones on its map. {lat}, {lon} and {dist} in the address are replaced by the place and range, for a server that takes them.</p></div>
@@ -215,16 +215,23 @@ let named=false;
 function name_rotations(native){if(named||!native)return;named=true;const [w,h]=native.split('x').map(Number);
  for(const o of $('rotation').options){const a=+o.value;if(a<0)continue;const wide=(a%180===0)?w>h:h>w;
   o.textContent=a+'\u00b0, '+(wide?'landscape':'portrait')+(a===0?' (least expensive)':a===180?' (cheap)':'')}}
+// The screen's own radio, from /api/status: what it is doing and, while it listens, what it hears.
+function radio_words(r){let t='Radio: '+r.state;if(!r.streaming)return t;
+ return t+', '+r.messages_per_s.toFixed(1)+' messages a second, '+r.placed+' of '+r.planes+' planes placed'
+ +(r.gain_db<0?', automatic gain':', gain '+r.gain_db.toFixed(1)+' dB')+(r.dropped_kb?', '+r.dropped_kb+' KB of samples dropped':'')}
 // The same countdown as the screen's (feed.h countdown): hours and minutes from an hour and a half, else m:ss.
 function wait(t){return t>=5400?Math.floor(t/3600)+' h '+String(Math.floor(t%3600/60)).padStart(2,'0')+' min'
  :Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
- const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol',receiver:'receiver'};
+ const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol',receiver:'receiver',radio:'radio'};
  let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+NAMES[s.feed_source]:'');
  const waits=(s.feeds||[]).filter(f=>f.waiting).map(f=>NAMES[f.feed]+': '+f.error+', again in '+wait(f.retry_in_s));
  if(waits.length)t+=' · '+waits.join(' · ');
- $('sources').textContent=(s.feeds||[]).map(f=>NAMES[f.feed]+': '+(f.waiting?f.error+' ('+f.failures+(f.failures>1?' times':' time')+' in a row), again in '+wait(f.retry_in_s):'available')+(f.paced_s?', asked at most every '+f.paced_s+' s':'')).join(' · ');
+ $('sources').textContent=(s.feeds||[]).map(f=>NAMES[f.feed]+': '+(f.waiting?f.error+' ('+f.failures+(f.failures>1?' times':' time')+' in a row), again in '+wait(f.retry_in_s):'available')+(f.paced_s?', asked at most every '+f.paced_s+' s':'')).join(' · ')
+  +(s.radio?' · '+radio_words(s.radio):'');
+ // The radio among the sources only on a screen that has one.
+ $('feed').querySelector('option[value=radio]').hidden=!s.radio;
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  if(s.time)$('clock').textContent=s.time;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}

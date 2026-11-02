@@ -103,3 +103,14 @@ test('every time zone in the list is one the screen reads', () => {
   for (const zone of Object.values(IANA)) assert.ok(options.includes(zone), `${zone} is not in the list`);
   for (const zone of options.filter(v => /^[A-Z<]/.test(v) && /\d/.test(v))) assert.match(zone, /^([A-Z]{3,}|<[^>]+>)[-+]?\d/);
 });
+
+test("the radio's words say what it is doing, and what it hears while it listens", () => {
+  const { radio_words } = load('radio_words');
+  assert.equal(radio_words({ state: 'No radio: plug in the stick', streaming: false }),
+               'Radio: No radio: plug in the stick');
+  const listening = radio_words({ state: 'Listening at 1090 MHz', streaming: true, messages_per_s: 41.26, planes: 30,
+                                  placed: 24, gain_db: 49.6, dropped_kb: 0 });
+  assert.equal(listening, 'Radio: Listening at 1090 MHz, 41.3 messages a second, 24 of 30 planes placed, gain 49.6 dB');
+  assert.match(radio_words({ state: 'x', streaming: true, messages_per_s: 0, planes: 0, placed: 0, gain_db: -1,
+                             dropped_kb: 12 }), /automatic gain, 12 KB of samples dropped$/);
+});

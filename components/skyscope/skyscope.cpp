@@ -595,6 +595,13 @@ void Skyscope::build_ui_() {
   make_probe_input_();
 #endif
   replan_();
+#ifdef USE_SKYSCOPE_RADIO
+  // The radio's tasks, on the worker's core above it, before the worker asks it for planes; the stick is opened
+  // whenever one is plugged in.
+  radio_fitted = true;
+  radio_ = std::make_unique<Radio>();
+  radio_->start(radio_config_);
+#endif
   // Its stack in internal RAM: a TLS handshake needs some 8 KB of it. Core 0, beside Wi-Fi, away from LVGL.
   if (xTaskCreatePinnedToCore(worker_main, "skyscope", 16384, this, 3, &worker_task_, 0) != pdPASS)
     ESP_LOGE(TAG, "The worker did not start");
@@ -999,8 +1006,9 @@ void Skyscope::update_status_(uint32_t now) {
   const Feed preferred = settings_.feed;
   const providers::State &first = sources.state(preferred);
   if (sources.order().size == 0) {
-    // The receiver chosen, with no address and no other source allowed.
-    status = "No receiver address: set it on the web page";
+    // The receiver chosen with no address, or the radio on a screen without one, and no other source allowed.
+    status = preferred == RADIO ? "This screen has no radio: choose another source"
+                                : "No receiver address: set it on the web page";
     colour = colours::WARNING;
   } else if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
     // Every exchange it may ask is waiting: the one free soonest, and when.

@@ -28,6 +28,9 @@ CONF_TIME_ID = "time_id"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_UPDATE_ID = "update_id"
 CONF_COPROCESSOR_UPDATE_ID = "coprocessor_update_id"
+CONF_RADIO = "radio"
+CONF_GAIN = "gain"
+CONF_PPM = "ppm"
 CONF_TEST_API = "test_api"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
@@ -86,6 +89,20 @@ CONFIG_SCHEMA = cv.Schema(
         # The Wi-Fi chip's own firmware, carried in this one (an esp32_hosted update, type embedded): installed at once
         # whenever the chip runs another, with the screen saying so.
         cv.Optional(CONF_COPROCESSOR_UPDATE_ID): cv.use_id(UpdateEntity),
+        # An RTL-SDR stick (RTL2832U with an R820T or R820T2 tuner) on the board's USB port, listening at 1090 MHz
+        # (radio.h): a source of planes of the screen's own. It needs a high-speed USB host, which only the ESP32-P4
+        # has. `gain` is the tuner's in dB (up to 49.6; "auto" for its own AGC), `ppm` the stick's crystal error.
+        cv.Optional(CONF_RADIO): cv.All(
+            cv.Schema(
+                {
+                    cv.Optional(CONF_GAIN, default=49.6): cv.Any(
+                        cv.one_of("auto", lower=True), cv.float_range(min=0, max=49.6)
+                    ),
+                    cv.Optional(CONF_PPM, default=0): cv.int_range(min=-200, max=200),
+                }
+            ),
+            esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
+        ),
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
         cv.Optional(CONF_TEST_API, default=True): cv.boolean,
@@ -144,6 +161,15 @@ async def to_code(config):
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
     if CONF_COPROCESSOR_UPDATE_ID in config:
         cg.add(var.set_coprocessor(await cg.get_variable(config[CONF_COPROCESSOR_UPDATE_ID])))
+    if radio := config.get(CONF_RADIO):
+        gain = radio[CONF_GAIN]
+        cg.add_define("USE_SKYSCOPE_RADIO")
+        cg.add(var.set_radio(-1 if gain == "auto" else int(round(gain * 10)), radio[CONF_PPM]))
+        # ESP-IDF's USB host (in ESP-IDF itself before 6.0), its transfers' buffers in PSRAM, where the P4's USB DMA
+        # reaches: the stream's would otherwise take internal RAM.
+        if esp32.idf_version() >= cv.Version(6, 0, 0):
+            esp32.add_idf_component(name="espressif/usb", ref="1.4.1")
+        esp32.add_idf_sdkconfig_option("CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM", True)
     # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_scan_results()

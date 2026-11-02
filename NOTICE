@@ -14,6 +14,11 @@ Libraries the firmware is built with (fetched at build time, not copied here):
   JPEGDEC (https://github.com/bitbank2/JPEGDEC): Apache-2.0.
   Roboto and Roboto Condensed (Google Fonts): SIL Open Font License 1.1.
 
+The RTL-SDR stick's registers and their values (components/skyscope/rtlsdr.cpp) are those the osmocom rtl-sdr project
+(https://osmocom.org/projects/rtl-sdr) found and documented; the code that writes them is this project's own. The Mode S
+and ADS-B decoding follows ICAO's published standards as set out in "The 1090 Megahertz Riddle" (Junzi Sun), whose
+example messages the tests read.
+
 Copied here: boards/esp-hosted/network_adapter_esp32c6-*.bin, Espressif's ESP-Hosted firmware for an ESP32-C6
 (https://github.com/espressif/esp-hosted-mcu), Apache-2.0, as ESPHome builds and publishes it
 (https://github.com/esphome/esp-hosted-firmware), unchanged. The P4 board's firmware carries it for its Wi-Fi chip.

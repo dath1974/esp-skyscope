@@ -34,9 +34,14 @@ inline constexpr Names<9> MAP_STYLES{{"radar", "osm", "streets", "satellite", "t
                                       "custom"}};
 enum Theme : uint8_t { DARK, LIGHT };
 inline constexpr Names<2> THEMES{{"dark", "light"}};
-// The public exchanges, and a receiver of one's own (readsb, tar1090, dump1090: its aircraft.json at receiver_url).
-enum Feed : uint8_t { ADSB_LOL, ADSB_FI, RECEIVER };
-inline constexpr Names<3> FEEDS{{"adsb_lol", "adsb_fi", "receiver"}};
+// The public exchanges, a receiver of one's own (readsb, tar1090, dump1090: its aircraft.json at receiver_url), and the
+// screen's own radio (radio.h), where it has one.
+enum Feed : uint8_t { ADSB_LOL, ADSB_FI, RECEIVER, RADIO };
+inline constexpr Names<4> FEEDS{{"adsb_lol", "adsb_fi", "receiver", "radio"}};
+// Whether this screen has a radio of its own (the `radio:` of its YAML), set once as it starts. Without one the radio is
+// never asked, even preferred, as a receiver without an address is not: the menu skips it, and the others stand in
+// where falling back is allowed.
+inline bool radio_fitted = false;
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
 inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
 // "plane" is one airliner for every aircraft; "type" each drawn as its kind (shapes.h): a helicopter, a heavy, a drone.

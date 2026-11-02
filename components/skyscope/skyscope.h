@@ -52,6 +52,9 @@
 #include "tiles.h"
 #include "view.h"
 #include "weather.h"
+#ifdef USE_SKYSCOPE_RADIO
+#include "radio.h"
+#endif
 
 namespace esphome::skyscope {
 using namespace ::sky;
@@ -86,6 +89,12 @@ class Skyscope : public Component,
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
   void set_round(bool round) { round_ = round; }
+#ifdef USE_SKYSCOPE_RADIO
+  void set_radio(int gain_tenths, int ppm) {
+    radio_config_.gain_tenths = gain_tenths;
+    radio_config_.ppm = ppm;
+  }
+#endif
   void set_networks(Networks *networks) { known_networks_ = networks; }
 #ifdef USE_TOUCHSCREEN
   // Every finger on the glass, for two-finger zoom and pan (preview.cpp): LVGL is told of the first finger only.
@@ -290,6 +299,10 @@ class Skyscope : public Component,
   int tile_scale_{1};
   int panel_te_pin_{-1};
   bool round_{false};  // the glass is a circle (glass.h)
+#ifdef USE_SKYSCOPE_RADIO
+  Radio::Config radio_config_;
+  std::unique_ptr<Radio> radio_;  // the screen's own radio (radio.h), from setup on
+#endif
   std::string agent_{"esp-skyscope"}, setup_network_, version_;
 
   // The loop's own.

@@ -58,6 +58,8 @@ inline std::string url(Feed feed, double lat, double lon, int radius_nm, const s
     case ADSB_FI:
       std::snprintf(out, sizeof(out), "https://opendata.adsb.fi/api/v2/lat/%.4f/lon/%.4f/dist/%d", lat, lon, radius_nm);
       break;
+    case RADIO:
+      return "";  // the screen's own: no address
     default:
       std::snprintf(out, sizeof(out), "https://api.adsb.lol/v2/point/%.4f/%.4f/%d", lat, lon, radius_nm);
   }
@@ -67,6 +69,7 @@ inline const char *credit(Feed feed) {
   switch (feed) {
     case ADSB_FI: return "adsb.fi";
     case RECEIVER: return "receiver";
+    case RADIO: return "radio";
     default: return "adsb.lol";
   }
 }

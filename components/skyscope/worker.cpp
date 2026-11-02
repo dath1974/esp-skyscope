@@ -30,6 +30,9 @@ constexpr uint32_t TILE_TTL_MS = 24 * 3600 * 1000;
 constexpr size_t MOST_TILE_BYTES = 512 * 1024, MOST_FEED_BYTES = 768 * 1024;
 // Of a report, the planes beyond the most shown that are kept (overlay.h keep_showable).
 constexpr int KEEP_EXTRA = 20;
+// The radio's planes are in memory: taken every second while it listens; one with no stick is looked at again soon.
+constexpr uint32_t RADIO_EVERY_MS = 1000;
+constexpr int RADIO_RETRY_S = 5;
 struct Cached {
   tiles::Key key;
   uint8_t *data = nullptr;
@@ -297,7 +300,7 @@ void Skyscope::worker_() {
 
     // ---- The planes, every refresh_s, or at once for a new place or range, from the first exchange free
     // (providers.h): the preferred one, or while it waits the next in the list.
-    providers.set_order(settings.feed, settings.fallback, !settings.receiver_url.empty());
+    providers.set_order(settings.feed, settings.fallback, !settings.receiver_url.empty(), radio_fitted);
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
     char place[64];
     std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm, (int) settings.feed,
@@ -318,6 +321,37 @@ void Skyscope::worker_() {
       if (!providers.choose(now, source, wait)) {
         // Every exchange it may ask is waiting: until the first is free.
         feed_due = now + wait;
+      } else if (source == RADIO) {
+        // The screen's own radio: the planes it heard, straight from memory.
+        std::vector<feed::Flight> flights;
+        providers::Answer answer;
+        bool ok = false;
+#ifdef USE_SKYSCOPE_RADIO
+        if (radio_) {
+          radio_->set_reference(settings.lat, settings.lon);
+          ok = radio_->streaming();
+          if (ok) flights = radio_->flights(millis());
+          else answer.error = radio_->state();
+        }
+#endif
+        if (!ok && answer.error.empty()) answer.error = "no radio";
+        const uint32_t done = millis();
+        if (ok) {
+          overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
+          const uint32_t every = providers.succeeded(RADIO, done, RADIO_EVERY_MS, answer);
+          feed_due = done + every;
+          std::lock_guard<std::mutex> guard(lock_);
+          shared_.flights = std::move(flights);
+          shared_.flights_rev++;
+          shared_.feed_at = done;
+          shared_.feed_every_ms = every;
+          shared_.feed_source = RADIO;
+        } else {
+          // No stick, or one not yet listening: the next source at once, and the radio again in a few seconds.
+          answer.retry_after_s = RADIO_RETRY_S;
+          providers.failed(RADIO, done, answer);
+          feed_due = done;
+        }
       } else {
         const std::string url = feed::url(source, settings.lat, settings.lon, radius_nm, settings.receiver_url);
         const uint32_t asked = millis();

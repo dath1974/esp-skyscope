@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "../components/skyscope/adsb.h"
 #include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/feed.h"
@@ -17,6 +18,7 @@
 #include "../components/skyscope/pinch.h"
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
+#include "../components/skyscope/modes.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/pixels.h"
 #include "../components/skyscope/places.h"
@@ -806,6 +808,44 @@ static void test_providers() {
     own.set_order(RECEIVER, false, false);  // and without falling back: nothing, looked at again in a minute
     CHECK(own.order().size == 0 && !own.choose(30, got, w) && w == 60000);
   }
+  // The radio likewise only on a screen with one: preferred, then the exchanges; and waited for only as long as it
+  // says (the worker gives a radio with no stick a short Retry-After of its own).
+  {
+    providers::Providers own;
+    own.set_order(RADIO, true, false, true);
+    auto o = own.order();
+    CHECK(o.size == 3 && o.list[0] == RADIO && o.list[1] == ADSB_LOL && o.list[2] == ADSB_FI);
+    Feed got;
+    uint32_t w;
+    CHECK(own.choose(0, got, w) && got == RADIO);
+    CHECK(own.failed(RADIO, 0, {0, 5, 0, "", "no radio"}) == 5000);
+    CHECK(own.choose(10, got, w) && got == ADSB_LOL);
+    CHECK(own.choose(5000, got, w) && got == RADIO);
+    own.set_order(RADIO, true, false, false);  // no radio: the exchanges
+    o = own.order();
+    CHECK(o.size == 2 && o.list[0] == ADSB_LOL);
+    own.set_order(ADSB_FI, true, true, true);  // an exchange preferred: the receiver, then the radio, after the others
+    o = own.order();
+    CHECK(o.size == 4 && o.list[0] == ADSB_FI && o.list[2] == RECEIVER && o.list[3] == RADIO);
+  }
+  // The menu steps past the radio on a screen without one, and onto it on one with.
+  {
+    const menu::Row *feed_row = nullptr;
+    for (const auto &r : menu::rows())
+      if (std::string(r.key) == "feed") feed_row = &r;
+    CHECK(feed_row != nullptr);
+    if (feed_row) {
+      Settings st;
+      st.feed = RECEIVER;
+      st.receiver_url = "http://receiver.local/data/aircraft.json";
+      radio_fitted = false;
+      CHECK(menu::stepped(*feed_row, st, 1) && st.feed == ADSB_FI);
+      st.feed = RECEIVER;
+      radio_fitted = true;
+      CHECK(menu::stepped(*feed_row, st, 1) && st.feed == RADIO);
+      radio_fitted = false;
+    }
+  }
   alone.set_order(ADSB_LOL, false);
   alone.failed(ADSB_LOL, 0, down);
   CHECK(!alone.choose(1000, f, wait) && wait == 14000);
@@ -1338,6 +1378,174 @@ static void test_labels() {
   CHECK(glass::holds_box(circle, b.x, b.y, b.w, b.h));
 }
 
+// A message from its hex, as the examples print them.
+static std::vector<uint8_t> hex_bytes(const char *hex) {
+  std::vector<uint8_t> out;
+  for (size_t i = 0; hex[i] && hex[i + 1]; i += 2) out.push_back((uint8_t) std::strtoul(std::string(hex + i, 2).c_str(), nullptr, 16));
+  return out;
+}
+
+// Samples of `msgs` one after another, through the demodulator in blocks of `block` pairs: the messages it accepted.
+static std::vector<modes::Message> demodulate(const std::vector<std::vector<uint8_t>> &msgs, size_t block,
+                                              int low = 2, int high = 60) {
+  std::vector<uint8_t> iq;
+  for (const auto &m : msgs) {
+    const auto one = modes::samples_of(m.data(), (int) m.size() * 8, low, high);
+    iq.insert(iq.end(), one.begin(), one.end());
+  }
+  // Quiet after, so the last one is read whole.
+  iq.insert(iq.end(), 2 * 600, 128);
+  static const modes::Powers powers;
+  modes::Demodulator demod;
+  std::vector<modes::Message> found;
+  std::vector<uint16_t> p(block);
+  for (size_t at = 0; at < iq.size() / 2; at += block) {
+    const size_t n = std::min(block, iq.size() / 2 - at);
+    powers.convert(iq.data() + 2 * at, n, p.data());
+    demod.feed(p.data(), n, [&](const modes::Message &m) {
+      found.push_back(m);
+      return true;
+    });
+  }
+  return found;
+}
+
+static void test_modes() {
+  const modes::Crc crc;
+  // The examples' parity holds; one bit flipped is found and put right.
+  const char *examples[] = {"8D4840D6202CC371C32CE0576098", "8D40621D58C382D690C8AC2863A7",
+                            "8D40621D58C386435CC412692AD6", "8D485020994409940838175B284F",
+                            "8DA05F219B06B6AF189400CBC33F"};
+  for (const char *e : examples) CHECK(crc.residue(hex_bytes(e).data(), 112) == 0);
+  auto bad = hex_bytes(examples[0]);
+  bad[6] ^= 0x10;  // bit 51
+  CHECK(crc.single_bit(crc.residue(bad.data(), 112)) == 51);
+
+  // Each example through the samples a radio would give, in blocks small and large, comes back as it went.
+  std::vector<std::vector<uint8_t>> msgs;
+  for (const char *e : examples) msgs.push_back(hex_bytes(e));
+  for (size_t block : {(size_t) 97, (size_t) 4096, (size_t) 100000}) {
+    const auto found = demodulate(msgs, block);
+    CHECK(found.size() == msgs.size());
+    for (size_t i = 0; i < found.size() && i < msgs.size(); ++i) {
+      CHECK(found[i].df == 17 && found[i].bits == 112 && !found[i].overlaid && !found[i].mended);
+      CHECK(std::memcmp(found[i].data, msgs[i].data(), 14) == 0);
+    }
+  }
+  const auto first = demodulate(msgs, 4096);
+  CHECK(!first.empty() && first[0].address == 0x4840D6);
+  // One bit wrong in the air: mended.
+  const auto mended = demodulate({bad}, 4096);
+  CHECK(mended.size() == 1 && mended[0].mended && std::memcmp(mended[0].data, msgs[0].data(), 14) == 0);
+  // Two bits wrong: let go.
+  auto worse = bad;
+  worse[9] ^= 0x01;
+  CHECK(demodulate({worse}, 4096).empty());
+  // A weak one, its pulses a little over the noise: read; one under it: not.
+  CHECK(demodulate(msgs, 4096, 8, 40).size() == msgs.size());
+  CHECK(demodulate(msgs, 4096, 20, 22).empty());
+
+  // An all-call reply (DF11) with its parity, and a surveillance reply (DF4) whose parity carries its address.
+  uint8_t df11[7] = {0x5D, 0x48, 0x40, 0xD6, 0, 0, 0};
+  const uint32_t p11 = crc.residue(df11, 56);
+  df11[4] = (uint8_t) (p11 >> 16);
+  df11[5] = (uint8_t) (p11 >> 8);
+  df11[6] = (uint8_t) p11;
+  CHECK(crc.residue(df11, 56) == 0);
+  const int feet = 38000, n = (feet + 1000) / 25;
+  const uint32_t ac = ((n & 0x7E0) << 2) | ((n & 0x10) << 1) | (n & 0xF) | 0x10;
+  uint8_t df4[7] = {0x20, 0x00, (uint8_t) (ac >> 8), (uint8_t) ac, 0, 0, 0};
+  const uint32_t p4 = crc.residue(df4, 56) ^ 0x4840D6;
+  df4[4] = (uint8_t) (p4 >> 16);
+  df4[5] = (uint8_t) (p4 >> 8);
+  df4[6] = (uint8_t) p4;
+  const auto replies = demodulate({std::vector<uint8_t>(df11, df11 + 7), std::vector<uint8_t>(df4, df4 + 7)}, 4096);
+  CHECK(replies.size() == 2);
+  if (replies.size() == 2) {
+    CHECK(replies[0].df == 11 && replies[0].address == 0x4840D6 && !replies[0].overlaid);
+    CHECK(replies[1].df == 4 && replies[1].address == 0x4840D6 && replies[1].overlaid);
+  }
+}
+
+static void test_adsb() {
+  // Fields.
+  CHECK(adsb::callsign(hex_bytes("8D4840D6202CC371C32CE0576098").data()) == "KLM1023");
+  int feet = 0;
+  CHECK(adsb::altitude12(adsb::me(hex_bytes("8D40621D58C382D690C8AC2863A7").data(), 9, 12), feet) && feet == 38000);
+  const int n = (38000 + 1000) / 25;
+  CHECK(adsb::altitude13(((n & 0x7E0) << 2) | ((n & 0x10) << 1) | (n & 0xF) | 0x10, feet) && feet == 38000);
+  CHECK(!adsb::altitude13(0x0040 | 0x10, feet));  // metres
+  CHECK(adsb::squawk13((1 << 11) | (1 << 9) | (1 << 7) | (1 << 5) | (1 << 3) | (1 << 1)) == "7700");
+  CHECK(adsb::squawk13(1 << 0) == "0004" && adsb::squawk13(1 << 12) == "0010" && adsb::squawk13(1 << 5) == "0100");
+  CHECK(adsb::movement(1) == 0 && adsb::movement(13) == 2 && adsb::movement(39) == 15 && adsb::movement(0) < 0);
+  CHECK(adsb::zones(0) == 59 && adsb::zones(52.2572) == 36 && adsb::zones(87) == 2 && adsb::zones(88) == 1);
+
+  // A place from an even and an odd report (the even one newer), and from one report and a place near it.
+  adsb::Tracker t;
+  modes::Message m;
+  auto msg = [&](const char *hex) {
+    m = modes::Message{};
+    const auto b = hex_bytes(hex);
+    std::memcpy(m.data, b.data(), b.size());
+    m.bits = 112;
+    m.df = modes::df_of(m.data);
+    m.address = modes::address_field(m.data);
+    return m;
+  };
+  CHECK(t.add(msg("8D40621D58C386435CC412692AD6"), 1000));  // odd
+  CHECK(t.flights(1000).empty());
+  CHECK(t.add(msg("8D40621D58C382D690C8AC2863A7"), 2000));  // even
+  auto seen = t.flights(2000);
+  CHECK(seen.size() == 1);
+  if (!seen.empty()) {
+    CHECK(seen[0].hex == "40621d" && seen[0].has_altitude && seen[0].altitude == 38000 && !seen[0].on_ground);
+    CHECK(near(seen[0].lat, 52.2572, 1e-3) && near(seen[0].lon, 3.91937, 1e-3));
+  }
+  adsb::Cpr even;
+  const auto e = hex_bytes("8D40621D58C382D690C8AC2863A7");
+  even.lat = adsb::me(e.data(), 23, 17);
+  even.lon = adsb::me(e.data(), 40, 17);
+  double lat, lon;
+  CHECK(adsb::local(even, 52.258, 3.918, lat, lon) && near(lat, 52.2572, 1e-3) && near(lon, 3.91937, 1e-3));
+  // Reports too far apart in time make no place.
+  adsb::Tracker slow;
+  slow.add(msg("8D40621D58C386435CC412692AD6"), 1000);
+  slow.add(msg("8D40621D58C382D690C8AC2863A7"), 1000 + adsb::PAIR_MS + 1);
+  CHECK(slow.flights(1000 + adsb::PAIR_MS + 1).empty());
+  // A place farther from the receiver than any radio hears is thrown away.
+  adsb::Tracker far;
+  far.set_reference(40.64, -73.78);
+  far.add(msg("8D40621D58C386435CC412692AD6"), 1000);
+  far.add(msg("8D40621D58C382D690C8AC2863A7"), 2000);
+  CHECK(far.flights(2000).empty() && far.counts().bad_positions == 1);
+
+  // Identity and velocity on the same plane.
+  t.add(msg("8D4840D6202CC371C32CE0576098"), 2000);
+  const auto &klm = t.planes().at(0x4840D6);
+  CHECK(klm.callsign == "KLM1023");
+  t.add(msg("8D485020994409940838175B284F"), 2000);
+  const auto &v = t.planes().at(0x485020);
+  CHECK(v.has_speed && near(v.speed, 159.2, 0.1) && v.has_heading && near(v.heading, 182.88, 0.01));
+  CHECK(v.has_climb && v.climb == -832);
+  t.add(msg("8DA05F219B06B6AF189400CBC33F"), 2000);
+  const auto &as = t.planes().at(0xA05F21);
+  CHECK(as.has_speed && as.speed == 375 && as.has_heading && near(as.heading, 243.98, 0.01) && as.climb == -2304);
+
+  // An overlaid message counts only for a plane heard by its own address lately.
+  modes::Message overlaid;
+  overlaid.df = 5;
+  overlaid.bits = 56;
+  overlaid.overlaid = true;
+  overlaid.address = 0x123456;
+  CHECK(!t.add(overlaid, 2000) && t.counts().unknown == 1);
+  overlaid.address = 0x40621D;
+  CHECK(t.add(overlaid, 2000));
+  CHECK(!t.known(0x40621D, 2000 + adsb::FORGET_MS));
+  // A minute without a word: forgotten.
+  t.expire(2000 + adsb::FORGET_MS);
+  CHECK(t.size() == 0 && t.flights(2000 + adsb::FORGET_MS).empty());
+}
+
 static void test_glass() {
   const glass::Shape rect{600, 450, false}, circle{720, 720, true};
   // A rectangle holds its corners; a circle does not.
@@ -1515,6 +1723,8 @@ int main(int argc, char **argv) {
   test_overlay();
   test_labels();
   test_glass();
+  test_modes();
+  test_adsb();
   test_sprites();
   test_shapes();
   test_beam();

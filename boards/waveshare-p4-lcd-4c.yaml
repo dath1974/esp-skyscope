@@ -130,3 +130,8 @@ skyscope:
   # The glass is a circle: what the screen shows stays inside it.
   round: true
   coprocessor_update_id: coprocessor
+  # An RTL-SDR stick (the FlightAware Pro Stick Plus, or any with an R820T or R820T2 tuner) on the board's USB-A port:
+  # "Radio" among the sources. The Pro Stick Plus has its own filter and amplifier; a lower gain suits a stick that is
+  # swamped by planes close by.
+  radio:
+    gain: 49.6

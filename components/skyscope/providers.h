@@ -59,20 +59,22 @@ struct Order {
 
 class Providers {
  public:
-  void set_order(Feed preferred, bool fallback, bool receiver = false) {
+  void set_order(Feed preferred, bool fallback, bool receiver = false, bool radio = false) {
     preferred_ = preferred;
     fallback_ = fallback;
     receiver_ = receiver;
+    radio_ = radio;
   }
   Feed preferred() const { return preferred_; }
   bool fallback() const { return fallback_; }
-  // The exchanges in the order they are tried. A receiver without an address is none, even preferred: then the others
-  // stand in where falling back is allowed, and none where it is not.
+  // The exchanges in the order they are tried. A receiver without an address is none, even preferred, and so is a
+  // radio the screen does not have: then the others stand in where falling back is allowed, and none where it is not.
   Order order() const {
     Order out;
-    if (preferred_ == RECEIVER && !receiver_ && !fallback_) return out;
+    auto there = [&](Feed f) { return (f != RECEIVER || receiver_) && (f != RADIO || radio_); };
+    if (!there(preferred_) && !fallback_) return out;
     auto add = [&](Feed f) {
-      if (f != RECEIVER || receiver_) out.list[out.size++] = f;
+      if (there(f)) out.list[out.size++] = f;
     };
     add(preferred_);
     for (size_t i = 0; i < COUNT; ++i)
@@ -151,6 +153,7 @@ class Providers {
   Feed preferred_ = ADSB_FI;
   bool fallback_ = true;
   bool receiver_ = false;
+  bool radio_ = false;
   std::array<State, COUNT> states_{};
 };
 }  // namespace sky::providers

@@ -16,8 +16,9 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   alone on the dark ground in the chosen phosphor (green, amber, blue or white), like a controller's bare map. Asked
   from the FAA once for each place and range (runways up to 80 NM). These are built from the FAA's public data, not
   the maps real ATC scopes use: the FAA does not publish those.
-- **Aircraft**: from adsb.fi or adsb.lol, or a receiver of your own (readsb, tar1090, dump1090-fa: its
-  `aircraft.json`), every polling interval, switching to another if one is unavailable. Each
+- **Aircraft**: from adsb.fi or adsb.lol, a receiver of your own (readsb, tar1090, dump1090-fa: its
+  `aircraft.json`), or on the P4 board the screen's own radio (an RTL-SDR stick on its USB port, below), every polling
+  interval, switching to another if one is unavailable. Each
   aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
   helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
   sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
@@ -66,6 +67,30 @@ and an LVGL-capable display. Adding one is a new file in `boards/` with its disp
 block's `dpi`, and a build of it in `.github/workflows/release.yml` and `tests.yml` (a test checks that every board is
 released, under its chip, and no two boards may share a chip). Any new board will require ample testing, noting the
 goal of this project is a physically small display size.
+
+### The screen's own radio (ESP32-P4)
+
+On the P4 board an RTL-SDR stick on its USB-A port makes the screen a receiver of its own: the FlightAware Pro Stick
+Plus, or any stick with an RTL2832U and an R820T or R820T2 tuner. Nothing else is needed: the screen tunes it to
+1090 MHz, reads two million samples a second from it, finds the Mode S replies in them and their checksums, and works
+out each plane's identity, altitude, speed, track, squawk and place from them, as dump1090 does on a computer. It is
+**Radio** among the sources, on the page and in the menu (only on a screen built with one), and with falling back
+allowed the exchanges stand in while no stick is plugged in. The page's status shows how it is doing: messages a second,
+planes heard and placed, and samples dropped if the demodulator ever falls behind.
+
+The board file's `skyscope:` block turns it on and sets the tuner:
+
+```yaml
+  radio:
+    gain: 49.6   # dB, 0 to 49.6, or "auto" for the tuner's own; lower it for a stick swamped by planes close by
+    ppm: 0       # the stick's crystal error, if known
+```
+
+The radio has not yet run on a board: the stick's driver (`rtlsdr.cpp`) follows the registers the osmocom rtl-sdr
+project documented, and the decoding (`modes.h`, `adsb.h`) is tested on a PC against samples built from published
+example messages. Surface positions are worked out from the screen's place, so they are right only with the place set
+to where the screen is; airborne ones need no place. Planes heard only by their Mode S replies, without ADS-B, have no
+position and are not shown.
 
 ## Install
 
@@ -207,7 +232,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, and an install's progress |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -258,7 +283,7 @@ once. `/api/status` counts both (`tile_cache`). The airspace is asked once for e
 on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's server is
 shared by everyone who uses it.
 
-**Not for navigation.** ADS-B exchanges show what volunteers' receivers hear: planes without ADS-B, or out of a
+**Not for navigation.** ADS-B exchanges and the screen's own radio show what receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.
 
 ## Development
@@ -266,7 +291,7 @@ receiver's range, are missing, and positions may be late.
 - `components/skyscope/`: the firmware, an ESPHome external component. `skyscope.h` explains how its two threads
   share the work. The parts that need no screen (`geo.h`, `glass.h`, `settings.h`, `feed.h`, `tiles.h`, `overlay.h`,
   `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`, `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`,
-  `wifi_list.h`, `weather.h`, `radar.h`) are plain C++.
+  `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`) are plain C++.
 - `make` builds the firmware (for `BOARD`, the AMOLED 2.41 unless told another) and runs `make test` (and
   `make test-esp32` too, given `DEVICE=<address>`). `make firmware-all` builds it for every board, as a release does.
   `make help` lists every target; `make clean` removes what the build and tests leave behind, keeping the toolchain
