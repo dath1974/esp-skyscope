@@ -180,12 +180,17 @@ class Skyscope : public Component,
     std::shared_ptr<const weather::Report> weather;
     // The map card (card.h). web -> worker: an area to download (for download_ask), a download to stop (stop_ask), the
     // card to look for again (mount_ask). worker -> loop and web: the card and the download as they are.
+    // clear_ask: the screen's tiles cleared; format_ask: the card formatted (mounted first if it has no FAT32).
     card::Area download;
-    uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0;
+    uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0;
     struct Card {
       bool mounted = false;
       std::string error;  // why there is none
+      bool unformatted = false;  // there is a card, with no FAT32 on it: the page offers to format it
       uint64_t total = 0, free = 0;
+      // Tiles cleared away and still being deleted, and how many files and folders went so far.
+      bool clearing = false;
+      uint32_t cleared = 0;
       uint32_t read = 0, written = 0, failed = 0;  // tiles since the start
       int missing = 0;  // the frame's tiles not on the card, off a network
       // The download: its area, how far it got (tiles fetched, found on the card already, given up) and why it stopped

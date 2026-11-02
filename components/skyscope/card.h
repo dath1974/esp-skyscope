@@ -24,6 +24,17 @@ namespace sky::card {
 
 constexpr const char *ROOT = "/sd";
 constexpr uint32_t DAY_S = 86400;
+// Every file is written here first and then renamed into its place, so a write cut short (a crash, the power gone)
+// leaves at most this one file, written over by the next.
+inline std::string temp_path(const char *root = ROOT) { return std::string(root) + "/tiles/write.tmp"; }
+// Tiles being cleared: the folder of tiles is moved in here at once (a rename), and its files deleted a few at a time
+// as the screen has time, across restarts too.
+inline std::string trash_path(const char *root = ROOT) { return std::string(root) + "/trash"; }
+inline std::string trash_name(uint32_t n, const char *root = ROOT) {
+  char text[16];
+  std::snprintf(text, sizeof(text), "/t%07x", (unsigned) (n & 0xFFFFFFF));
+  return trash_path(root) + text;
+}
 
 // Whether a tile is kept on the card: a map's own tiles and its layer of names, from the servers the screen knows. Not
 // the weather radar's (its scans go old in minutes), nor a custom server's (its address can change under the same

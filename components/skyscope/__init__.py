@@ -233,10 +233,12 @@ async def to_code(config):
                 int(card[CONF_FREQUENCY] / 1000),
             )
         )
-        # ESP-IDF's SD/MMC host and FAT, which ESPHome leaves out unless asked. Long file names are not needed: every
-        # name on the card fits 8.3 (card.h).
+        # ESP-IDF's SD/MMC host and FAT, which ESPHome leaves out unless asked, and the directory functions (mkdir,
+        # rename, readdir, rmdir), which it otherwise builds as stubs that always fail.
         for component in ("fatfs", "sdmmc", "esp_driver_sdmmc", "wear_levelling"):
             esp32.include_builtin_idf_component(component)
+        esp32.require_fatfs()
+        esp32.require_vfs_dir()
     # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_scan_results()

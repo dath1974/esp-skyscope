@@ -54,6 +54,9 @@ class Cache {
     }
     return nullptr;
   }
+  void clear() {
+    while (!items_.empty()) drop_(items_.begin());
+  }
   void forget(const tiles::Key &k) {
     for (auto it = items_.begin(); it != items_.end(); ++it)
       if (it->key == k) {
@@ -105,6 +108,9 @@ constexpr int DOWNLOAD_TRIES = 6;
 constexpr size_t DOWNLOAD_SAVE_EVERY = 25, DOWNLOAD_SKIPS_A_TURN = 64;
 constexpr uint64_t CARD_RESERVE_BYTES = 64ULL * 1024 * 1024;
 constexpr uint32_t CARD_SPACE_EVERY = 100;
+// Tiles cleared are deleted this many files at a turn, while the map shown is whole; a turn that deletes none (a file
+// the card will not let go) counts, and after CLEAR_STALLS of them the rest is left.
+constexpr int CLEAR_A_TURN = 24, CLEAR_STALLS = 50;
 const std::string JOB_PATH = std::string(card::ROOT) + "/tiles/job.txt";
 // The clock's Unix seconds for the card's tiles, 0 while it is not set (no network has set it yet).
 uint32_t unix_now() {
@@ -253,12 +259,13 @@ void Skyscope::worker_() {
   bool was_offline = false, was_card = false;
 
   // ---- The map card: mounted at the start, and a download left unfinished (by a restart) carried on.
-  uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0;
+  uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0;
   card::Plan job;
   bool downloading = false;
   int job_failures = 0;
   uint32_t job_due = 0, card_writes = 0;
   bool card_room = true;
+  int clear_stalls = 0;
   Shared::Card card_state;
   auto card_space = [&]() {
     uint64_t total = 0, free = 0;
@@ -308,9 +315,13 @@ void Skyscope::worker_() {
   };
   auto mount_card = [&]() {
     std::string error;
-    if (card_io::mount(card_config_, error)) {
+    const bool mounted = card_io::mount(card_config_, error);
+    card_state.unformatted = card_io::unformatted();
+    if (mounted) {
       card_state.error.clear();
       card_space();
+      // Tiles cleared before a restart, not all deleted yet.
+      card_state.clearing = card_io::remove_some(card::trash_path(), 0) >= 0;
       std::string text;
       card::Area area;
       size_t next = 0;
@@ -327,7 +338,7 @@ void Skyscope::worker_() {
     bool online, updating;
     std::string search;
     bool connected, wants_weather = false;
-    bool new_download = false, stop_download = false, remount = false;
+    bool new_download = false, stop_download = false, remount = false, clear_tiles = false, format_card = false;
     card::Area download;
     {
       std::lock_guard<std::mutex> guard(lock_);
@@ -344,6 +355,14 @@ void Skyscope::worker_() {
       if (shared_.mount_ask != mount_ask) {
         mount_ask = shared_.mount_ask;
         remount = true;
+      }
+      if (shared_.clear_ask != clear_ask) {
+        clear_ask = shared_.clear_ask;
+        clear_tiles = true;
+      }
+      if (shared_.format_ask != format_ask) {
+        format_ask = shared_.format_ask;
+        format_card = true;
       }
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
       // download has the network to itself. A screen running on its radio alone (offline.h) needs no network.
@@ -417,6 +436,55 @@ void Skyscope::worker_() {
     if (new_download) {
       start_job(download, 0);
       publish_card();
+    }
+    // Formatted: everything on the card goes, a card with no FAT32 on it too. The tiles in memory go with it.
+    if (format_card && card_fitted_) {
+      if (downloading) stop_job("");
+      std::string error;
+      const bool ok = card_io::mounted() ? card_io::format(error) : card_io::mount(card_config_, error, true);
+      card_state.unformatted = !ok && card_io::unformatted();
+      card_state.error = ok ? std::string() : error;
+      if (ok) {
+        cache.clear();
+        card_state.clearing = false;
+        card_state.cleared = 0;
+        card_state.total_tiles = 0;
+        job = card::Plan{};
+        card_space();
+        ESP_LOGI(TAG, "Map card formatted: %u MB free", (unsigned) (card_state.free / (1024 * 1024)));
+      }
+      publish_card();
+    }
+    // Cleared: the folder of tiles moved aside at once (a new empty one in its place), its files deleted a few at a
+    // time from here on. A download under way stops: its record was among them.
+    if (clear_tiles && card_io::mounted()) {
+      if (downloading) stop_job("");
+      const std::string tiles_folder = std::string(card::ROOT) + "/tiles";
+      if (card_io::make_folder(card::trash_path()) &&
+          card_io::rename(tiles_folder, card::trash_name(millis() ^ (uint32_t) esp_timer_get_time()))) {
+        card_io::make_folder(tiles_folder);
+        cache.clear();
+        card_state.clearing = true;
+        clear_stalls = 0;
+        ESP_LOGI(TAG, "Map card: the tiles cleared");
+      } else {
+        card_state.error = "the tiles could not be cleared";
+      }
+      publish_card();
+    }
+    if (card_state.clearing && card_io::mounted() && (pending.empty() || !online)) {
+      const int n = card_io::remove_some(card::trash_path(), CLEAR_A_TURN);
+      if (n > 0) {
+        card_state.cleared += n;
+        clear_stalls = 0;
+      }
+      if (n < 0 || (n == 0 && ++clear_stalls >= CLEAR_STALLS)) {
+        ESP_LOGI(TAG, "Map card: %u old files and folders deleted%s", (unsigned) card_state.cleared,
+                 n < 0 ? "" : ", some would not go");
+        card_state.clearing = false;
+        card_space();
+      }
+      if (n != 0) publish_card();
     }
     // A tile of the download, while on a network and the map shown is whole (the screen asleep too: it was asked for).
     if (downloading && connected && !updating && (pending.empty() || !online) && (int32_t) (millis() - job_due) >= 0) {

@@ -13,8 +13,9 @@
 //                          restart: the first choice at the next start)
 //   GET  /api/card         the map card (card.h): its space, the tiles read and written, and the download under way
 //   POST /api/card         {"estimate": area} the tiles an area takes, {"download": area} downloads it, {"stop": true}
-//                          stops the download, {"mount": true} looks for the card again. An area is {"map", "lat",
-//                          "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
+//                          stops the download, {"mount": true} looks for the card again, {"clear": true} deletes the
+//                          screen's tiles, {"format": true} formats the card (FAT32, erasing it). An area is {"map",
+//                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //
@@ -338,6 +339,11 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       std::lock_guard<std::mutex> guard(lock_);
       if (in["stop"] | false) shared_.stop_ask++;
       if (in["mount"] | false) shared_.mount_ask++;
+      if (in["clear"] | false) shared_.clear_ask++;
+      if (in["format"] | false) {
+        ESP_LOGI(TAG, "Formatting the map card, asked from the page");
+        shared_.format_ask++;
+      }
     }
     card_json_(out.to<JsonObject>(), state);
     send_json(request, 200, out);
@@ -525,7 +531,10 @@ void Skyscope::install_firmware_() {
 }
 void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
   out["mounted"] = c.mounted;
-  if (!c.mounted) out["error"] = c.error;
+  out["error"] = c.error;
+  out["unformatted"] = c.unformatted;
+  out["clearing"] = c.clearing;
+  out["cleared"] = c.cleared;
   out["total_mb"] = (uint32_t) (c.total / (1024 * 1024));
   out["free_mb"] = (uint32_t) (c.free / (1024 * 1024));
   // Tiles since the start: read from the card, written to it, and writes that failed; off a network, the frame's

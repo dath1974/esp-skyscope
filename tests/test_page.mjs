@@ -123,6 +123,12 @@ test("the map card's words say its space, and what it read and wrote", () => {
   assert.match(t, /12 tiles read from it and 340 written\.$/);
   assert.match(card_words({ mounted: true, free_mb: 500, total_mb: 900, read: 0, written: 1, failed: 2, missing: 7 }),
     /500 MB free .*\(2 writes failed\)\. Off the network, 7 tiles of this map are not on it\./);
+  assert.match(card_words({ mounted: true, free_mb: 1, total_mb: 2, read: 0, written: 0, clearing: true, cleared: 480, error: '' }),
+    /Deleting the old tiles: 480 files so far\.$/);
+  assert.match(card_words({ mounted: true, free_mb: 1, total_mb: 2, read: 0, written: 0, error: 'the tiles could not be cleared' }),
+    / The tiles could not be cleared\.$/);
+  assert.equal(card_words({ mounted: false, unformatted: true, error: 'the card is not FAT32: format it to use it' }),
+    'No map card: the card is not FAT32: format it to use it.');
 });
 
 test('a download says how far it is, and how it ended', () => {

@@ -18,7 +18,10 @@
 #endif
 
 #include <cerrno>
+#include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -28,6 +31,7 @@ static const char *const TAG = "skyscope.card";
 namespace {
 sdmmc_card_t *card_ = nullptr;
 uint32_t errors_ = 0;
+bool unformatted_ = false;
 // Failures in a row before the card is taken as gone.
 constexpr uint32_t MOST_ERRORS = 8;
 
@@ -60,7 +64,11 @@ bool write_all(int fd, const uint8_t *from, size_t n) {
 }
 }  // namespace
 
-bool mount(const Config &c, std::string &error) {
+// Clusters of 32 KB: a tile (most are 10 to 40 KB) wastes little, and the FAT of a large card stays small enough to read
+// its free space quickly.
+constexpr size_t CLUSTER_BYTES = 32 * 1024;
+
+bool mount(const Config &c, std::string &error, bool format) {
   if (card_) return true;
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
   host.slot = c.slot;
@@ -102,13 +110,14 @@ bool mount(const Config &c, std::string &error) {
     gpio_set_level((gpio_num_t) c.hold_high, 1);
   }
   esp_vfs_fat_sdmmc_mount_config_t m{};
-  m.format_if_mount_failed = false;  // a card with something else on it is left alone
+  m.format_if_mount_failed = format;  // else a card with something else on it is left alone
   m.max_files = 2;
-  m.allocation_unit_size = 16 * 1024;
+  m.allocation_unit_size = CLUSTER_BYTES;
   const esp_err_t err = esp_vfs_fat_sdmmc_mount(sky::card::ROOT, &host, &slot, &m, &card_);
+  unformatted_ = err == ESP_FAIL;
   if (err != ESP_OK) {
     card_ = nullptr;
-    error = err == ESP_FAIL ? "the card is not FAT32 (format it so on a computer)"
+    error = err == ESP_FAIL ? "the card is not FAT32: format it to use it"
           : err == ESP_ERR_TIMEOUT ? "no card in the slot" : esp_err_to_name(err);
     ESP_LOGI(TAG, "No map card: %s", error.c_str());
     return false;
@@ -121,7 +130,28 @@ bool mount(const Config &c, std::string &error) {
   return true;
 }
 
+bool format(std::string &error) {
+  if (!card_) {
+    error = "No map card";
+    return false;
+  }
+  esp_vfs_fat_mount_config_t m{};
+  m.max_files = 2;
+  m.allocation_unit_size = CLUSTER_BYTES;
+  ESP_LOGI(TAG, "Formatting the map card");
+  const esp_err_t err = esp_vfs_fat_sdcard_format_cfg(sky::card::ROOT, card_, &m);
+  if (err != ESP_OK) {
+    error = std::string("the card could not be formatted (") + esp_err_to_name(err) + ")";
+    ESP_LOGW(TAG, "%s", error.c_str());
+    return false;
+  }
+  errors_ = 0;
+  ::mkdir((std::string(sky::card::ROOT) + "/tiles").c_str(), 0775);
+  return true;
+}
+
 bool mounted() { return card_ != nullptr; }
+bool unformatted() { return unformatted_; }
 uint32_t errors() { return errors_; }
 
 bool space(uint64_t &total, uint64_t &free) {
@@ -166,8 +196,7 @@ bool write(const sky::tiles::Key &k, const sky::card::Header &h, const uint8_t *
   if (!card_) return false;
   const std::string p = sky::card::path(k);
   for (const std::string &folder : sky::card::folders(k)) ::mkdir(folder.c_str(), 0775);
-  std::string tmp = p;
-  tmp.back() = 'n';  // 779.t written as 779.n first
+  const std::string tmp = sky::card::temp_path();
   const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0664);
   if (fd < 0) {
     failed("Opening", tmp);
@@ -205,14 +234,53 @@ bool read_text(const std::string &path, std::string &text) {
 
 bool write_text(const std::string &path, const std::string &text) {
   if (!card_) return false;
-  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0664);
+  // As a tile is: the whole of it, or the one before.
+  const std::string tmp = sky::card::temp_path();
+  const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0664);
   if (fd < 0) return false;
   const bool ok = write_all(fd, reinterpret_cast<const uint8_t *>(text.data()), text.size());
-  return ::close(fd) == 0 && ok;
+  if (::close(fd) != 0 || !ok) return false;
+  ::unlink(path.c_str());
+  return ::rename(tmp.c_str(), path.c_str()) == 0;
 }
 
 void remove(const std::string &path) {
   if (card_) ::unlink(path.c_str());
+}
+
+bool rename(const std::string &from, const std::string &to) { return card_ && ::rename(from.c_str(), to.c_str()) == 0; }
+bool make_folder(const std::string &path) {
+  if (!card_) return false;
+  struct stat st {};
+  return ::mkdir(path.c_str(), 0775) == 0 || (::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+int remove_some(const std::string &folder, int budget) {
+  if (!card_) return -1;
+  DIR *d = ::opendir(folder.c_str());
+  if (!d) return -1;
+  // Its entries first, then deleted: a folder is not changed while it is read.
+  std::vector<std::pair<std::string, bool>> entries;
+  while ((int) entries.size() < budget) {
+    const dirent *e = ::readdir(d);
+    if (!e) break;
+    if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
+    entries.push_back({folder + "/" + e->d_name, e->d_type == DT_DIR});
+  }
+  ::closedir(d);
+  int removed = 0;
+  for (const auto &[path, is_folder] : entries) {
+    if (removed >= budget) break;
+    if (is_folder) {
+      const int n = remove_some(path, budget - removed);
+      if (n > 0) removed += n;
+    } else if (::unlink(path.c_str()) == 0) {
+      ++removed;
+    }
+  }
+  // Empty now (else this fails and it is left for the next turn).
+  if (removed < budget && ::rmdir(folder.c_str()) == 0) ++removed;
+  return removed;
 }
 
 }  // namespace esphome::skyscope::card_io
@@ -220,10 +288,18 @@ void remove(const std::string &path) {
 #else
 // A board without a card slot: nothing is ever on the card.
 namespace esphome::skyscope::card_io {
-bool mount(const Config &, std::string &error) {
+bool mount(const Config &, std::string &error, bool) {
   error = "this board has no card slot";
   return false;
 }
+bool format(std::string &error) {
+  error = "this board has no card slot";
+  return false;
+}
+bool rename(const std::string &, const std::string &) { return false; }
+bool make_folder(const std::string &) { return false; }
+bool unformatted() { return false; }
+int remove_some(const std::string &, int) { return -1; }
 bool mounted() { return false; }
 uint32_t errors() { return 0; }
 bool space(uint64_t &, uint64_t &) { return false; }

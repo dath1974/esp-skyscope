@@ -109,8 +109,10 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </section>
 <section id="card" style="display:none"><h2>Map card</h2>
 <p id="card_text"></p>
-<button type="button" class="plain" id="card_mount" style="display:none">Look for the card again</button>
-<p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32; the screen keeps its tiles in a folder named tiles.</p>
+<div class="bar" style="position:static;padding:0"><button type="button" class="plain" id="card_mount" style="display:none">Look for the card again</button>
+<button type="button" class="plain" id="card_clear" style="display:none">Clear the screen's tiles</button>
+<button type="button" class="plain" id="card_format" style="display:none">Format the card</button></div>
+<p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32, and the screen formats one that is not (a new card larger than 32 GB comes as exFAT); it keeps its tiles in a folder named tiles and leaves the rest alone. Clearing deletes only its tiles, a few at a time while it has nothing else to do; formatting erases everything on the card.</p>
 <div class="row3"><div><label for="dl_map">Download an area of</label><select id="dl_map"><option value="sectional">FAA VFR sectional</option><option value="ifr_low">FAA IFR area charts, low</option><option value="ifr_high">FAA IFR high enroute</option><option value="topo">USGS topographic</option></select></div>
 <div><label for="dl_radius">Round the place (NM)</label><input id="dl_radius" type="number" min="1" max="250" value="100"></div>
 <div><label for="dl_zoom">Down to</label><select id="dl_zoom"></select></div></div>
@@ -252,7 +254,8 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
 function gb(mb){return mb>=1024?(mb/1024).toFixed(1)+' GB':mb+' MB'}
 function card_words(c){if(!c.mounted)return'No map card'+(c.error?': '+c.error:'')+'.';
  return'Map card: '+gb(c.free_mb)+' free of '+gb(c.total_mb)+'. Since the start, '+c.read+' tiles read from it and '+c.written+' written'
- +(c.failed?' ('+c.failed+' writes failed)':'')+'.'+(c.missing?' Off the network, '+c.missing+' tiles of this map are not on it.':'')}
+ +(c.failed?' ('+c.failed+' writes failed)':'')+'.'+(c.missing?' Off the network, '+c.missing+' tiles of this map are not on it.':'')
+ +(c.clearing?' Deleting the old tiles: '+c.cleared+' files so far.':'')+(c.error?' '+c.error[0].toUpperCase()+c.error.slice(1)+'.':'')}
 const DL_NAMES={sectional:'the sectional',ifr_low:'the IFR low charts',ifr_high:'the IFR high charts',topo:'the USGS map'};
 // A download: how far it is, or how it ended.
 function dl_words(d){if(!d)return'';const name=DL_NAMES[d.map]||'the map';
@@ -279,10 +282,13 @@ $('dl_start').onclick=async()=>{if(await dl_ask('download'))$('dl_progress').tex
 async function card_post(body){await fetch('api/card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});setTimeout(status,1500)}
 $('dl_stop').onclick=()=>card_post({stop:true});
 $('card_mount').onclick=()=>{$('card_text').textContent='Looking for the card...';card_post({mount:true})};
+$('card_clear').onclick=()=>{if(confirm('Delete every map tile the screen keeps on the card? Maps are fetched again as they are shown.')){$('card_text').textContent='Clearing...';card_post({clear:true})}};
+$('card_format').onclick=()=>{if(confirm('Format the card? Everything on it is erased, not only the screen\'s tiles.')){$('card_text').textContent='Formatting (some seconds)...';card_post({format:true})}};
 let card_shown=false;
 function show_card(c){if(!c)return;$('card').style.display='';$('card_text').textContent=card_words(c);
  const d=c.download||{};$('dl_progress').textContent=dl_words(d);$('dl_stop').style.display=d.running?'':'none';
  $('dl_start').disabled=!c.mounted||d.running;$('card_mount').style.display=c.mounted?'none':'';
+ $('card_clear').style.display=c.mounted&&!c.clearing?'':'none';$('card_format').style.display=c.mounted||c.unformatted?'':'none';
  if(!card_shown){card_shown=true;zooms();dl_ask('estimate')}}
 // Firmware: the running version, the newest release, and its install (the screen restarts into it).
 // The words for what /api/firmware says, and whether to offer the install.

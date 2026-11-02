@@ -349,6 +349,9 @@ static void test_card() {
       from = to + 1;
     }
   }
+  // The one file every write goes through, and the trash's folders: all 8.3 too.
+  CHECK(card::temp_path() == "/sd/tiles/write.tmp");
+  CHECK(card::trash_name(0x12345678) == "/sd/trash/t2345678" && card::trash_name(7) == "/sd/trash/t0000007");
   const std::vector<std::string> f = card::folders(k);
   CHECK(f.size() == 4 && f[0] == "/sd/tiles" && f[1] == "/sd/tiles/06_0" && f[3] == "/sd/tiles/06_0/11/534");
   // What is kept: maps and their names, not the weather radar nor a custom server.
