@@ -70,7 +70,7 @@ class ReleaseSite(unittest.TestCase):
             capture_output=True,
         )
 
-    def manifest(self, board: str = "") -> dict:
+    def manifest(self, board: str) -> dict:
         return json.loads((self.out / board / "manifest.json").read_text())
 
     def test_each_board_finds_its_own_firmware(self):
@@ -93,16 +93,8 @@ class ReleaseSite(unittest.TestCase):
             self.assertEqual(ota["md5"], hashlib.md5(image).hexdigest())
             self.assertEqual(ota["summary"], "What changed")
             self.assertEqual(ota["release_url"], "https://example.com/r")
-
-    def test_a_screen_from_before_the_folders_finds_its_firmware(self):
-        # Up to 0.5.0 a screen asked for <releases>/manifest.json, and only the AMOLED board was released.
-        self.run_tool()
-        ota = ota_build(self.manifest(), "ESP32-S3")
-        self.assertIsNotNone(ota)
-        url = firmware_url(f"{RELEASES}/manifest.json", ota["path"])
-        self.assertEqual(url, f"{RELEASES}/waveshare-amoled-241/skyscope-1.2.3-waveshare-amoled-241.ota.bin")
-        self.assertEqual(ota["md5"], ota_build(self.manifest("waveshare-amoled-241"), "ESP32-S3")["md5"])
-        self.assertEqual(len(self.manifest()["builds"]), 1)
+        # Nothing at the top: a screen asks only in its board's folder.
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), BOARDS)
 
     def test_another_chip_finds_nothing(self):
         self.run_tool()

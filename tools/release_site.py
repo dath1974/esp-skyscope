@@ -13,9 +13,6 @@ The manifest is ESP Web Tools' (the same file installs a screen from a browser, 
 the release's page. Its one build is named by the board's chip as ESPHOME_VARIANT names it ("ESP32-S3"), which the
 update check requires. The firmware files carry the version and the board in their names, so a screen never gets a
 stale copy from a cache, and the GitHub release can hold every board's.
-
-manifest.json at the top is the first board's (LEGACY_BOARD) too, for screens from before there was a folder for each:
-they ask there, and once updated ask in their board's folder.
 """
 
 import argparse
@@ -26,8 +23,6 @@ import re
 import shutil
 
 ROOT = Path(__file__).resolve().parent.parent
-# The one board there was up to 0.5.0, whose screens ask for manifest.json at the top.
-LEGACY_BOARD = "waveshare-amoled-241"
 
 
 def chip_of(board_file: Path) -> str:
@@ -40,7 +35,6 @@ def chip_of(board_file: Path) -> str:
 
 
 def manifest(version: str, chip: str, ota: str, factory: str, md5: str, args) -> dict:
-    """`ota` and `factory` are the images' paths from where the manifest is."""
     update = {"path": ota, "md5": md5}
     if args.summary:
         update["summary"] = args.summary
@@ -73,9 +67,6 @@ def main() -> None:
     boards = sorted(args.boards.glob("*.yaml"))
     if not boards:
         parser.error(f"no boards in {args.boards}")
-    names = [b.stem for b in boards]
-    if LEGACY_BOARD not in names:
-        parser.error(f"{LEGACY_BOARD} (the top manifest's) is not among the boards")
 
     for board in boards:
         folder = args.builds / f"skyscope-{board.stem}" / "build"
@@ -89,9 +80,6 @@ def main() -> None:
         md5 = hashlib.md5((args.out / board.stem / ota).read_bytes()).hexdigest()
         chip = chip_of(board)
         write(args.out / board.stem / "manifest.json", manifest(args.version, chip, ota, factory, md5, args))
-        if board.stem == LEGACY_BOARD:
-            write(args.out / "manifest.json",
-                  manifest(args.version, chip, f"{board.stem}/{ota}", f"{board.stem}/{factory}", md5, args))
 
 
 if __name__ == "__main__":

@@ -125,9 +125,7 @@ Releasing (maintainers): `make release-version VERSION=0.4.0` sets `version` in 
 for every board, runs the tests and makes the annotated tag `v<version>`; `make release` asks, then pushes main and the
 tag.
 `.github/workflows/release.yml` builds it for every board, makes the GitHub release and publishes each board's firmware
-with its manifest (`tools/release_site.py`). The tag's message is the summary the page shows. The AMOLED 2.41's manifest
-is published at the top as well (`manifest.json`), where screens on 0.5.0 and before ask; once updated they ask in their
-board's folder.
+with its manifest (`tools/release_site.py`). The tag's message is the summary the page shows.
 
 ## First start
 

@@ -67,7 +67,7 @@ jobs:
             esphome -s board "$(basename "$f" .yaml)" compile skyscope.yaml
           done
 
-      # A folder for each board, with its manifest and firmware, and the first board's manifest at the top too.
+      # A folder for each board, with its manifest and firmware.
       - name: The files for the screens
         env:
           VERSION: ${{ steps.version.outputs.version }}

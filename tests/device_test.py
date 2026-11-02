@@ -126,18 +126,8 @@ def published_version(manifest: str) -> str:
 
 
 def own_manifest(firmware: dict) -> str:
-    """The manifest the screen asks (its board's), from /api/firmware; a screen from before it said so asks the top
-    one."""
-    return firmware.get("source") or releases_address() + "/manifest.json"
-
-
-def releases_address() -> str:
-    from pathlib import Path
-
-    for line in (Path(__file__).resolve().parent.parent / "skyscope.yaml").read_text().splitlines():
-        if line.strip().startswith("releases:"):
-            return line.split(":", 1)[1].strip()
-    raise SystemExit("skyscope.yaml names no releases address")
+    """The manifest the screen asks, its board's own (/api/firmware's source)."""
+    return firmware.get("source", "")
 
 
 def differing(screen: Screen, original: dict) -> str:
@@ -207,6 +197,8 @@ def test_firmware(screen: Screen, run: Run):
     print("Firmware")
     status, f = screen.json("/api/firmware")
     run.check(status == 200 and f.get("updates") is True, f"updates built in, running {f.get('version')}")
+    if not run.check(bool(own_manifest(f)), "it says which manifest it asks", json.dumps(f)):
+        return
     try:
         latest = published_version(own_manifest(f))
     except OSError as e:
