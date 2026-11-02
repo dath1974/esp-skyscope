@@ -65,11 +65,12 @@ http_request:
   timeout: 15s
 
 # The newest release, asked for every few hours; the web page shows it and installs it on a press, never by itself.
+# Each board has its own manifest (tools/release_site.py), so a screen is only ever offered its own board's firmware.
 update:
   - platform: http_request
     id: firmware
     name: Firmware
-    source: ${releases}/manifest.json
+    source: ${releases}/${board}/manifest.json
     update_interval: 6h
 
 # The time of day, for bedtime. The time zone is a setting on the screen's web page; UTC0 here only builds the time

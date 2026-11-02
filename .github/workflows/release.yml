@@ -63,24 +63,24 @@ jobs:
       - name: Build
         run: |
           pip install "esphome==$(make -s firmware-esphome-version)"
-          esphome -s board waveshare-amoled-241 compile skyscope.yaml
-          esphome -s board waveshare-p4-lcd-4c compile skyscope.yaml
+          for f in boards/*.yaml; do
+            esphome -s board "$(basename "$f" .yaml)" compile skyscope.yaml
+          done
 
+      # A folder for each board, with its manifest and firmware, and the first board's manifest at the top too.
       - name: The files for the screens
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SUMMARY: ${{ steps.version.outputs.summary }}
         run: |
-          python3 tools/release_site.py "$VERSION" site \
-            --build=ESP32-S3=.esphome/build/skyscope-waveshare-amoled-241/build \
-            --build=ESP32-P4=.esphome/build/skyscope-waveshare-p4-lcd-4c/build \
+          python3 tools/release_site.py "$VERSION" site --builds .esphome/build \
             --summary "$SUMMARY" --release-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
 
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" site/*.bin --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag
+          gh release create "$GITHUB_REF_NAME" site/*/*.bin --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag
 
       - uses: actions/upload-pages-artifact@v5
         with:

@@ -8,7 +8,8 @@ guide; read it for what the screen does and how it is set up.
 
 - `skyscope.yaml`: the device config (version, update server, packages). `boards/`: one file per board, chosen by the
   `board` substitution (`make firmware BOARD=<name>`, `make firmware-all`); each builds in
-  `.esphome/build/skyscope-<board>`, and a release carries one firmware per chip.
+  `.esphome/build/skyscope-<board>`, and a release publishes each board's firmware with its own manifest
+  (`<board>/manifest.json`).
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,

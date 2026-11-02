@@ -5,14 +5,13 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = "https://example.github.io/esp-skyscope/manifest.json"
 
 
 def firmware_url(source: str, path: str) -> str:
@@ -41,91 +40,128 @@ def ota_build(manifest: dict, variant: str):
     return None
 
 
+BOARDS = sorted(p.stem for p in (ROOT / "boards").glob("*.yaml"))
+RELEASES = "https://example.github.io/esp-skyscope"
+
+
 class ReleaseSite(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.out = Path(self.dir.name, "site")
-        # A build for each chip, each image its own.
-        self.builds = {}
-        for chip in ("ESP32-S3", "ESP32-P4"):
-            build = Path(self.dir.name, chip)
-            build.mkdir()
-            (build / "firmware.ota.bin").write_bytes(f"\xe9update image {chip}".encode() * 100)
-            (build / "firmware.factory.bin").write_bytes(f"\xe9factory image {chip}".encode() * 100)
-            self.builds[chip] = build
+        self.builds = Path(self.dir.name, "builds")
+        # A build for each board, as skyscope.yaml's build_path puts it, each image its own.
+        for board in BOARDS:
+            self.build(board)
+
+    def build(self, board: str):
+        folder = self.builds / f"skyscope-{board}" / "build"
+        folder.mkdir(parents=True)
+        (folder / "firmware.ota.bin").write_bytes(f"\xe9update image {board}".encode() * 100)
+        (folder / "firmware.factory.bin").write_bytes(f"\xe9factory image {board}".encode() * 100)
 
     def tearDown(self):
         self.dir.cleanup()
 
-    def run_tool(self, *extra, chips=("ESP32-S3", "ESP32-P4"), check=True):
-        builds = [f"--build={chip}={self.builds[chip]}" for chip in chips]
-        done = subprocess.run(
-            [sys.executable, str(ROOT / "tools/release_site.py"), "1.2.3", str(self.out), *builds, *extra],
+    def run_tool(self, *extra, check=True):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "tools/release_site.py"), "1.2.3", str(self.out), "--builds", str(self.builds),
+             *extra],
             check=check,
             capture_output=True,
         )
-        if not check:
-            return done
-        return json.loads((self.out / "manifest.json").read_text())
 
-    def test_the_screen_finds_its_firmware(self):
-        manifest = self.run_tool("--summary", "What changed", "--release-url", "https://example.com/r")
-        self.assertEqual(manifest["version"], "1.2.3")
-        for chip, name in (("ESP32-S3", "esp32-s3"), ("ESP32-P4", "esp32-p4")):
+    def manifest(self, board: str = "") -> dict:
+        return json.loads((self.out / board / "manifest.json").read_text())
+
+    def test_each_board_finds_its_own_firmware(self):
+        self.run_tool("--summary", "What changed", "--release-url", "https://example.com/r")
+        for board in BOARDS:
+            manifest = self.manifest(board)
+            self.assertEqual(manifest["version"], "1.2.3")
+            chip = chip_of(board)
+            self.assertEqual([b["chipFamily"] for b in manifest["builds"]], [chip])
             ota = ota_build(manifest, chip)
             self.assertIsNotNone(ota)
-            # The path beside the manifest, a file that is there and its own chip's, with the MD5 the screen checks it
+            # The path beside the manifest, a file that is there and its own board's, with the MD5 the screen checks it
             # by.
-            url = firmware_url(SOURCE, ota["path"])
-            self.assertEqual(url, f"https://example.github.io/esp-skyscope/skyscope-1.2.3-{name}.ota.bin")
-            image = (self.out / ota["path"]).read_bytes()
-            self.assertEqual(image, (self.builds[chip] / "firmware.ota.bin").read_bytes())
+            source = f"{RELEASES}/{board}/manifest.json"
+            url = firmware_url(source, ota["path"])
+            self.assertEqual(url, f"{RELEASES}/{board}/skyscope-1.2.3-{board}.ota.bin")
+            image = (self.out / board / ota["path"]).read_bytes()
+            self.assertEqual(image, (self.builds / f"skyscope-{board}/build/firmware.ota.bin").read_bytes())
             self.assertRegex(ota["md5"], r"^[0-9a-f]{32}$")
             self.assertEqual(ota["md5"], hashlib.md5(image).hexdigest())
             self.assertEqual(ota["summary"], "What changed")
             self.assertEqual(ota["release_url"], "https://example.com/r")
 
-    def test_another_chip_finds_nothing(self):
-        self.assertIsNone(ota_build(self.run_tool(), "ESP32"))
-        self.assertIsNone(ota_build(self.run_tool(chips=("ESP32-S3",)), "ESP32-P4"))
+    def test_a_screen_from_before_the_folders_finds_its_firmware(self):
+        # Up to 0.5.0 a screen asked for <releases>/manifest.json, and only the AMOLED board was released.
+        self.run_tool()
+        ota = ota_build(self.manifest(), "ESP32-S3")
+        self.assertIsNotNone(ota)
+        url = firmware_url(f"{RELEASES}/manifest.json", ota["path"])
+        self.assertEqual(url, f"{RELEASES}/waveshare-amoled-241/skyscope-1.2.3-waveshare-amoled-241.ota.bin")
+        self.assertEqual(ota["md5"], ota_build(self.manifest("waveshare-amoled-241"), "ESP32-S3")["md5"])
+        self.assertEqual(len(self.manifest()["builds"]), 1)
 
-    def test_one_build_for_each_chip(self):
-        done = self.run_tool(chips=("ESP32-S3", "ESP32-S3"), check=False)
+    def test_another_chip_finds_nothing(self):
+        self.run_tool()
+        for board in BOARDS:
+            self.assertIsNone(ota_build(self.manifest(board), "ESP32"))
+
+    def test_two_boards_may_share_a_chip(self):
+        # A second ESP32-S3 board: each has its own manifest, so neither is offered the other's firmware.
+        boards = Path(self.dir.name, "boards")
+        boards.mkdir()
+        for board in BOARDS:
+            shutil.copyfile(ROOT / "boards" / f"{board}.yaml", boards / f"{board}.yaml")
+        shutil.copyfile(ROOT / "boards/waveshare-amoled-241.yaml", boards / "another-s3.yaml")
+        self.build("another-s3")
+        self.run_tool("--boards", str(boards))
+        mine, theirs = (ota_build(self.manifest(b), "ESP32-S3") for b in ("another-s3", "waveshare-amoled-241"))
+        self.assertNotEqual(mine["md5"], theirs["md5"])
+        self.assertEqual(mine["path"], "skyscope-1.2.3-another-s3.ota.bin")
+
+    def test_a_board_without_a_build_is_refused(self):
+        shutil.rmtree(self.builds / f"skyscope-{BOARDS[-1]}")
+        done = self.run_tool(check=False)
         self.assertNotEqual(done.returncode, 0)
+        self.assertIn(b"no build of", done.stderr)
 
     def test_a_browser_install_gets_the_factory_image(self):
-        manifest = self.run_tool()
-        for build, name in zip(manifest["builds"], ("esp32-s3", "esp32-p4")):
-            parts = build["parts"]
-            self.assertEqual(parts, [{"path": f"skyscope-1.2.3-{name}.factory.bin", "offset": 0}])
-            self.assertTrue((self.out / parts[0]["path"]).is_file())
+        self.run_tool()
+        for board in BOARDS:
+            parts = self.manifest(board)["builds"][0]["parts"]
+            self.assertEqual(parts, [{"path": f"skyscope-1.2.3-{board}.factory.bin", "offset": 0}])
+            self.assertTrue((self.out / board / parts[0]["path"]).is_file())
 
     def test_no_summary_no_field(self):
-        ota = ota_build(self.run_tool(), "ESP32-S3")
+        self.run_tool()
+        ota = ota_build(self.manifest("waveshare-amoled-241"), "ESP32-S3")
         self.assertNotIn("summary", ota)
         self.assertNotIn("release_url", ota)
 
 
-def release_builds() -> dict[str, str]:
-    """The builds release.yml hands release_site.py: {chip: board}, from its --build=<chip>=<board's build folder>."""
-    workflow = (ROOT / ".github/workflows/release.yml").read_text()
-    found = re.findall(r"--build=(ESP32[-A-Z0-9]*)=\.esphome/build/skyscope-([a-z0-9-]+)/build", workflow)
-    return {chip: board for chip, board in found}
+def chip_of(board: str) -> str:
+    """The board's chip, as ESPHOME_VARIANT names it: an esp32s3 is "ESP32-S3"."""
+    config = (ROOT / "boards" / f"{board}.yaml").read_text()
+    variant = re.search(r"^  variant:\s*(\w+)", config, re.M).group(1).upper()
+    return "ESP32" if variant == "ESP32" else "ESP32-" + variant.removeprefix("ESP32")
 
 
 class TheReleaseMatchesTheConfig(unittest.TestCase):
-    def test_every_board_is_released_by_its_chip(self):
-        # Each board's build goes in the manifest under its chip, as ESPHOME_VARIANT names it: an esp32s3 is "ESP32-S3".
-        boards = sorted(p.stem for p in (ROOT / "boards").glob("*.yaml"))
-        builds = release_builds()
-        self.assertEqual(sorted(builds.values()), boards, "release.yml must build and publish every board")
+    def test_every_board_is_built_and_published(self):
+        # release.yml builds every file in boards/ and hands their builds to release_site.py, which publishes each.
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        for chip, board in builds.items():
-            config = (ROOT / "boards" / f"{board}.yaml").read_text()
-            variant = re.search(r"^  variant:\s*(\w+)", config, re.M)
-            self.assertIsNotNone(variant, board)
-            self.assertEqual(chip, "ESP32-" + variant.group(1).upper().removeprefix("ESP32"), board)
-            self.assertIn(f"-s board {shlex.quote(board)} compile skyscope.yaml", workflow, board)
+        self.assertIn("for f in boards/*.yaml; do", workflow)
+        self.assertIn('esphome -s board "$(basename "$f" .yaml)" compile skyscope.yaml', workflow)
+        self.assertIn("tools/release_site.py \"$VERSION\" site --builds .esphome/build", workflow)
+        self.assertIn("site/*/*.bin", workflow)
+        # And a push builds every board too.
+        tests = (ROOT / ".github/workflows/tests.yml").read_text()
+        matrix = re.search(r"^        board: \[([^\]]*)\]$", tests, re.M)
+        self.assertIsNotNone(matrix)
+        self.assertEqual(sorted(b.strip() for b in matrix.group(1).split(",")), BOARDS, "tests.yml must build every board")
 
     def test_the_wifi_chips_firmware_is_the_one_named(self):
         # A board that carries its Wi-Fi chip's firmware names a file that is here, with the SHA-256 it has (ESPHome
@@ -160,10 +196,9 @@ class TheReleaseMatchesTheConfig(unittest.TestCase):
         self.assertRegex(found[0], r"^\d+\.\d+\.\d+$")
 
     def test_manifest_address(self):
-        # The update entity asks for <releases>/manifest.json, where the workflow publishes it.
+        # The update entity asks for <releases>/<board>/manifest.json, where the workflow publishes each board's.
         config = (ROOT / "skyscope.yaml").read_text()
-        self.assertIn("source: ${releases}/manifest.json", config)
-
+        self.assertIn("source: ${releases}/${board}/manifest.json", config)
 
 if __name__ == "__main__":
     unittest.main()

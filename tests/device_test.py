@@ -120,9 +120,15 @@ def wait_for(condition, seconds: float, every: float = 2):
     return None
 
 
-def published_version(releases: str) -> str:
-    with urllib.request.urlopen(releases + "/manifest.json", timeout=10) as r:
+def published_version(manifest: str) -> str:
+    with urllib.request.urlopen(manifest, timeout=10) as r:
         return json.loads(r.read())["version"]
+
+
+def own_manifest(firmware: dict) -> str:
+    """The manifest the screen asks (its board's), from /api/firmware; a screen from before it said so asks the top
+    one."""
+    return firmware.get("source") or releases_address() + "/manifest.json"
 
 
 def releases_address() -> str:
@@ -202,7 +208,7 @@ def test_firmware(screen: Screen, run: Run):
     status, f = screen.json("/api/firmware")
     run.check(status == 200 and f.get("updates") is True, f"updates built in, running {f.get('version')}")
     try:
-        latest = published_version(releases_address())
+        latest = published_version(own_manifest(f))
     except OSError as e:
         run.check(False, "the published manifest is readable", str(e))
         return
@@ -933,6 +939,7 @@ def test_mock_firmware(screen: Screen, run: Run, server, source: str, install: s
         print("  (built without updates)")
         return
     running = f["version"]
+    published = own_manifest(f)
 
     def asked(what_from: str, since: float, seconds=30):
         return wait_for(lambda: [r for r in feed.log(since) if r[3].startswith(what_from)], seconds, 0.5)
@@ -1018,7 +1025,6 @@ def test_mock_firmware(screen: Screen, run: Run, server, source: str, install: s
             test_install(screen, run, server, install)
     finally:
         fw.set(fault="")
-        published = releases_address() + "/manifest.json"
         if screen.up() and screen.json("/api/firmware", {"source": published})[0] == 200:
             f = wait_for(lambda: (lambda x: x if x.get("known") and x.get("latest") != "9.9.9" else None)(firmware()),
                          30, 1)

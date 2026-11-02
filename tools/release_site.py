@@ -1,73 +1,97 @@
 #!/usr/bin/env python3
-"""The files a release publishes on GitHub Pages: the firmware, and the manifest the screens read.
+"""The files a release publishes on GitHub Pages: the firmware, and the manifests the screens read.
 
-    tools/release_site.py <version> <out dir> --build <chip>=<build dir> [--build ...] [--summary TEXT]
-                          [--release-url URL]
+    tools/release_site.py <version> <out dir> --builds <dir> [--boards <dir>] [--summary TEXT] [--release-url URL]
 
-One build for each board, named by its chip as ESPHOME_VARIANT names it ("ESP32-S3", "ESP32-P4"): a screen's update
-check takes only the build for its own chip, so one manifest serves every board, and no two boards may share a chip.
+Every board in boards/ (or --boards) is published, from ESPHome's build of it in <dir>/skyscope-<board>/build (as
+skyscope.yaml's build_path puts it), each in a folder of its own: <board>/manifest.json, which a screen of that board
+asks for (skyscope.yaml: update:), beside its firmware. A screen is offered only its own board's firmware, so two boards
+may share a chip.
 
 The manifest is ESP Web Tools' (the same file installs a screen from a browser, with the factory image), with the
 `ota` part ESPHome's http_request update reads: the update image's path (beside the manifest), its MD5, a summary and
-the release's page. The firmware files carry the version and the chip in their names, so a screen never gets a stale
-copy from a cache, nor another chip's.
+the release's page. Its one build is named by the board's chip as ESPHOME_VARIANT names it ("ESP32-S3"), which the
+update check requires. The firmware files carry the version and the board in their names, so a screen never gets a
+stale copy from a cache, and the GitHub release can hold every board's.
+
+manifest.json at the top is the first board's (LEGACY_BOARD) too, for screens from before there was a folder for each:
+they ask there, and once updated ask in their board's folder.
 """
 
 import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 
+ROOT = Path(__file__).resolve().parent.parent
+# The one board there was up to 0.5.0, whose screens ask for manifest.json at the top.
+LEGACY_BOARD = "waveshare-amoled-241"
 
-def build_arg(text: str) -> tuple[str, Path]:
-    chip, sep, folder = text.partition("=")
-    if not sep or not chip or not folder:
-        raise argparse.ArgumentTypeError(f"{text!r}: expected <chip>=<build dir>")
-    return chip, Path(folder)
+
+def chip_of(board_file: Path) -> str:
+    """The board's chip as ESPHOME_VARIANT names it: esp32s3 is "ESP32-S3", esp32 "ESP32"."""
+    found = re.search(r"^  variant:\s*(\w+)", board_file.read_text(), re.M)
+    if not found:
+        raise SystemExit(f"{board_file}: no esp32 variant")
+    variant = found.group(1).upper()
+    return "ESP32" if variant == "ESP32" else "ESP32-" + variant.removeprefix("ESP32")
+
+
+def manifest(version: str, chip: str, ota: str, factory: str, md5: str, args) -> dict:
+    """`ota` and `factory` are the images' paths from where the manifest is."""
+    update = {"path": ota, "md5": md5}
+    if args.summary:
+        update["summary"] = args.summary
+    if args.release_url:
+        update["release_url"] = args.release_url
+    return {
+        "name": "esp-skyscope",
+        "version": version,
+        "new_install_prompt_erase": True,
+        "builds": [{"chipFamily": chip, "parts": [{"path": factory, "offset": 0}], "ota": update}],
+    }
+
+
+def write(path: Path, content: dict) -> None:
+    path.write_text(json.dumps(content, indent=2) + "\n")
+    print(f"{path}:\n{json.dumps(content, indent=2)}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("version")
     parser.add_argument("out", type=Path)
-    parser.add_argument(
-        "--build",
-        type=build_arg,
-        action="append",
-        required=True,
-        help="<chip>=<ESPHome's build folder, with firmware.ota.bin and firmware.factory.bin>",
-    )
+    parser.add_argument("--builds", type=Path, required=True,
+                        help="ESPHome's build folders, skyscope-<board>/build with firmware.ota.bin and .factory.bin")
+    parser.add_argument("--boards", type=Path, default=ROOT / "boards", help="the boards' files, <board>.yaml")
     parser.add_argument("--summary", default="")
     parser.add_argument("--release-url", default="")
     args = parser.parse_args()
 
-    chips = [chip for chip, _ in args.build]
-    if len(set(chips)) != len(chips):
-        parser.error(f"one build for each chip: {', '.join(chips)}")
+    boards = sorted(args.boards.glob("*.yaml"))
+    if not boards:
+        parser.error(f"no boards in {args.boards}")
+    names = [b.stem for b in boards]
+    if LEGACY_BOARD not in names:
+        parser.error(f"{LEGACY_BOARD} (the top manifest's) is not among the boards")
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    builds = []
-    for chip, folder in args.build:
-        name = f"skyscope-{args.version}-{chip.lower()}"
+    for board in boards:
+        folder = args.builds / f"skyscope-{board.stem}" / "build"
+        if not (folder / "firmware.ota.bin").is_file():
+            parser.error(f"no build of {board.stem} in {folder}")
+        (args.out / board.stem).mkdir(parents=True, exist_ok=True)
+        name = f"skyscope-{args.version}-{board.stem}"
         ota, factory = f"{name}.ota.bin", f"{name}.factory.bin"
-        shutil.copyfile(folder / "firmware.ota.bin", args.out / ota)
-        shutil.copyfile(folder / "firmware.factory.bin", args.out / factory)
-        update = {"path": ota, "md5": hashlib.md5((args.out / ota).read_bytes()).hexdigest()}
-        if args.summary:
-            update["summary"] = args.summary
-        if args.release_url:
-            update["release_url"] = args.release_url
-        builds.append({"chipFamily": chip, "parts": [{"path": factory, "offset": 0}], "ota": update})
-
-    manifest = {
-        "name": "esp-skyscope",
-        "version": args.version,
-        "new_install_prompt_erase": True,
-        "builds": builds,
-    }
-    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(json.dumps(manifest, indent=2))
+        shutil.copyfile(folder / "firmware.ota.bin", args.out / board.stem / ota)
+        shutil.copyfile(folder / "firmware.factory.bin", args.out / board.stem / factory)
+        md5 = hashlib.md5((args.out / board.stem / ota).read_bytes()).hexdigest()
+        chip = chip_of(board)
+        write(args.out / board.stem / "manifest.json", manifest(args.version, chip, ota, factory, md5, args))
+        if board.stem == LEGACY_BOARD:
+            write(args.out / "manifest.json",
+                  manifest(args.version, chip, f"{board.stem}/{ota}", f"{board.stem}/{factory}", md5, args))
 
 
 if __name__ == "__main__":

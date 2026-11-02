@@ -335,6 +335,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["version"] = version_;
 #ifdef USE_UPDATE
     out["updates"] = firmware_ != nullptr;
+    // The manifest it asks, its board's own: where tests/device_test.py finds the release this screen is offered.
+    if (firmware_ && firmware_->get_source_url()) out["source"] = firmware_->get_source_url();
 #else
     out["updates"] = false;
 #endif

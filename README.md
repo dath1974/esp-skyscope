@@ -50,7 +50,8 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
 
 `skyscope.yaml` builds the board its `board` substitution names: `esphome -s board waveshare-p4-lcd-4c run
 skyscope.yaml`, or `make firmware BOARD=waveshare-p4-lcd-4c`. Each board builds in a folder of its own
-(`.esphome/build/skyscope-<board>`), and a release carries a firmware for each, which a screen tells apart by its chip.
+(`.esphome/build/skyscope-<board>`), and a release publishes each board's firmware with a manifest of its own, which
+only screens of that board ask for (below, Updates).
 
 The P4 board takes its Wi-Fi from the ESP32-C6 beside it, which runs Espressif's ESP-Hosted firmware. The P4's
 firmware carries the C6's (`boards/esp-hosted/`, checked by its SHA-256): at start, a C6 running any other version is
@@ -64,9 +65,9 @@ label in the corners beyond it (`skyscope:` `round: true`, `glass.h`).
 
 A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB)
 and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:`
-block's `dpi`, and a build of it in `.github/workflows/release.yml` and `tests.yml` (a test checks that every board is
-released, under its chip, and no two boards may share a chip). Any new board will require ample testing, noting the
-goal of this project is a physically small display size.
+block's `dpi`, and the board in the build matrix of `.github/workflows/tests.yml` (a test checks it is there); a release
+builds and publishes every file in `boards/` by itself. Two boards may have the same chip. Any new board will require
+ample testing, noting the goal of this project is a physically small display size.
 
 ### The screen's own radio (ESP32-P4)
 
@@ -109,11 +110,12 @@ Makefile's ESPHome version first (`DEVICE` can be a serial port too).
 
 ## Updates
 
-Once it is on Wi-Fi the screen updates itself from the project's releases, with no computer. Every six hours it asks
-for the newest one (a manifest on GitHub Pages), and its web page shows it under **Firmware**, with **Install** and
-**Check now**. Nothing installs by itself. Installing shows **Updating** on the screen, downloads the release into the
-half of the flash the screen is not running from, checks it and restarts into it, in a minute or two. The settings
-are kept. A download that breaks off or fails its check changes nothing: the screen keeps the firmware it has.
+Once it is on Wi-Fi the screen updates itself from the project's releases, with no computer. Every six hours it asks for
+the newest one (its board's manifest on GitHub Pages, `<board>/manifest.json`, so it is only ever offered firmware for
+its own board), and its web page shows it under **Firmware**, with **Install** and **Check now**. Nothing installs by
+itself. Installing shows **Updating** on the screen, downloads the release into the half of the flash the screen is not
+running from, checks it and restarts into it, in a minute or two. The settings are kept. A download that breaks off or
+fails its check changes nothing: the screen keeps the firmware it has.
 
 A build of your own offers the releases too, whenever its version differs. To leave them out, remove the `update:`
 block and the `skyscope:` block's `update_id` from `skyscope.yaml`.
@@ -122,8 +124,10 @@ Releasing (maintainers): `make release-version VERSION=0.4.0` sets `version` in 
 `make release-tag MSG="What changed, in one line"` checks that main is committed and current, builds the firmware
 for every board, runs the tests and makes the annotated tag `v<version>`; `make release` asks, then pushes main and the
 tag.
-`.github/workflows/release.yml` builds it, makes the GitHub release and publishes the firmware with its manifest
-(`tools/release_site.py`). The tag's message is the summary the page shows.
+`.github/workflows/release.yml` builds it for every board, makes the GitHub release and publishes each board's firmware
+with its manifest (`tools/release_site.py`). The tag's message is the summary the page shows. The AMOLED 2.41's manifest
+is published at the top as well (`manifest.json`), where screens on 0.5.0 and before ask; once updated they ask in their
+board's folder.
 
 ## First start
 
@@ -234,7 +238,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
 | `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
-| `GET /api/firmware` | the version running, the newest release, and an install's progress |
+| `GET /api/firmware` | the version running, the newest release, an install's progress, and the manifest it asks (`source`) |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `GET /api/networks` | the Wi-Fi networks the screen knows, first choice first: their names only, never a password |
 | `POST /api/networks` | with the test API only: `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
