@@ -23,7 +23,8 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
   sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
   coloured by altitude; labels kept apart from each other, their altitude in hundreds of feet as on a controller's
-  scope (`025`, `350`, and `-001` below sea level); tracks of the last seconds; planes
+  scope (`025`, `350`, and `-001` below sea level) with an arrow after it for a climb or a descent of 200 ft a
+  minute or more; tracks of the last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a

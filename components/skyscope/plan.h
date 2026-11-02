@@ -252,6 +252,29 @@ inline std::array<Point, 2> leader(const Label &l, const Box &b) {
   return {{{l.c.x + dx / d * l.reach, l.c.y + dy / d * l.reach}, near}};
 }
 
+// A label marks a climb or a descent with an arrow ("350↑"). The glass's fonts have no arrows, so the screen draws
+// them itself between the pieces of text a row is cut into here.
+inline constexpr const char *ARROW_UP = "\xE2\x86\x91", *ARROW_DOWN = "\xE2\x86\x93";
+struct Piece {
+  std::string text;
+  int arrow = 0;  // after the text: 1 up, -1 down, 0 none
+};
+inline std::vector<Piece> pieces(const std::string &row) {
+  std::vector<Piece> out(1);
+  for (size_t at = 0; at < row.size();) {
+    const bool up = row.compare(at, 3, ARROW_UP) == 0, down = row.compare(at, 3, ARROW_DOWN) == 0;
+    if (up || down) {
+      out.back().arrow = up ? 1 : -1;
+      out.emplace_back();
+      at += 3;
+    } else {
+      out.back().text += row[at++];
+    }
+  }
+  if (out.size() > 1 && out.back().text.empty()) out.pop_back();
+  return out;
+}
+
 // The lines of a label.
 inline std::vector<std::string> lines(const std::string &label) {
   std::vector<std::string> out;

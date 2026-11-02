@@ -19,6 +19,8 @@ namespace sky::overlay {
 // Altitude bands a marker is coloured by (tar1090's rainbow): on the ground, below 5,000 ft, below 15,000, below
 // 30,000, and above.
 inline constexpr int BANDS[] = {5000, 15000, 30000};
+// A plane climbing or descending at least this many feet a minute is said to: its label's arrow, its card's words.
+constexpr int CLIMB_FPM = 200;
 // A plane is still shown this far beyond the frame, so one that flies in is there at once.
 constexpr int MARGIN = 24;
 // A plane the feed stopped listing is forgotten after this long, and with it its track.
@@ -147,6 +149,11 @@ inline std::string block_altitude(const feed::Flight &f, bool metric) {
   else std::snprintf(out, sizeof(out), "%03ld", hundreds);
   return out;
 }
+// The arrow after a label's altitude, up for a climb and down for a descent; "" for level flight or no rate.
+inline std::string climb_arrow(const feed::Flight &f) {
+  if (f.on_ground || !f.has_climb || std::abs(f.climb) < CLIMB_FPM) return "";
+  return f.climb > 0 ? plan::ARROW_UP : plan::ARROW_DOWN;
+}
 inline std::string speed_text(const feed::Flight &f, bool metric) {
   if (!f.has_speed) return "";
   char out[24];
@@ -167,7 +174,8 @@ inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) 
   if (kind == LABEL_NONE) return "";
   const std::string name = name_of(f);
   if (kind == LABEL_CALLSIGN) return name;
-  const std::string altitude = f.on_ground ? std::string("GND") : block_altitude(f, metric);
+  std::string altitude = f.on_ground ? std::string("GND") : block_altitude(f, metric);
+  if (!altitude.empty()) altitude += climb_arrow(f);
   if (kind == LABEL_ALTITUDE) return altitude.empty() ? name : name + "\n" + altitude;
   std::string first = name, second = altitude;
   if (!f.type.empty()) first += " " + f.type;

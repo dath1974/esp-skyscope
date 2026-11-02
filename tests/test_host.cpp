@@ -613,11 +613,34 @@ static void test_overlay() {
   s.track_s = 60;
   o = overlay::build(flights, s, p.view, tracks, 11000, 12.25f, true);
   CHECK(o.planes.back().track.size() == 4);
-  CHECK(overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\n350 451 kt" ||
-        overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\n350 450 kt");
+  {
+    // Descending at 1,500 ft a minute: the arrow between its altitude and its speed.
+    const std::string down = std::string("TEST12 B738\n350") + plan::ARROW_DOWN;
+    CHECK(overlay::label_of(flights[0], LABEL_FULL, false) == down + " 451 kt" ||
+          overlay::label_of(flights[0], LABEL_FULL, false) == down + " 450 kt");
+  }
   CHECK(overlay::label_of(flights[2], LABEL_CALLSIGN, false) == "ABC004");
   CHECK(overlay::altitude_text(flights[2], false) == "2500 ft" && overlay::altitude_text(flights[2], true) == "760 m");
   CHECK(overlay::label_of(flights[2], LABEL_ALTITUDE, false) == "ABC004\n025");
+  {
+    // A climb or a descent of 200 ft a minute or more puts an arrow after the altitude; the glass draws it.
+    feed::Flight moving = flights[2];
+    moving.has_climb = true;
+    moving.climb = 1500;
+    CHECK(overlay::label_of(moving, LABEL_ALTITUDE, false) == std::string("ABC004\n025") + plan::ARROW_UP);
+    moving.climb = -800;
+    CHECK(overlay::label_of(moving, LABEL_ALTITUDE, false) == std::string("ABC004\n025") + plan::ARROW_DOWN);
+    moving.climb = 150;
+    CHECK(overlay::label_of(moving, LABEL_ALTITUDE, false) == "ABC004\n025");
+    moving.climb = 1500;
+    moving.on_ground = true;
+    CHECK(overlay::label_of(moving, LABEL_ALTITUDE, false) == "ABC004\nGND");
+    const auto cut = plan::pieces(std::string("025") + plan::ARROW_DOWN + " 451 kt");
+    CHECK(cut.size() == 2 && cut[0].text == "025" && cut[0].arrow == -1 && cut[1].text == " 451 kt" && !cut[1].arrow);
+    const auto end = plan::pieces(std::string("350") + plan::ARROW_UP);
+    CHECK(end.size() == 1 && end[0].text == "350" && end[0].arrow == 1);
+    CHECK(plan::pieces("ABC004").size() == 1 && plan::pieces("ABC004")[0].text == "ABC004");
+  }
   CHECK(overlay::block_altitude(flights[2], true) == "760 m");
   {
     feed::Flight low = flights[2];

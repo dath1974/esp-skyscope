@@ -901,7 +901,7 @@ void Skyscope::update_card_() {
   const std::string kind = !f->description.empty() ? f->description : f->type;
   set_text(card_rows_[0], join({kind, f->registration != overlay::name_of(*f) ? f->registration : ""}));
   std::string climb;
-  if (f->has_climb && std::abs(f->climb) >= 200) climb = f->climb > 0 ? "climbing" : "descending";
+  if (f->has_climb && std::abs(f->climb) >= overlay::CLIMB_FPM) climb = f->climb > 0 ? "climbing" : "descending";
   char heading[16] = "";
   if (f->has_heading) std::snprintf(heading, sizeof(heading), "%03d\xC2\xB0", (int) std::lround(f->heading) % 360);
   set_text(card_rows_[1], join({f->on_ground ? std::string("on the ground") : overlay::altitude_text(*f, metric), climb,

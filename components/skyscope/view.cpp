@@ -238,6 +238,18 @@ static void render_labels(View *view) {
   const Sizes s = sizes(style);
   const bool radar = style.radar.on;
   const int line_h = lv_font_get_line_height(font);
+  // A climb arrow stands as tall as the digits beside it, from the font's '0' and its baseline.
+  lv_font_glyph_dsc_t zero{};
+  const bool has_zero = lv_font_get_glyph_dsc(font, &zero, '0', 0);
+  const int base = line_h - font->base_line;
+  const int digit_top = base - (has_zero ? zero.ofs_y + zero.box_h : line_h * 6 / 10);
+  const int digit_bottom = base - (has_zero ? zero.ofs_y : 0);
+  const int arrow_w = std::max(5, (digit_bottom - digit_top) * 6 / 10) | 1, arrow_gap = std::max(1, s.line);
+  auto row_width = [&](const std::vector<ap::Piece> &row) {
+    int w = 0;
+    for (const auto &piece : row) w += ui::text_width(piece.text, font) + (piece.arrow ? arrow_gap + arrow_w : 0);
+    return w;
+  };
   std::set<std::string> live;
   auto render = [&](const ap::Plane &p, size_t i) {
     const std::vector<std::string> rows = ap::lines(p.label);
@@ -246,8 +258,9 @@ static void render_labels(View *view) {
     live.insert(key);
     View::LabelImage &image = view->label_images[key];
     if (image.data) return;
+    std::vector<std::vector<ap::Piece>> cut;
     int w = 0;
-    for (const auto &row : rows) w = std::max(w, ui::text_width(row, font));
+    for (const auto &row : rows) w = std::max(w, row_width(cut.emplace_back(ap::pieces(row))));
     w += 2 * s.pad;
     const int h = (int) rows.size() * line_h + s.pad;
     image.bytes = (size_t) w * h * 4;
@@ -267,17 +280,35 @@ static void render_labels(View *view) {
     if (p.watch) { bg.border_width = s.line; bg.border_color = colour_of(style, p); bg.border_opa = LV_OPA_COVER; }
     lv_area_t all{0, 0, w - 1, h - 1};
     lv_draw_rect(&layer, &bg, &all);
-    for (size_t n = 0; n < rows.size(); ++n) {
-      lv_draw_label_dsc_t dsc;
-      lv_draw_label_dsc_init(&dsc);
-      dsc.font = font;
-      dsc.text = rows[n].c_str();
-      dsc.color = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p))
-                        : lv_color_hex(n ? cl::palette(style.light).muted : cl::palette(style.light).ink);
-      dsc.text_local = 1;
+    for (size_t n = 0; n < cut.size(); ++n) {
+      const lv_color_t colour = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p))
+                                      : lv_color_hex(n ? cl::palette(style.light).muted : cl::palette(style.light).ink);
       const int y = s.pad / 2 + (int) n * line_h;
-      lv_area_t text{s.pad, y, w - 1 - s.pad, y + line_h - 1};
-      lv_draw_label(&layer, &dsc, &text);
+      int x = s.pad;
+      for (const auto &piece : cut[n]) {
+        if (!piece.text.empty()) {
+          lv_draw_label_dsc_t dsc;
+          lv_draw_label_dsc_init(&dsc);
+          dsc.font = font;
+          dsc.text = piece.text.c_str();
+          dsc.color = colour;
+          dsc.text_local = 1;
+          lv_area_t text{x, y, w - 1, y + line_h - 1};
+          lv_draw_label(&layer, &dsc, &text);
+          x += ui::text_width(piece.text, font);
+        }
+        if (!piece.arrow) continue;
+        // A stem and a head of two strokes, its point at the top for a climb and at the bottom for a descent.
+        x += arrow_gap;
+        const float mid = x + arrow_w / 2, half = arrow_w / 2.0f;
+        const bool up = piece.arrow > 0;
+        const float tip = y + (up ? digit_top : digit_bottom), tail = y + (up ? digit_bottom : digit_top);
+        const float back = tip + (up ? half : -half);
+        line(&layer, {mid, tip}, {mid, tail}, colour, s.line, LV_OPA_COVER);
+        line(&layer, {mid - half, back}, {mid, tip}, colour, s.line, LV_OPA_COVER);
+        line(&layer, {mid + half, back}, {mid, tip}, colour, s.line, LV_OPA_COVER);
+        x += arrow_w;
+      }
     }
     lv_canvas_finish_layer(canvas, &layer);
     image.dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
