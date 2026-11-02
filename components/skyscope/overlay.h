@@ -136,6 +136,17 @@ inline std::string altitude_text(const feed::Flight &f, bool metric) {
   else std::snprintf(out, sizeof(out), "%ld ft", std::lround(f.altitude / 100.0) * 100);
   return out;
 }
+// The altitude in a label, as a controller's scope writes it: three digits of hundreds of feet ("025", "350"),
+// and below the sea a minus and three digits more ("-001"), as at an airfield below sea level. Metric stays in metres.
+inline std::string block_altitude(const feed::Flight &f, bool metric) {
+  if (f.on_ground || !f.has_altitude) return "";
+  if (metric) return altitude_text(f, true);
+  char out[24];
+  const long hundreds = std::lround(f.altitude / 100.0);
+  if (hundreds < 0) std::snprintf(out, sizeof(out), "-%03ld", -hundreds);
+  else std::snprintf(out, sizeof(out), "%03ld", hundreds);
+  return out;
+}
 inline std::string speed_text(const feed::Flight &f, bool metric) {
   if (!f.has_speed) return "";
   char out[24];
@@ -156,7 +167,7 @@ inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) 
   if (kind == LABEL_NONE) return "";
   const std::string name = name_of(f);
   if (kind == LABEL_CALLSIGN) return name;
-  const std::string altitude = f.on_ground ? std::string("GND") : altitude_text(f, metric);
+  const std::string altitude = f.on_ground ? std::string("GND") : block_altitude(f, metric);
   if (kind == LABEL_ALTITUDE) return altitude.empty() ? name : name + "\n" + altitude;
   std::string first = name, second = altitude;
   if (!f.type.empty()) first += " " + f.type;

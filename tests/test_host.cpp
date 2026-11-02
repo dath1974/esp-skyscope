@@ -613,10 +613,25 @@ static void test_overlay() {
   s.track_s = 60;
   o = overlay::build(flights, s, p.view, tracks, 11000, 12.25f, true);
   CHECK(o.planes.back().track.size() == 4);
-  CHECK(overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\nFL350 451 kt" ||
-        overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\nFL350 450 kt");
+  CHECK(overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\n350 451 kt" ||
+        overlay::label_of(flights[0], LABEL_FULL, false) == "TEST12 B738\n350 450 kt");
   CHECK(overlay::label_of(flights[2], LABEL_CALLSIGN, false) == "ABC004");
   CHECK(overlay::altitude_text(flights[2], false) == "2500 ft" && overlay::altitude_text(flights[2], true) == "760 m");
+  CHECK(overlay::label_of(flights[2], LABEL_ALTITUDE, false) == "ABC004\n025");
+  CHECK(overlay::block_altitude(flights[2], true) == "760 m");
+  {
+    feed::Flight low = flights[2];
+    low.altitude = 40;
+    CHECK(overlay::block_altitude(low, false) == "000");
+    low.altitude = -40;
+    CHECK(overlay::block_altitude(low, false) == "000");
+    low.altitude = -120;
+    CHECK(overlay::block_altitude(low, false) == "-001");
+    low.altitude = -1350;
+    CHECK(overlay::block_altitude(low, false) == "-014");
+    low.altitude = 45049;
+    CHECK(overlay::block_altitude(low, false) == "450");
+  }
   // Gone from the feed for two minutes: forgotten.
   tracks.update({}, 11000 + overlay::FORGET_MS + 1);
   CHECK(tracks.size() == 0);

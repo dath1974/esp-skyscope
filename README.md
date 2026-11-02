@@ -22,7 +22,8 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
   helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
   sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
-  coloured by altitude; labels kept apart from each other; tracks of the last seconds; planes
+  coloured by altitude; labels kept apart from each other, their altitude in hundreds of feet as on a controller's
+  scope (`025`, `350`, and `-001` below sea level); tracks of the last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
