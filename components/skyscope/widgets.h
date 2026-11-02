@@ -70,7 +70,8 @@ inline void make_arrows(int side, int stroke) {
   const lv_point_precise_t tag[6] = {{e, e + mid},         {e + point, e},           {e + erase_wide, e},
                                      {e + erase_wide, e + erase_tall}, {e + point, e + erase_tall}, {e, e + mid}};
   std::memcpy(erase_points, tag, sizeof(tag));
-  const int cx = (point + erase_wide) / 2 + 1, arm = erase_tall / 5;
+  // The cross a little left of the middle of the tag's square part, where the eye takes the middle of the whole tag.
+  const int cx = (point + erase_wide) / 2 - erase_tall / 10, arm = erase_tall / 5;
   const lv_point_precise_t cross[2][2] = {{{e + cx - arm, e + mid - arm}, {e + cx + arm, e + mid + arm}},
                                           {{e + cx - arm, e + mid + arm}, {e + cx + arm, e + mid - arm}}};
   std::memcpy(erase_cross, cross, sizeof(cross));
