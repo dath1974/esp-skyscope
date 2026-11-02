@@ -135,3 +135,10 @@ skyscope:
   # swamped by planes close by.
   radio:
     gain: 49.6
+  # The TF slot, for the map card: slot 0 of the SD/MMC host (its own pins, GPIO 39 to 44, four data lines), powered
+  # by the P4's LDO channel 4, as Waveshare's board support does it. Slot 1 of the same host is the Wi-Fi chip's.
+  card:
+    slot: 0
+    width: 4
+    power_ldo: 4
+    frequency: 40MHz

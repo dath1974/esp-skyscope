@@ -32,6 +32,15 @@ CONF_RADIO = "radio"
 CONF_GAIN = "gain"
 CONF_PPM = "ppm"
 CONF_TEST_API = "test_api"
+CONF_CARD = "card"
+CONF_SLOT = "slot"
+CONF_WIDTH = "width"
+CONF_CLK_PIN = "clk_pin"
+CONF_CMD_PIN = "cmd_pin"
+CONF_DATA_PINS = "data_pins"
+CONF_HOLD_HIGH_PIN = "hold_high_pin"
+CONF_POWER_LDO = "power_ldo"
+CONF_FREQUENCY = "frequency"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
@@ -55,6 +64,19 @@ HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
 
 update_ns = cg.esphome_ns.namespace("update")
 UpdateEntity = update_ns.class_("UpdateEntity")
+
+def _validate_card(config):
+    pins = config.get(CONF_DATA_PINS, [])
+    given = CONF_CLK_PIN in config or CONF_CMD_PIN in config or pins
+    if given and not (CONF_CLK_PIN in config and CONF_CMD_PIN in config and len(pins) == config[CONF_WIDTH]):
+        raise cv.Invalid(
+            f"A card's pins are clk_pin, cmd_pin and {config[CONF_WIDTH]} data_pins (one per bit of width)"
+        )
+    own_pins = config[CONF_SLOT] == 0 and esp32.get_esp32_variant() == esp32.VARIANT_ESP32P4
+    if not given and not own_pins:
+        raise cv.Invalid("Only the ESP32-P4's slot 0 has pins of its own: give clk_pin, cmd_pin and data_pins")
+    return config
+
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -102,6 +124,32 @@ CONFIG_SCHEMA = cv.Schema(
                 }
             ),
             esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4]),
+        ),
+        # The board's SD card slot, for the map card (card.h): every tile fetched is kept on it, and areas of the FAA's
+        # charts and the USGS map are downloaded to it. `slot` is the SD/MMC host's: slot 0 of the ESP32-P4 has pins of
+        # its own (give none); otherwise the clock, command and data pins (one, or four for `width: 4`) are given.
+        # `hold_high_pin` is driven high before the card starts (DAT3 of a 1-bit bus, which selects SD mode);
+        # `power_ldo` is the P4's LDO channel that powers the slot.
+        cv.Optional(CONF_CARD): cv.All(
+            cv.Schema(
+                {
+                    cv.Optional(CONF_SLOT, default=1): cv.int_range(min=0, max=1),
+                    cv.Optional(CONF_WIDTH, default=1): cv.one_of(1, 4, int=True),
+                    cv.Optional(CONF_CLK_PIN): cv.int_range(min=0, max=54),
+                    cv.Optional(CONF_CMD_PIN): cv.int_range(min=0, max=54),
+                    cv.Optional(CONF_DATA_PINS): cv.All(
+                        cv.ensure_list(cv.int_range(min=0, max=54)), cv.Length(min=1, max=4)
+                    ),
+                    cv.Optional(CONF_HOLD_HIGH_PIN): cv.int_range(min=0, max=54),
+                    cv.Optional(CONF_POWER_LDO): cv.All(
+                        cv.int_range(min=1, max=4), esp32.only_on_variant(supported=[esp32.VARIANT_ESP32P4])
+                    ),
+                    cv.Optional(CONF_FREQUENCY, default="20MHz"): cv.All(
+                        cv.frequency, cv.Range(min=400e3, max=40e6)
+                    ),
+                }
+            ),
+            _validate_card,
         ),
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
@@ -170,6 +218,25 @@ async def to_code(config):
         if esp32.idf_version() >= cv.Version(6, 0, 0):
             esp32.add_idf_component(name="espressif/usb", ref="1.4.1")
         esp32.add_idf_sdkconfig_option("CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM", True)
+    if card := config.get(CONF_CARD):
+        pins = card.get(CONF_DATA_PINS, []) + [-1] * 4
+        cg.add_define("USE_SKYSCOPE_CARD")
+        cg.add(
+            var.set_card(
+                card[CONF_SLOT],
+                card[CONF_WIDTH],
+                card.get(CONF_CLK_PIN, -1),
+                card.get(CONF_CMD_PIN, -1),
+                *pins[:4],
+                card.get(CONF_HOLD_HIGH_PIN, -1),
+                card.get(CONF_POWER_LDO, -1),
+                int(card[CONF_FREQUENCY] / 1000),
+            )
+        )
+        # ESP-IDF's SD/MMC host and FAT, which ESPHome leaves out unless asked. Long file names are not needed: every
+        # name on the card fits 8.3 (card.h).
+        for component in ("fatfs", "sdmmc", "esp_driver_sdmmc", "wear_levelling"):
+            esp32.include_builtin_idf_component(component)
     # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_scan_results()

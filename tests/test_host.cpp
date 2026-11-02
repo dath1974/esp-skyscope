@@ -11,10 +11,12 @@
 #include "../components/skyscope/adsb.h"
 #include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
+#include "../components/skyscope/card.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/geo.h"
 #include "../components/skyscope/glass.h"
+#include "../components/skyscope/http.h"
 #include "../components/skyscope/pinch.h"
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/menu_rows.h"
@@ -319,6 +321,134 @@ static void test_offline() {
   CHECK(o.map == RADAR && o.feed == RADIO && !o.fallback && !o.airspace && !o.radar_overlay && !o.radar_loop);
   CHECK(o.tint == AMBER && s.map == SECTIONAL);  // the rest as set, and the settings themselves kept
   CHECK(!tiles::has_tiles(o.map) && tiles::plan(o, 400, 400, 1).keys.empty());
+  // With a map card the map stays, drawn from it; a custom server's never is.
+  const Settings c = offline::shown(s, true);
+  CHECK(c.map == SECTIONAL && c.feed == RADIO && !c.airspace && !c.radar_overlay);
+  s.map = CUSTOM;
+  CHECK(offline::shown(s, true).map == RADAR);
+}
+
+// The map card: where a tile goes, how long it is good for, and which tiles an area takes.
+static void test_card() {
+  using namespace tiles;
+  const Key k{SRC_SECTIONAL, 11, 534, 779};
+  CHECK(card::path(k) == "/sd/tiles/06_0/11/534/779.t");
+  Key names{SRC_SATELLITE, 19, 524287, 300000, 1};
+  CHECK(card::path(names) == "/sd/tiles/04_1/19/524287/300000.t");
+  // Every part of a path fits 8.3, as the card's FAT has no long names.
+  {
+    const std::string p = card::path(names);
+    size_t from = 1;
+    while (from < p.size()) {
+      size_t to = p.find('/', from);
+      if (to == std::string::npos) to = p.size();
+      const std::string part = p.substr(from, to - from);
+      const size_t dot = part.find('.');
+      CHECK((dot == std::string::npos ? part.size() : dot) <= 8);
+      CHECK(dot == std::string::npos || part.size() - dot - 1 <= 3);
+      from = to + 1;
+    }
+  }
+  const std::vector<std::string> f = card::folders(k);
+  CHECK(f.size() == 4 && f[0] == "/sd/tiles" && f[1] == "/sd/tiles/06_0" && f[3] == "/sd/tiles/06_0/11/534");
+  // What is kept: maps and their names, not the weather radar nor a custom server.
+  CHECK(card::cacheable(k) && card::cacheable(names));
+  Key radar = k;
+  radar.layer = 2;
+  CHECK(!card::cacheable(radar));
+  CHECK(!card::cacheable(Key{SRC_CUSTOM, 5, 1, 1}) && !card::cacheable(Key{SRC_NONE, 5, 1, 1}));
+  // Downloaded by area: the FAA's charts and USGS only.
+  CHECK(card::may_download(SRC_SECTIONAL) && card::may_download(SRC_IFR_LOW) && card::may_download(SRC_IFR_HIGH));
+  CHECK(card::may_download(SRC_TOPO) && !card::may_download(SRC_OSM) && !card::may_download(SRC_SATELLITE));
+  // How long: the charts and topo by their own pace, the others as their server says.
+  CHECK(card::lifetime_s(SRC_SECTIONAL, 60) == 28 * card::DAY_S && card::lifetime_s(SRC_TOPO, -1) == 90 * card::DAY_S);
+  CHECK(card::lifetime_s(SRC_OSM, -1) == 7 * card::DAY_S && card::lifetime_s(SRC_OSM, 3600) == 3600);
+  CHECK(card::lifetime_s(SRC_GRAY_DARK, 0) == 0);
+  CHECK(http::max_age("max-age=604800") == 604800 && http::max_age("public, max-age=3600, s-maxage=99") == 3600);
+  CHECK(http::max_age("no-store") == 0 && http::max_age("private, no-cache") == 0 && http::max_age("public") == -1);
+  CHECK(http::max_age("max-age=-5") == 0 && http::max_age(nullptr) == -1);
+  // The header: written and read back, and when a tile is still good.
+  {
+    uint8_t b[card::HEADER_BYTES];
+    const card::Header h = card::header_for(1700000000, 3600, true);
+    card::encode(h, b);
+    card::Header back;
+    CHECK(card::decode(b, sizeof(b), back) && back.fetched == 1700000000 && back.expires == 1700003600 && back.empty);
+    CHECK(!card::decode(b, 8, back));
+    b[0] = 'X';
+    CHECK(!card::decode(b, sizeof(b), back));
+    CHECK(card::fresh(h, 1700003599) && !card::fresh(h, 1700003600));
+    CHECK(card::fresh(h, 0));  // no clock (no network): whatever the card has
+    const card::Header unknown = card::header_for(0, 3600, false);
+    CHECK(unknown.expires == 0 && !card::fresh(unknown, 1700000000) && card::fresh(unknown, 0));
+  }
+  // An area: every zoom of the sectional, the lowest first, each tile once, all of them in the square.
+  {
+    card::Area a;
+    a.style = SRC_SECTIONAL;
+    a.lat = 40.64;
+    a.lon = -73.78;
+    a.radius_nm = 100;
+    a.z_max = 11;
+    card::Plan p;
+    std::string error;
+    CHECK(card::plan(a, p, error));
+    CHECK(p.ranges.size() == 4 && p.ranges.front().z == 8 && p.ranges.back().z == 11);
+    CHECK(p.total > 500 && p.total < 1500);
+    std::vector<std::string> seen;
+    int last_z = 0;
+    for (size_t i = 0; i < p.total; ++i) {
+      const Key t = p.at(i);
+      CHECK(t.style == SRC_SECTIONAL && t.z >= last_z && t.z >= 8 && t.z <= 11);
+      last_z = t.z;
+      seen.push_back(card::path(t));
+    }
+    std::sort(seen.begin(), seen.end());
+    CHECK(std::unique(seen.begin(), seen.end()) == seen.end());
+    // The place's own tile at the deepest zoom is one of them.
+    const geo::Pixel here = geo::world(a.lat, a.lon, 11);
+    const std::string mine = card::path(Key{SRC_SECTIONAL, 11, (uint32_t) (here.x / 256), (uint32_t) (here.y / 256)});
+    CHECK(std::binary_search(seen.begin(), seen.end(), mine));
+    CHECK(card::estimate_bytes(p) == p.total * 40 * 1024);
+    // Wider takes more; what may not be downloaded, or is too much, is refused with words.
+    card::Area wide = a;
+    wide.radius_nm = 200;
+    card::Plan pw;
+    CHECK(card::plan(wide, pw, error) && pw.total > 3 * p.total);
+    card::Area osm = a;
+    osm.style = SRC_OSM;
+    CHECK(!card::plan(osm, pw, error) && !error.empty());
+    card::Area deep = a;
+    deep.z_max = 12;
+    CHECK(!card::plan(deep, pw, error));
+    card::Area topo = a;
+    topo.style = SRC_TOPO;
+    topo.radius_nm = 250;
+    topo.z_max = 16;
+    CHECK(!card::plan(topo, pw, error) && error.find("tiles") != std::string::npos);
+    topo.z_max = card::default_zoom(SRC_TOPO);
+    CHECK(card::plan(topo, pw, error) && pw.ranges.front().z == 0);
+    card::Area far = a;
+    far.radius_nm = 0;
+    CHECK(!card::plan(far, pw, error));
+  }
+  // A download's record on the card, read back.
+  {
+    card::Area a;
+    a.style = SRC_IFR_LOW;
+    a.lat = 47.45;
+    a.lon = -122.31;
+    a.radius_nm = 60;
+    a.z_max = 10;
+    card::Area back;
+    size_t next = 0;
+    CHECK(card::read_job(card::job_text(a, 123).c_str(), back, next));
+    CHECK(back.style == SRC_IFR_LOW && std::fabs(back.lat - 47.45) < 1e-6 && back.radius_nm == 60 && back.z_max == 10);
+    CHECK(next == 123 && !card::read_job("rubbish", back, next));
+    uint8_t style = 0;
+    CHECK(card::style_of("ifr_high", style) && style == SRC_IFR_HIGH && !card::style_of("osm", style));
+    CHECK(std::string(card::map_of(SRC_TOPO)) == "topo");
+  }
 }
 
 static const char *REPLY = R"({"ac":[
@@ -1827,6 +1957,7 @@ int main(int argc, char **argv) {
   test_geo();
   test_settings();
   test_offline();
+  test_card();
   test_scope();
   test_airspace();
   test_feed();

@@ -114,3 +114,34 @@ test("the radio's words say what it is doing, and what it hears while it listens
   assert.match(radio_words({ state: 'x', streaming: true, messages_per_s: 0, planes: 0, placed: 0, gain_db: -1,
                              dropped_kb: 12 }), /automatic gain, 12 KB of samples dropped$/);
 });
+
+test("the map card's words say its space, and what it read and wrote", () => {
+  const { card_words } = load('gb', 'card_words');
+  assert.equal(card_words({ mounted: false, error: 'no card in the slot' }), 'No map card: no card in the slot.');
+  const t = card_words({ mounted: true, free_mb: 29000, total_mb: 30436, read: 12, written: 340, failed: 0, missing: 0 });
+  assert.match(t, /28\.3 GB free of 29\.7 GB/);
+  assert.match(t, /12 tiles read from it and 340 written\.$/);
+  assert.match(card_words({ mounted: true, free_mb: 500, total_mb: 900, read: 0, written: 1, failed: 2, missing: 7 }),
+    /500 MB free .*\(2 writes failed\)\. Off the network, 7 tiles of this map are not on it\./);
+});
+
+test('a download says how far it is, and how it ended', () => {
+  const { dl_words } = load('DL_NAMES', 'dl_words');
+  assert.equal(dl_words(undefined), '');
+  assert.equal(dl_words({ running: false, error: '' }), '');
+  assert.equal(dl_words({ running: true, map: 'sectional', next: 215, total: 860, skipped: 10, given_up: 0, waiting_s: 0 }),
+    'Downloading the sectional: 215 of 860 tiles (25%), 10 on the card already.');
+  assert.match(dl_words({ running: true, map: 'topo', next: 1, total: 10, skipped: 0, given_up: 1, waiting_s: 8, error: 'HTTP 503' }),
+    /1 left out; waiting 8 s \(HTTP 503\)\.$/);
+  assert.equal(dl_words({ running: false, map: 'ifr_low', next: 50, total: 50, fetched: 40, skipped: 10, given_up: 0, error: '' }),
+    'Downloaded the IFR low charts: 40 tiles fetched, 10 on the card already.');
+  assert.equal(dl_words({ running: false, map: 'ifr_low', next: 20, total: 50, error: '' }), 'Stopped at 20 of 50 tiles.');
+  assert.equal(dl_words({ running: false, map: 'sectional', error: 'The map card is full' }),
+    'The download stopped: The map card is full.');
+});
+
+test("a download's time is told in minutes, or hours when long", () => {
+  const { dl_time } = load('dl_time');
+  assert.equal(dl_time(860), '15 min');
+  assert.equal(dl_time(20000), '6 h');
+});

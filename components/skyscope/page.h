@@ -107,6 +107,18 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check"><input type="checkbox" id="radar_loop" name="radar_loop"> Play the radar's last hour as a loop</label>
 <p class="hint">The composite of the NWS radars from the Iowa Environmental Mesonet, a new scan every five minutes. The loop shows the last hour a scan at a time; each scan is fetched once.</p>
 </section>
+<section id="card" style="display:none"><h2>Map card</h2>
+<p id="card_text"></p>
+<button type="button" class="plain" id="card_mount" style="display:none">Look for the card again</button>
+<p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32; the screen keeps its tiles in a folder named tiles.</p>
+<div class="row3"><div><label for="dl_map">Download an area of</label><select id="dl_map"><option value="sectional">FAA VFR sectional</option><option value="ifr_low">FAA IFR area charts, low</option><option value="ifr_high">FAA IFR high enroute</option><option value="topo">USGS topographic</option></select></div>
+<div><label for="dl_radius">Round the place (NM)</label><input id="dl_radius" type="number" min="1" max="250" value="100"></div>
+<div><label for="dl_zoom">Down to</label><select id="dl_zoom"></select></div></div>
+<p class="hint" id="dl_estimate"></p>
+<div class="bar" style="position:static;padding:0"><button type="button" id="dl_start">Download</button><button type="button" class="plain" id="dl_stop" style="display:none">Stop</button></div>
+<p id="dl_progress"></p>
+<p class="hint">For a slow network, or none: the area round the place above, every zoom of the map down to the one chosen, the widest first. Only the FAA's charts and the USGS map are downloaded ahead (they are the United States government's, free to copy); the other maps ask that their tiles are fetched only as they are looked at. The screen takes a tile at a time between its other work, keeps going while it is off, and carries on after a restart. Tiles the card has already are skipped.</p>
+</section>
 <section id="fw" style="display:none"><h2>Firmware</h2>
 <p id="fw_text">Asking the update server...</p>
 <div class="bar" style="position:static;padding:0"><button type="button" id="fw_install" style="display:none">Install</button><button type="button" class="plain" id="fw_check">Check now</button></div>
@@ -233,8 +245,45 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
  // The radio among the sources only on a screen that has one.
  $('feed').querySelector('option[value=radio]').hidden=!s.radio;
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
- if(s.time)$('clock').textContent=s.time;
+ if(s.time)$('clock').textContent=s.time;show_card(s.card);
+ if(s.card&&s.card.download&&s.card.download.running)t+=' · card '+s.card.download.next+'/'+s.card.download.total;
  t+=' · Wi-Fi '+s.wifi_rssi+' dBm · PSRAM free '+Math.round(s.psram_free/1024)+' KB · '+s.version;$('status').textContent=t}catch(e){}}
+// The map card (card.h), from /api/status: its space and what it read and wrote since the start.
+function gb(mb){return mb>=1024?(mb/1024).toFixed(1)+' GB':mb+' MB'}
+function card_words(c){if(!c.mounted)return'No map card'+(c.error?': '+c.error:'')+'.';
+ return'Map card: '+gb(c.free_mb)+' free of '+gb(c.total_mb)+'. Since the start, '+c.read+' tiles read from it and '+c.written+' written'
+ +(c.failed?' ('+c.failed+' writes failed)':'')+'.'+(c.missing?' Off the network, '+c.missing+' tiles of this map are not on it.':'')}
+const DL_NAMES={sectional:'the sectional',ifr_low:'the IFR low charts',ifr_high:'the IFR high charts',topo:'the USGS map'};
+// A download: how far it is, or how it ended.
+function dl_words(d){if(!d)return'';const name=DL_NAMES[d.map]||'the map';
+ if(d.running){let t='Downloading '+name+': '+d.next+' of '+d.total+' tiles ('+Math.floor(100*d.next/Math.max(1,d.total))+'%)';
+  if(d.skipped)t+=', '+d.skipped+' on the card already';if(d.given_up)t+=', '+d.given_up+' left out';
+  if(d.waiting_s)t+='; waiting '+d.waiting_s+' s'+(d.error?' ('+d.error+')':'');return t+'.'}
+ if(d.error)return'The download stopped: '+d.error+'.';
+ if(!d.total)return'';
+ if(d.next>=d.total)return'Downloaded '+name+': '+d.fetched+' tiles fetched, '+d.skipped+' on the card already'+(d.given_up?', '+d.given_up+' left out':'')+'.';
+ return'Stopped at '+d.next+' of '+d.total+' tiles.'}
+// Each map's zooms (tiles.h), the deepest offered first for a chart; for the topographic map, a town's streets.
+const ZOOMS={sectional:[8,11,11],ifr_low:[7,11,11],ifr_high:[5,9,9],topo:[0,16,12]};
+function zooms(){const [a,b,d]=ZOOMS[$('dl_map').value];$('dl_zoom').textContent='';
+ for(let z=b;z>=a;z--){const o=document.createElement('option');o.value=z;o.textContent='zoom '+z+(z===b?' (the closest)':'');$('dl_zoom').appendChild(o)}
+ $('dl_zoom').value=d}
+// About how long: a tile every second or so.
+function dl_time(n){const m=Math.ceil(n/60);return m<90?m+' min':Math.round(m/60)+' h'}
+function dl_area(){return{map:$('dl_map').value,lat:Number($('lat').value),lon:Number($('lon').value),radius_nm:Number($('dl_radius').value),z_max:Number($('dl_zoom').value)}}
+async function dl_ask(what){if($('lat').value===''){$('dl_estimate').textContent='Set the place above first.';return null}
+ const r=await fetch('api/card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[what]:dl_area()})});
+ const j=await r.json();$('dl_estimate').textContent=r.ok?'About '+j.tiles+' tiles, '+j.mb+' MB, zoom '+j.z_min+' to '+j.z_max+'; some '+dl_time(j.tiles)+'.':j.error;return r.ok?j:null}
+$('dl_map').onchange=()=>{zooms();dl_ask('estimate')};$('dl_radius').onchange=()=>dl_ask('estimate');$('dl_zoom').onchange=()=>dl_ask('estimate');
+$('dl_start').onclick=async()=>{if(await dl_ask('download'))$('dl_progress').textContent='Starting...';setTimeout(status,1500)};
+async function card_post(body){await fetch('api/card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});setTimeout(status,1500)}
+$('dl_stop').onclick=()=>card_post({stop:true});
+$('card_mount').onclick=()=>{$('card_text').textContent='Looking for the card...';card_post({mount:true})};
+let card_shown=false;
+function show_card(c){if(!c)return;$('card').style.display='';$('card_text').textContent=card_words(c);
+ const d=c.download||{};$('dl_progress').textContent=dl_words(d);$('dl_stop').style.display=d.running?'':'none';
+ $('dl_start').disabled=!c.mounted||d.running;$('card_mount').style.display=c.mounted?'none':'';
+ if(!card_shown){card_shown=true;zooms();dl_ask('estimate')}}
 // Firmware: the running version, the newest release, and its install (the screen restarts into it).
 // The words for what /api/firmware says, and whether to offer the install.
 function fw_words(s){let t='Running '+s.version+'.';

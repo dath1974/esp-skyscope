@@ -1,7 +1,8 @@
 #pragma once
-// A screen with its own radio needs no network: off Wi-Fi it shows the planes the radio hears on the radar, with
-// nothing else that would have to be fetched (no map, airspace or weather radar). The settings themselves are kept as
-// they are, so the map chosen comes back with the network. Plain C++, for the host tests.
+// A screen with its own radio needs no network: off Wi-Fi it shows the planes the radio hears, over the map from its
+// map card (card.h) or else on the radar, with nothing that would have to be fetched (no airspace or weather radar).
+// The settings themselves are kept as they are, so everything chosen comes back with the network. Plain C++, for the
+// host tests.
 #include <cstdint>
 
 #include "settings.h"
@@ -36,10 +37,12 @@ class Tracker {
   bool lost_ = false, offline_ = false;
 };
 
-// What the screen shows off a network: the radar, its planes from the radio alone, and nothing fetched over it.
-inline Settings shown(const Settings &s) {
+// What the screen shows off a network: its planes from the radio alone, and nothing fetched over it. The map chosen
+// stays where there is a map card (card.h) to draw it from (a custom server's tiles are not kept there); else the
+// radar.
+inline Settings shown(const Settings &s, bool card = false) {
   Settings out = s;
-  out.map = RADAR;
+  if (!card || s.map == CUSTOM) out.map = RADAR;
   out.feed = RADIO;
   out.fallback = false;
   out.airspace = false;

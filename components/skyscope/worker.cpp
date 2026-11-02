@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 #include <list>
 
 namespace esphome::skyscope {
@@ -95,6 +96,22 @@ constexpr uint32_t TILE_RETRY_FIRST_MS = 2000, TILE_RETRY_MOST_MS = 60000;
 // each time it fails again, at most 15 minutes.
 constexpr uint32_t AIRSPACE_RETRY_FIRST_MS = 30000, AIRSPACE_RETRY_MOST_MS = 15 * 60000;
 constexpr int TILE_UNREADABLE_MOST = 3;
+// The map card (card.h): a download asks a tile every DOWNLOAD_GAP_MS at most, only while the map shown is whole; a
+// tile that fails waits 2 s, then twice as long each time, at most 5 minutes, and after DOWNLOAD_TRIES is left out.
+// Its record on the card is written every DOWNLOAD_SAVE_EVERY tiles. Nothing more is written to a card with less than
+// CARD_RESERVE_BYTES free, and its free space is looked at again every CARD_SPACE_EVERY tiles written.
+constexpr uint32_t DOWNLOAD_GAP_MS = 400, DOWNLOAD_RETRY_FIRST_MS = 2000, DOWNLOAD_RETRY_MOST_MS = 5 * 60000;
+constexpr int DOWNLOAD_TRIES = 6;
+constexpr size_t DOWNLOAD_SAVE_EVERY = 25, DOWNLOAD_SKIPS_A_TURN = 64;
+constexpr uint64_t CARD_RESERVE_BYTES = 64ULL * 1024 * 1024;
+constexpr uint32_t CARD_SPACE_EVERY = 100;
+const std::string JOB_PATH = std::string(card::ROOT) + "/tiles/job.txt";
+// The clock's Unix seconds for the card's tiles, 0 while it is not set (no network has set it yet).
+uint32_t unix_now() {
+  const time_t t = ::time(nullptr);
+  return t > 1600000000 ? (uint32_t) t : 0;
+}
+
 struct Pending {
   size_t index;          // into the plan's keys
   uint32_t due = 0;      // millis() when it may be asked again
@@ -233,21 +250,112 @@ void Skyscope::worker_() {
   uint32_t airspace_due = 0, airspace_wait = 0;
   const int width = width_, height = height_;
   uint32_t search_rev = 0, nominatim_at = 0, weather_ask = 0;
-  bool was_offline = false;
+  bool was_offline = false, was_card = false;
+
+  // ---- The map card: mounted at the start, and a download left unfinished (by a restart) carried on.
+  uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0;
+  card::Plan job;
+  bool downloading = false;
+  int job_failures = 0;
+  uint32_t job_due = 0, card_writes = 0;
+  bool card_room = true;
+  Shared::Card card_state;
+  auto card_space = [&]() {
+    uint64_t total = 0, free = 0;
+    if (card_io::space(total, free)) {
+      card_state.total = total;
+      card_state.free = free;
+      card_room = free >= CARD_RESERVE_BYTES;
+    }
+  };
+  auto publish_card = [&]() {
+    card_state.mounted = card_io::mounted();
+    card_state.downloading = downloading;
+    card_state.area = job.area;
+    card_state.total_tiles = job.total;
+    std::lock_guard<std::mutex> guard(lock_);
+    const int missing = shared_.card.missing;  // the tile loop's own
+    shared_.card = card_state;
+    shared_.card.missing = missing;
+  };
+  auto save_job = [&]() {
+    if (downloading) card_io::write_text(JOB_PATH, card::job_text(job.area, card_state.next));
+  };
+  auto stop_job = [&](const std::string &why) {
+    downloading = false;
+    card_state.download_error = why;
+    card_state.waiting_s = 0;
+    card_io::remove(JOB_PATH);
+  };
+  auto start_job = [&](const card::Area &area, size_t next) {
+    std::string error;
+    if (!card_io::mounted()) error = "No map card";
+    else if (!card::plan(area, job, error)) job.area = area;
+    if (!error.empty()) {
+      downloading = false;
+      card_state.download_error = error;
+      return;
+    }
+    downloading = true;
+    job_failures = 0;
+    job_due = millis();
+    card_state.next = std::min(next, job.total);
+    card_state.fetched = card_state.skipped = card_state.given_up = 0;
+    card_state.download_error.clear();
+    save_job();
+    ESP_LOGI(TAG, "Download: %s, %d NM, zoom %d, %u tiles from %u", card::map_of(area.style), area.radius_nm,
+             area.z_max, (unsigned) job.total, (unsigned) card_state.next);
+  };
+  auto mount_card = [&]() {
+    std::string error;
+    if (card_io::mount(card_config_, error)) {
+      card_state.error.clear();
+      card_space();
+      std::string text;
+      card::Area area;
+      size_t next = 0;
+      if (!downloading && card_io::read_text(JOB_PATH, text) && card::read_job(text.c_str(), area, next))
+        start_job(area, next);
+    } else {
+      card_state.error = error;
+    }
+    publish_card();
+  };
+  if (card_fitted_) mount_card();
+
   while (true) {
-    bool online;
+    bool online, updating;
     std::string search;
     bool connected, wants_weather = false;
+    bool new_download = false, stop_download = false, remount = false;
+    card::Area download;
     {
       std::lock_guard<std::mutex> guard(lock_);
+      updating = shared_.updating;
+      if (shared_.download_ask != download_ask) {
+        download_ask = shared_.download_ask;
+        download = shared_.download;
+        new_download = true;
+      }
+      if (shared_.stop_ask != stop_ask) {
+        stop_ask = shared_.stop_ask;
+        stop_download = true;
+      }
+      if (shared_.mount_ask != mount_ask) {
+        mount_ask = shared_.mount_ask;
+        remount = true;
+      }
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
       // download has the network to itself. A screen running on its radio alone (offline.h) needs no network.
       const bool radio_only = shared_.offline;
       online = (shared_.online || radio_only) && !shared_.asleep && !shared_.updating;
       connected = shared_.online;
-      // Off a network, the settings as the loop shows them: the radar and the radio, nothing to fetch.
-      if (radio_only != was_offline) {
+      // Off a network, the settings as the loop shows them: the radio's planes over the card's map or the radar,
+      // nothing to fetch.
+      const bool has_card = card_io::mounted();
+      if (radio_only != was_offline || has_card != was_card) {
         was_offline = radio_only;
+        was_card = has_card;
         settings_rev = 0;
       }
       if (shared_.search_rev != search_rev) {
@@ -259,7 +367,7 @@ void Skyscope::worker_() {
         wants_weather = true;
       }
       if (shared_.settings_rev != settings_rev) {
-        settings = radio_only ? offline::shown(shared_.settings) : shared_.settings;
+        settings = radio_only ? offline::shown(shared_.settings, has_card) : shared_.settings;
         settings_rev = shared_.settings_rev;
       }
       if (shared_.plan_rev != plan_rev) {
@@ -299,6 +407,87 @@ void Skyscope::worker_() {
       shared_.weather = std::move(report);
       shared_.weather_rev = weather_ask;
     }
+    // ---- The map card: looked for again when the page asks, and a download started or stopped.
+    if (remount && card_fitted_ && !card_io::mounted()) mount_card();
+    if (stop_download && downloading) {
+      ESP_LOGI(TAG, "Download stopped at %u of %u", (unsigned) card_state.next, (unsigned) job.total);
+      stop_job("");
+      publish_card();
+    }
+    if (new_download) {
+      start_job(download, 0);
+      publish_card();
+    }
+    // A tile of the download, while on a network and the map shown is whole (the screen asleep too: it was asked for).
+    if (downloading && connected && !updating && (pending.empty() || !online) && (int32_t) (millis() - job_due) >= 0) {
+      const uint32_t clock = unix_now();
+      // What the card has already, and still good, is skipped: several at a turn, as they cost no request.
+      size_t skips = 0;
+      card::Header have;
+      while (card_state.next < job.total && skips < DOWNLOAD_SKIPS_A_TURN &&
+             card_io::read_header(job.at(card_state.next), have) && card::fresh(have, clock)) {
+        ++card_state.next;
+        ++card_state.skipped;
+        ++skips;
+      }
+      if (!card_io::mounted()) {
+        stop_job("The map card is gone");
+      } else if (!card_room) {
+        stop_job("The map card is full");
+      } else if (card_state.next < job.total && !skips) {
+        const tiles::Key key = job.at(card_state.next);
+        body.clear();
+        ui::worker_phase = ui::TILE_FETCH;
+        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
+        ui::worker_phase = ui::IDLE;
+        const bool empty = r.status == 404 || r.status == 204;
+        if (r.status == 200 || empty) {
+          const card::Header h = card::header_for(clock, card::lifetime_s(key.style, r.max_age_s), empty);
+          if (card_io::write(key, h, empty ? nullptr : body.data, empty ? 0 : body.size)) {
+            ++card_state.written;
+            if (++card_writes % CARD_SPACE_EVERY == 0) card_space();
+          } else {
+            ++card_state.failed;
+          }
+          if (r.status == 200) {
+            ++tiles_fetched;
+            tile_bytes_fetched += body.size;
+          }
+          ++card_state.next;
+          ++card_state.fetched;
+          job_failures = 0;
+          card_state.waiting_s = 0;
+          job_due = millis() + DOWNLOAD_GAP_MS;
+        } else {
+          // The server is busy or the network down: the same tile again later, then on without it.
+          ++job_failures;
+          uint32_t wait =
+              std::min<uint32_t>(DOWNLOAD_RETRY_MOST_MS, DOWNLOAD_RETRY_FIRST_MS << std::min(job_failures - 1, 8));
+          wait = std::max<uint32_t>(wait, (uint32_t) r.retry_after_s * 1000);
+          ESP_LOGW(TAG, "Download %u/%u/%u: %s, again in %u s", key.z, (unsigned) key.x, (unsigned) key.y,
+                   r.error.c_str(), (unsigned) (wait / 1000));
+          card_state.download_error = r.error;
+          if (job_failures >= DOWNLOAD_TRIES) {
+            ++card_state.next;
+            ++card_state.given_up;
+            job_failures = 0;
+          }
+          card_state.waiting_s = wait / 1000;
+          job_due = millis() + wait;
+        }
+        body.clear();
+      }
+      if (downloading && card_state.next >= job.total) {
+        ESP_LOGI(TAG, "Download done: %u fetched, %u on the card already, %u left out", (unsigned) card_state.fetched,
+                 (unsigned) card_state.skipped, (unsigned) card_state.given_up);
+        stop_job("");
+        card_space();
+      } else if (downloading && (card_state.next % DOWNLOAD_SAVE_EVERY == 0 || skips)) {
+        save_job();
+      }
+      publish_card();
+    }
+
     const uint32_t now = millis();
     if (!online || !settings.located || plan.view.width == 0) {
       vTaskDelay(pdMS_TO_TICKS(250));
@@ -500,6 +689,7 @@ void Skyscope::worker_() {
       shared_.tiles_done = again ? plan.keys.size() : 0;
       shared_.tiles_total = plan.keys.size();
       shared_.tile_error.clear();
+      shared_.card.missing = 0;
       shared_.frames_again = frames_again;
     }
     // The first tile due, nearest the middle first; one that failed waits its turn while the others load.
@@ -509,22 +699,57 @@ void Skyscope::worker_() {
       const tiles::Key key = plan.keys[job.index];
       Cached *tile = cache.find(key, millis());
       std::string error;
-      bool fetched_failed = false;
+      bool fetched_failed = false, missing = false;
       if (tile) ++tiles_from_cache;
-      if (!tile) {
+      // The map card next: a tile still good, or any it has while off a network. One gone old is fetched again, and
+      // shown as it is if that fails.
+      const uint32_t clock = unix_now();
+      const bool on_card = card::cacheable(key) && card_io::mounted();
+      bool stale = false;
+      auto from_card = [&](bool any_age) {
+        card::Header h;
+        if (!card_io::read(key, h, body)) return false;
+        if (any_age || card::fresh(h, clock)) {
+          tile = cache.keep(key, h.empty ? nullptr : body.data, h.empty ? 0 : body.size, millis());
+          if (tile) ++card_state.read;
+        } else {
+          stale = true;
+        }
+        body.clear();
+        return tile != nullptr;
+      };
+      if (!tile && on_card) from_card(!connected);
+      if (!tile && !connected) {
+        // Off a network, not on the card: its square stays empty until the network is back.
+        missing = true;
+      } else if (!tile) {
         ui::worker_phase = ui::TILE_FETCH;
         const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
         ui::worker_phase = ui::IDLE;
+        const bool empty = r.status == 404 || r.status == 204;
         if (r.status == 200) {
           ++tiles_fetched;
           tile_bytes_fetched += body.size;
           tile = cache.keep(key, body.data, body.size, millis());
         }
         // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
-        else if (r.status == 404 || r.status == 204) tile = cache.keep(key, nullptr, 0, millis());
+        else if (empty) tile = cache.keep(key, nullptr, 0, millis());
         else error = r.error;
-        fetched_failed = !tile;
+        // Kept on the card too, for as long as its server lets it be.
+        const uint32_t lifetime = card::lifetime_s(key.style, r.max_age_s);
+        if (tile && on_card && card_room && lifetime) {
+          if (card_io::write(key, card::header_for(clock, lifetime, empty), empty ? nullptr : body.data,
+                             empty ? 0 : body.size)) {
+            ++card_state.written;
+            if (++card_writes % CARD_SPACE_EVERY == 0) card_space();
+          } else {
+            ++card_state.failed;
+          }
+        }
         body.clear();
+        // The network failed it: the card's old one rather than none.
+        if (!tile && stale) from_card(true);
+        fetched_failed = !tile;
       }
       bool drawn = tile && !tile->size;  // an empty square is done
       if (tile && tile->size) {
@@ -539,6 +764,10 @@ void Skyscope::worker_() {
       bool given_up = false;
       if (drawn) {
         pending.erase(due);
+      } else if (missing) {
+        // Done as far as the card goes; the frame is not whole, so it is never kept as one.
+        pending.erase(due);
+        gave_up = true;
       } else {
         if (!fetched_failed) ++job.unreadable;
         ++job.failures;
@@ -558,9 +787,15 @@ void Skyscope::worker_() {
       shared_.tiles_fetched = tiles_fetched;
       shared_.tiles_from_cache = tiles_from_cache;
       shared_.tile_bytes_fetched = tile_bytes_fetched;
+      shared_.card.read = card_state.read;
+      shared_.card.written = card_state.written;
+      shared_.card.failed = card_state.failed;
+      shared_.card.free = card_state.free;
+      shared_.card.mounted = card_io::mounted();
       if (shared_.frame_plan_rev == plan_rev) {
-        if (drawn) shared_.tiles_done++;
-        if (!drawn) shared_.tile_error = error.empty() ? std::string("tile server") : error;
+        if (missing) shared_.card.missing++;
+        if (drawn || missing) shared_.tiles_done++;
+        if (!drawn && !missing) shared_.tile_error = error.empty() ? std::string("tile server") : error;
         else if (pending.empty() || std::none_of(pending.begin(), pending.end(), [](const Pending &p) { return p.failures; }))
           shared_.tile_error.clear();
         shared_.frame_rev++;

@@ -130,3 +130,12 @@ skyscope:
   touchscreen_id: touch
   # The RM690B0's tearing signal (OLED_TE): GPIO21 on Rev 2.0 of the board.
   panel_te_pin: 21
+  # The TF slot, for the map card: one data line of SD/MMC (CLK GPIO4, CMD GPIO5, D0 GPIO6, as Waveshare's demos), with
+  # the card's DAT3 (its SPI select, GPIO2) held high so the card talks SD.
+  card:
+    slot: 1
+    width: 1
+    clk_pin: 4
+    cmd_pin: 5
+    data_pins: [6]
+    hold_high_pin: 2

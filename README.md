@@ -85,12 +85,14 @@ allowed the exchanges stand in while no stick is plugged in. The page's status s
 planes heard and placed, and samples dropped if the demodulator ever falls behind.
 
 **No network needed.** A screen with a radio works without Wi-Fi. When it has been off a network for 20 seconds (at
-start, or after losing one), it shows the radar with the planes the radio hears, whatever map, source, airspace or
-weather radar is set, and the status line ends with **no Wi-Fi**. Nothing is fetched meanwhile, and swiping the strip at
-the bottom changes nothing: there are no maps offline. The settings themselves stay as they were, so the map and source
-chosen come back as soon as the screen is on a network again; a connection lost for a few seconds keeps the map. The
-place cannot be looked up offline: type its latitude and longitude in the menu (a long press), or set it once while on
-a network and it is kept.
+start, or after losing one), it shows the planes the radio hears, whatever source is set, and the status line ends with
+**no Wi-Fi**. With a [map card](#the-map-card) in the slot the map chosen stays, drawn from the card: squares it does
+not have stay empty, and the status line says how many. Without one it shows the radar, and swiping the strip at the
+bottom changes nothing. Nothing is fetched meanwhile (no airspace or weather radar). The settings themselves stay as
+they were, so everything chosen comes back as soon as the screen is on a network again; a connection lost for a few
+seconds keeps the map. The place cannot be looked up offline: type its latitude and longitude in the menu (a long
+press), or set it once while on a network and it is kept. With no network the clock is not set, so bedtime does not turn
+the screen off.
 
 The board file's `skyscope:` block turns it on and sets the tuner:
 
@@ -105,6 +107,29 @@ project documented, and the decoding (`modes.h`, `adsb.h`) is tested on a PC aga
 example messages. Surface positions are worked out from the screen's place, so they are right only with the place set
 to where the screen is; airborne ones need no place. Planes heard only by their Mode S replies, without ADS-B, have no
 position and are not shown.
+
+### The map card
+
+Both boards have a TF (microSD) slot. With a card in it, formatted FAT32, every map tile the screen fetches is kept on
+the card as well as in memory, so a map seen once comes back without downloading it again, after a restart too: quicker
+on a slow network, and less asked of the tile servers. Each map's tiles are kept as long as its terms allow:
+OpenStreetMap's and Esri's for as long as their servers say (`Cache-Control`, a week where they say nothing), the FAA's
+charts for 28 days (each is published anew every 56) and the USGS map for 90. Then they are fetched again; an old one
+is still shown if that fails. The custom tile server's and the weather radar's are never kept. The screen keeps its
+tiles in a folder `tiles` on the card, one file each, and leaves everything else on it alone.
+
+On the web page, **Map card** shows the card's free space and downloads an area ahead of time: the FAA sectional, the
+IFR low or high charts, or the USGS topographic map, round the place, to a radius of up to 250 NM, every zoom of the map
+down to the one chosen. The page estimates the tiles, megabytes and time first (a 100 NM sectional is some 950 tiles, 37
+MB, a quarter of an hour). The screen asks for a tile at a time, only while the map shown is whole, waits after a
+failure (2 seconds, then twice as long each time, at most 5 minutes) and leaves a tile out after six tries. It keeps
+going while the screen is off and carries on after a restart; tiles the card has already are skipped. Only these maps
+are downloaded ahead: they are works of the United States government, free to copy, while OpenStreetMap's and Esri's ask
+that their tiles are fetched only as they are looked at. The card is looked for when the screen starts (or at **Look for
+the card again** on the page); a card that stops answering is let go.
+
+The board files set the slot (`card:` in the `skyscope:` block): on the P4, slot 0 of its SD/MMC host, four data lines,
+powered by its LDO channel 4 (slot 1 of the same host is the Wi-Fi chip's); on the S3, one data line on GPIO 4, 5 and 6.
 
 ## Install
 
@@ -248,12 +273,14 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, an install's progress, and the manifest it asks (`source`) |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
 | `GET /api/networks` | the Wi-Fi networks the screen knows, first choice first: their names only, never a password |
 | `POST /api/networks` | with the test API only: `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
+| `GET /api/card` | the map card: mounted or why not, its size and free space, tiles read from it, written and failed since the start, the frame's tiles not on it (offline), and the download (map, radius, zoom, how far, fetched, skipped, left out, waiting) |
+| `POST /api/card` | `{"estimate": area}` the tiles and megabytes an area takes, `{"download": area}` downloads it, `{"stop": true}` stops, `{"mount": true}` looks for the card again; an area is `{"map", "lat", "lon", "radius_nm", "z_max"}`, its map `sectional`, `ifr_low`, `ifr_high` or `topo` |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |
@@ -295,9 +322,10 @@ line and the page count down to the next try. Tiles are cached in memory for a d
 server, the least recently drawn going first), and a tile is asked for only when a map needs one it does not hold. Each
 map is drawn from its tiles, one at a time, so a map from the cache still fills in over a second or two; the last map
 drawn whole is also kept as it was drawn, so going back to it (a swipe back, a preview cancelled) shows it whole at
-once. `/api/status` counts both (`tile_cache`). The airspace is asked once for each place and range while it is switched
-on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's server is
-shared by everyone who uses it.
+once. `/api/status` counts both (`tile_cache`), and the map card's own (`card`). With a [map card](#the-map-card), tiles
+are kept on it too, for as long as each map's terms allow. The airspace is asked once for each place and range while it
+is switched on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's
+server is shared by everyone who uses it.
 
 **Not for navigation.** ADS-B exchanges and the screen's own radio show what receivers hear: planes without ADS-B, or out of a
 receiver's range, are missing, and positions may be late.

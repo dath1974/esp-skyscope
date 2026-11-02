@@ -11,6 +11,10 @@
 //   GET  /api/networks     the Wi-Fi networks the screen knows, first choice first: their names (never a password)
 //   POST /api/networks     with the test API: {"move": [i, step]}, {"forget": i}, {"join": {"name", "password"}} (no
 //                          restart: the first choice at the next start)
+//   GET  /api/card         the map card (card.h): its space, the tiles read and written, and the download under way
+//   POST /api/card         {"estimate": area} the tiles an area takes, {"download": area} downloads it, {"stop": true}
+//                          stops the download, {"mount": true} looks for the card again. An area is {"map", "lat",
+//                          "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //
@@ -260,6 +264,82 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["airspace_rev"] = shared_.airspace_rev;  // counts the replies taken: a new place's is a new one
     out["airspace_error"] = shared_.airspace_error;
     out["zoom"] = shared_.plan.view.zoom;
+    if (card_fitted_) card_json_(out["card"].to<JsonObject>(), shared_.card);
+    send_json(request, 200, out);
+    return;
+  }
+  if (url == "/api/card") {
+    JsonDocument out;
+    Shared::Card state;
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+      state = shared_.card;
+    }
+    if (!post) {
+      card_json_(out.to<JsonObject>(), state);
+      send_json(request, card_fitted_ ? 200 : 404, out);
+      return;
+    }
+    JsonDocument in;
+    const std::string text = std::move(body_);
+    body_.clear();
+    if (text.empty() || text.size() > MOST_BODY || deserializeJson(in, text) || !in.is<JsonObject>()) {
+      out["error"] = "body";
+      send_json(request, 400, out);
+      return;
+    }
+    if (!card_fitted_) {
+      out["error"] = "This board has no card slot";
+      send_json(request, 404, out);
+      return;
+    }
+    // An area as the page sends it, or why it is not one.
+    auto area_of = [](JsonObjectConst a, card::Area &area, card::Plan &plan, std::string &error) {
+      if (!card::style_of(a["map"] | "", area.style)) {
+        error = "Only the FAA's charts (sectional, ifr_low, ifr_high) and the USGS map (topo) are downloaded";
+        return false;
+      }
+      area.lat = a["lat"] | 1000.0;
+      area.lon = a["lon"] | 1000.0;
+      area.radius_nm = a["radius_nm"] | 0;
+      area.z_max = a["z_max"] | card::default_zoom(area.style);
+      return card::plan(area, plan, error);
+    };
+    const char *ask = in["estimate"].is<JsonObject>() ? "estimate" : in["download"].is<JsonObject>() ? "download" : "";
+    if (*ask) {
+      card::Area area;
+      card::Plan plan;
+      std::string error;
+      const bool ok = area_of(in[ask].as<JsonObjectConst>(), area, plan, error);
+      out["tiles"] = plan.total;
+      out["mb"] = (uint32_t) ((card::estimate_bytes(plan) + 512 * 1024) / (1024 * 1024));
+      out["z_min"] = card::first_zoom(area.style);
+      out["z_max"] = area.z_max;
+      if (!ok) {
+        out["error"] = error;
+        send_json(request, 400, out);
+        return;
+      }
+      if (std::string(ask) == "download") {
+        if (!state.mounted) {
+          out["error"] = "No map card";
+          send_json(request, 409, out);
+          return;
+        }
+        ESP_LOGI(TAG, "Download asked: %s, %d NM, zoom %d", card::map_of(area.style), area.radius_nm, area.z_max);
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.download = area;
+        shared_.download_ask++;
+      }
+      send_json(request, 200, out);
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+      if (in["stop"] | false) shared_.stop_ask++;
+      if (in["mount"] | false) shared_.mount_ask++;
+    }
+    card_json_(out.to<JsonObject>(), state);
     send_json(request, 200, out);
     return;
   }
@@ -443,4 +523,31 @@ void Skyscope::install_firmware_() {
   this->set_timeout(1500, [this]() { firmware_->perform(false); });
 #endif
 }
+void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
+  out["mounted"] = c.mounted;
+  if (!c.mounted) out["error"] = c.error;
+  out["total_mb"] = (uint32_t) (c.total / (1024 * 1024));
+  out["free_mb"] = (uint32_t) (c.free / (1024 * 1024));
+  // Tiles since the start: read from the card, written to it, and writes that failed; off a network, the frame's
+  // tiles the card does not have.
+  out["read"] = c.read;
+  out["written"] = c.written;
+  out["failed"] = c.failed;
+  out["missing"] = c.missing;
+  JsonObject d = out["download"].to<JsonObject>();
+  d["running"] = c.downloading;
+  if (c.downloading || c.total_tiles) {
+    d["map"] = card::map_of(c.area.style);
+    d["radius_nm"] = c.area.radius_nm;
+    d["z_max"] = c.area.z_max;
+    d["next"] = c.next;
+    d["total"] = c.total_tiles;
+    d["fetched"] = c.fetched;
+    d["skipped"] = c.skipped;
+    d["given_up"] = c.given_up;
+    d["waiting_s"] = c.waiting_s;
+  }
+  d["error"] = c.download_error;
+}
+
 }  // namespace esphome::skyscope

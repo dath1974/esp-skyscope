@@ -1,7 +1,9 @@
 #pragma once
 // HTTPS GETs from the worker task: the whole body into PSRAM, checked against the certificate bundle.
 #include <cstddef>
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 
 namespace sky::http {
@@ -25,7 +27,30 @@ struct Result {
   // seconds until its quota comes back (x-ratelimit-reset); 0 when it sent none.
   std::string rate_limit;
   int rate_reset_s = 0;
+  // How long the server lets its reply be kept (Cache-Control max-age), in seconds: 0 for no-store or no-cache, -1
+  // when it said nothing.
+  int max_age_s = -1;
 };
+
+// The seconds a Cache-Control header lets a reply be kept: its max-age (s-maxage is for shared caches, not this one), 0
+// for no-store or no-cache, -1 for neither.
+inline int max_age(const char *header) {
+  if (!header) return -1;
+  int out = -1;
+  const char *p = header;
+  while (*p) {
+    while (*p == ' ' || *p == ',') ++p;
+    const char *start = p;
+    while (*p && *p != ',') ++p;
+    const std::string part(start, p - start);
+    if (part.rfind("no-store", 0) == 0 || part.rfind("no-cache", 0) == 0) return 0;
+    if (part.rfind("max-age=", 0) == 0) {
+      long v = std::strtol(part.c_str() + 8, nullptr, 10);
+      out = (int) std::max<long>(0, std::min<long>(v, 365L * 86400));
+    }
+  }
+  return out;
+}
 
 // Closes the connections no request used for `idle_ms`: the feed's stays open (it is asked every few seconds), a tile
 // server's goes once the map is drawn.

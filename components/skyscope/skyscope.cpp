@@ -228,7 +228,7 @@ void Skyscope::use_settings_(const Settings &s) {
   const bool new_zone = s.timezone != settings_.timezone;
   const bool new_bedtime = s.bedtime != settings_.bedtime || s.bed_off != settings_.bed_off || s.bed_on != settings_.bed_on;
   settings_ = s;
-  if (offline_) offline_settings_ = offline::shown(settings_);
+  if (offline_) offline_settings_ = offline::shown(settings_, offline_card_);
   if (new_zone) use_timezone_();
   if (new_bedtime) bed_minute_ = -1;
   {
@@ -286,8 +286,14 @@ void Skyscope::restyle_() {
 
 void Skyscope::go_offline_(bool radio_only) {
   offline_ = radio_only;
-  if (offline_) offline_settings_ = offline::shown(settings_);
-  ESP_LOGI(TAG, "%s", offline_ ? "No network: the radar, with the radio's planes" : "On the network again");
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    offline_card_ = shared_.card.mounted;
+  }
+  if (offline_) offline_settings_ = offline::shown(settings_, offline_card_);
+  ESP_LOGI(TAG, "%s", !offline_       ? "On the network again"
+                      : offline_card_ ? "No network: the map from its card, with the radio's planes"
+                                      : "No network: the radar, with the radio's planes");
   {
     // The worker told in the same turn of the lock as the new frame, so it never asks the network for the old one.
     std::lock_guard<std::mutex> guard(lock_);
@@ -405,11 +411,14 @@ void Skyscope::loop() {
   const bool online = wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected();
   // A screen with a radio, off a network for a while: the radar from the radio alone (offline.h).
   const bool radio_only = offline_tracker_.update(radio_fitted, online, now);
-  if (radio_only != offline_) go_offline_(radio_only);
+  bool card_mounted;
   {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.online = online;
+    card_mounted = shared_.card.mounted;
   }
+  // Offline, the map card found (or lost) since: the map from it, or the radar.
+  if (radio_only != offline_ || (offline_ && card_mounted != offline_card_)) go_offline_(radio_only);
   if (save_pending_ && (int32_t) (now - save_at_) >= 0) save_settings_();
   sleep_or_wake_(now);
   // The brightness set, or the one a finger is dragging to; none while the screen is off.
@@ -1006,8 +1015,15 @@ void Skyscope::update_status_(uint32_t now) {
   uint32_t feed_at;
   int done, total;
   uint32_t radar_scan = 0;
+  int missing = 0;
+  bool downloading = false;
+  size_t download_next = 0, download_total = 0;
   {
     std::lock_guard<std::mutex> guard(lock_);
+    missing = shared_.card.missing;
+    downloading = shared_.card.downloading;
+    download_next = shared_.card.next;
+    download_total = shared_.card.total_tiles;
     sources = shared_.providers;
     source = shared_.feed_source;
     tile_error = shared_.tile_error;
@@ -1078,8 +1094,14 @@ void Skyscope::update_status_(uint32_t now) {
       colour = colour == ink ? colours::WARNING : colour;
     } else if (done < total) {
       status += "  \xC2\xB7  map " + std::to_string(done) + "/" + std::to_string(total);
+    } else if (missing) {
+      // Off a network, the squares the card does not have are left empty.
+      status += "  \xC2\xB7  map: " + std::to_string(missing) + " not on the card";
+      colour = colour == ink ? colours::WARNING : colour;
     }
   }
+  if (downloading)
+    status += "  \xC2\xB7  card " + std::to_string(download_next) + "/" + std::to_string(download_total);
   if (shown.airspace && !airspace_error.empty()) {
     status += "  \xC2\xB7  airspace: " + airspace_error;
     colour = colour == ink ? colours::WARNING : colour;

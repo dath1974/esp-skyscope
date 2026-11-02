@@ -38,6 +38,7 @@
 #include "lvgl.h"
 #include "airspace.h"
 #include "beam.h"
+#include "card_io.h"
 #include "feed.h"
 #include "firmware.h"
 #include "keyboard.h"
@@ -90,6 +91,12 @@ class Skyscope : public Component,
   void set_version(const std::string &v) { version_ = v; }
   void set_panel_te_pin(int pin) { panel_te_pin_ = pin; }
   void set_round(bool round) { round_ = round; }
+  // The map card's slot (card_io.h), on a board that has one.
+  void set_card(int slot, int width, int clk, int cmd, int d0, int d1, int d2, int d3, int hold_high, int power_ldo,
+                int khz) {
+    card_fitted_ = true;
+    card_config_ = {slot, width, clk, cmd, d0, d1, d2, d3, hold_high, power_ldo, khz};
+  }
 #ifdef USE_SKYSCOPE_RADIO
   void set_radio(int gain_tenths, int ppm) {
     radio_config_.gain_tenths = gain_tenths;
@@ -171,6 +178,24 @@ class Skyscope : public Component,
     // loop -> worker: the weather page wants the weather (weather.h) again; worker -> loop: what came, for that ask.
     uint32_t weather_ask = 0, weather_rev = 0;
     std::shared_ptr<const weather::Report> weather;
+    // The map card (card.h). web -> worker: an area to download (for download_ask), a download to stop (stop_ask), the
+    // card to look for again (mount_ask). worker -> loop and web: the card and the download as they are.
+    card::Area download;
+    uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0;
+    struct Card {
+      bool mounted = false;
+      std::string error;  // why there is none
+      uint64_t total = 0, free = 0;
+      uint32_t read = 0, written = 0, failed = 0;  // tiles since the start
+      int missing = 0;  // the frame's tiles not on the card, off a network
+      // The download: its area, how far it got (tiles fetched, found on the card already, given up) and why it stopped
+      // or waits.
+      bool downloading = false;
+      card::Area area;
+      size_t next = 0, total_tiles = 0, fetched = 0, skipped = 0, given_up = 0;
+      uint32_t waiting_s = 0;
+      std::string download_error;
+    } card;
   };
 
   // worker.cpp
@@ -277,6 +302,8 @@ class Skyscope : public Component,
   static Chrome chrome_for_(const Settings &s);
   void restyle_();
   void set_status_colour_(uint32_t colour);
+  // The map card's state for the API (web.cpp), from a copy of Shared::Card.
+  void card_json_(JsonObject out, const Shared::Card &c) const;
   // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
   // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
   const Settings &shown_() const { return offline_ ? offline_settings_ : settings_; }
@@ -305,6 +332,8 @@ class Skyscope : public Component,
   int tile_scale_{1};
   int panel_te_pin_{-1};
   bool round_{false};  // the glass is a circle (glass.h)
+  bool card_fitted_{false};
+  card_io::Config card_config_;
 #ifdef USE_SKYSCOPE_RADIO
   Radio::Config radio_config_;
   std::unique_ptr<Radio> radio_;  // the screen's own radio (radio.h), from setup on
@@ -314,7 +343,7 @@ class Skyscope : public Component,
   // The loop's own.
   Settings settings_;
   offline::Tracker offline_tracker_;
-  bool offline_{false};
+  bool offline_{false}, offline_card_{false};  // offline_card_: offline_settings_ were made with a map card in
   Settings offline_settings_;  // offline::shown(settings_), while offline_
   ESPPreferenceObject pref_;
   uint32_t save_at_{0};
