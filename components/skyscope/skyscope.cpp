@@ -825,6 +825,12 @@ void Skyscope::update_frame_() {
     painter_.reach = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0) + 2;
     painter_.beam_width = std::max(2, ui::px(3));
     painter_.set_tint(colours::tint(settings_.tint));
+  } else if (scope_background_) {
+    // No beam to wipe away: the clean copy let go, or closing the menu would put back the scope as it last swept (in
+    // the phosphor it had then).
+    heap_caps_free(scope_background_);
+    scope_background_ = nullptr;
+    painter_.background = nullptr;
   }
   lv_obj_invalidate(canvas_);
   unfreeze_();
