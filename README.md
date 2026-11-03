@@ -191,12 +191,14 @@ with its manifest (`tools/release_site.py`). The tag's message is the summary th
 
 ## First start
 
-1. The screen shows **Set up Wi-Fi**. On a phone or other device, join the Wi-Fi network **Skyscope Setup**. A page
-   opens (or go to `http://192.168.4.1`): choose your network and enter its password. (Or use Improv from
-   [ESPHome Web](https://web.esphome.io) while the screen is on USB, or hold a finger on the screen and choose the
-   network in its menu, under **Wi-Fi**.)
-2. The screen joins your network and shows **Where are you?** with its address. Open that address in a browser on the
-   same network, or hold a finger on the screen for its menu.
+1. The screen shows **Set up Wi-Fi**. Press **Choose a network here**, pick your network from those in reach (**Scan**
+   looks again) and type its password on the screen's keyboard. Or, on a phone or other device, join the Wi-Fi
+   network **Skyscope Setup**: a page opens (or go to `http://192.168.4.1`) to choose your network and enter its
+   password. (Or use Improv from [ESPHome Web](https://web.esphome.io) while the screen is on USB.) While the screen
+   tries a network it cannot join, the same button chooses another.
+2. The screen joins your network and opens its menu, at the place, with its address at the top. Set it there, or open
+   that address in a browser on the same network. (Cancelled, the screen shows **Where are you?**; hold a finger on it
+   for the menu again.)
 3. Search for a place (an airport, a town) or enter its latitude and longitude, choose a range and a map, and press
    **Save**. The display should draw the map and begin showing traffic within a few seconds.
 

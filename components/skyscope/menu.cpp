@@ -70,6 +70,14 @@ void Skyscope::build_menu_() {
   menu_cancel_ = key_(head, "Cancel", MENU_CANCEL, 0, LV_SIZE_CONTENT, tall);
   text(head, ui::fonts.title, c.ink, "Settings");
   menu_save_ = key_(head, "Save", MENU_SAVE, 0, LV_SIZE_CONTENT, tall, -1, true);
+  // Where the same settings are in a browser, at the top, for anyone who would rather type them there.
+  const std::string address = own_address();
+  if (!address.empty()) {
+    lv_obj_t *web = text(menu_, ui::fonts.small, c.muted, ("Or in a browser: http://" + address + "/").c_str());
+    lv_obj_set_width(web, lv_pct(100));
+    lv_obj_set_style_text_align(web, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(web, LV_LABEL_LONG_DOT);
+  }
 
   // The groups, in a list that scrolls.
   lv_obj_t *list = lv_obj_create(menu_);
@@ -187,9 +195,8 @@ void Skyscope::build_menu_() {
 #endif
 
   // Where else they are set.
-  std::string where = "Another way up restarts the screen when saved. All of this is on the screen's web page too";
-  const std::string address = own_address();
-  where += address.empty() ? "." : ": http://" + address + "/";
+  std::string where = "Another way up restarts the screen when saved.";
+  if (!address.empty()) where += " All of this is on the screen's web page too, at the address at the top.";
   lv_obj_t *foot = text(list, ui::fonts.small, c.muted, where.c_str());
   lv_obj_set_width(foot, lv_pct(100));
   lv_obj_set_style_pad_all(foot, ui::mm(1), 0);

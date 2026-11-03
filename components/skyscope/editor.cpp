@@ -561,10 +561,16 @@ void Skyscope::scan_networks_() {
   auto *wifi = wifi::global_wifi_component;
   if (!wifi) return;
   scanning_until_ = millis() + SCAN_MS;
-  // On a network ESPHome scans only for a stronger signal of its own, so the radio is asked here. ESPHome is told of
-  // every scan that is done, keeps what it found (__init__.py asks it to) and hands it to on_wifi_scan_results. Off a
-  // network ESPHome scans as it looks for one, and its next scan comes here the same way.
-  if (wifi->is_connected()) {
+  // On a network ESPHome scans only for a stronger signal of its own, and with no network to look for (a first start,
+  // its setup network open) it scans only once, as it starts: the radio is asked here. ESPHome is told of every scan
+  // that is done, keeps what it found (__init__.py asks it to) and hands it to on_wifi_scan_results. Looking for a
+  // network it knows, ESPHome scans as it goes, and its next scan comes here the same way. A board whose setup network
+  // stops the radio's scans (USE_WIFI_AP_EXCLUSIVE) waits for those.
+  bool ask = wifi->is_connected();
+#ifndef USE_WIFI_AP_EXCLUSIVE
+  ask = ask || !wifi->has_sta();
+#endif
+  if (ask) {
     wifi_scan_config_t config{};
     config.show_hidden = false;
     config.scan_type = WIFI_SCAN_TYPE_ACTIVE;

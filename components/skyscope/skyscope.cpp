@@ -602,6 +602,15 @@ void Skyscope::build_ui_() {
   setup_body_ = label(setup_, ui::fonts.label, colours::INK);
   lv_label_set_long_mode(setup_body_, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(setup_body_, lv_pct(100));
+  // Without a network, the networks in reach at a tap, chosen and typed on the glass as in the menu: the setup network
+  // and Improv go on as before, for those who would rather use a phone.
+  setup_wifi_ = button_(setup_, "Choose a network here", LV_SIZE_CONTENT, ui::mm(8), -1, true);
+  lv_obj_add_event_cb(setup_wifi_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (self->install_.updating || !self->joining_.empty()) return;
+    self->open_menu_();
+    self->open_picker_(PICKING_NETWORKS);
+  }, LV_EVENT_CLICKED, this);
   // A long press here opens the menu too: the network and the place can be set on the glass.
   lv_obj_add_flag(setup_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(setup_, [](lv_event_t *e) {
@@ -980,9 +989,9 @@ void Skyscope::update_status_(uint32_t now) {
            (setup_network_.empty() ? App.get_name() : setup_network_) + "\" again after a minute.";
   } else if (portal && !offline_) {
     title = "Set up Wi-Fi";
-    body = "On a phone or computer, join the Wi-Fi network \"" + (setup_network_.empty() ? App.get_name() : setup_network_) +
-           "\". A page opens to choose your network (or go to http://192.168.4.1). Or hold a finger here to choose it on "
-           "the screen.";
+    body = "Choose your network below and type its password here. Or, on a phone or computer, join the Wi-Fi "
+           "network \"" + (setup_network_.empty() ? App.get_name() : setup_network_) +
+           "\": a page opens to choose it (or go to http://192.168.4.1).";
   } else if (!online && !offline_) {
     title = "Connecting";
     // The network ESPHome is trying: the one saved by the setup page, Improv or the menu.
@@ -992,9 +1001,15 @@ void Skyscope::update_status_(uint32_t now) {
       name.assign(ssid.c_str(), ssid.size());
     }
     body = (name.empty() ? std::string("Joining the Wi-Fi network") : "Joining \"" + name + "\"") +
-           "... Hold a finger here to choose another.";
+           "... Or choose another below.";
     if (radio_fitted) body += " Without a network, the radar shows the planes the radio hears.";
   } else if (!settings_.located) {
+    // On a network with no place yet, the menu opens by itself, once: its first rows are the place, and its top the
+    // address for a browser. Cancelled, this page says what to do instead.
+    if (online && !offline_ && !asked_where_ && !menu_ && !install_.updating) {
+      asked_where_ = true;
+      this->defer([this]() { open_menu_(); });
+    }
     title = "Where are you?";
     if (offline_)
       body = "With no network, the place cannot be looked up: hold a finger here and type its latitude and longitude "
@@ -1004,6 +1019,8 @@ void Skyscope::update_status_(uint32_t now) {
              "/ in a browser on the same network.";
   }
   set_shown(setup_, !title.empty());
+  // While it asks for a network or looks for one: not while it restarts into one or updates.
+  set_shown(setup_wifi_, !offline_ && !online && !coprocessor_updating_ && !install_.updating && joining_.empty());
   if (!title.empty()) {
     set_text(setup_title_, title);
     set_text(setup_body_, body);

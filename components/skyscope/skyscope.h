@@ -434,6 +434,7 @@ class Skyscope : public Component,
   uint32_t scanning_until_{0};  // a scan asked for, until it answers or this
   std::string network_name_;   // the network whose password is being typed
   std::string joining_;        // the network the screen restarts to join
+  bool asked_where_{false};    // the menu opened by itself, once, for a screen with no place yet
   uint32_t menu_install_armed_until_{0};  // Install takes a second tap before this
   uint32_t menu_checking_until_{0}, menu_checking_from_{0};  // a check asked for in the menu, and the reports then
   uint32_t firmware_reports_{0};  // the update entity's reports so far
@@ -441,6 +442,7 @@ class Skyscope : public Component,
   lv_point_t pressed_at_{};   // where the finger on the map came down
   lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
+  lv_obj_t *setup_wifi_{nullptr};  // the setup page's way to the networks in reach, while it has none
   uint16_t *canvas_buffer_{nullptr};
   // The radar's scope as drawn, without its beam: what the beam painter (beam.h) puts back where the trail has passed.
   uint16_t *scope_background_{nullptr};
