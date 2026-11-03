@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [waveshare-amoled-241, waveshare-p4-lcd-4c]
+        board: [waveshare-amoled-241, waveshare-lcd-28b, waveshare-p4-lcd-4c]
     steps:
       - uses: actions/checkout@v7
 

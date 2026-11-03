@@ -19,6 +19,9 @@ The RTL-SDR stick's registers and their values (components/skyscope/rtlsdr.cpp) 
 and ADS-B decoding follows ICAO's published standards as set out in "The 1090 Megahertz Riddle" (Junzi Sun), whose
 example messages the tests read.
 
+The LCD 2.8B's panel setup (boards/waveshare-lcd-28b.yaml: its register values, pins and timings) is that of Waveshare's
+demo for the board (ESP32-S3-Touch-LCD-2.8B-Demo); the driver that sends it (components/rgb_panel) is this project's own.
+
 Copied here: boards/esp-hosted/network_adapter_esp32c6-*.bin, Espressif's ESP-Hosted firmware for an ESP32-C6
 (https://github.com/espressif/esp-hosted-mcu), Apache-2.0, as ESPHome builds and publishes it
 (https://github.com/esphome/esp-hosted-firmware), unchanged. The P4 board's firmware carries it for its Wi-Fi chip.

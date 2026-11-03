@@ -1,0 +1,256 @@
+# Waveshare ESP32-S3-Touch-LCD-2.8B (Rev 1.1): a 2.8-inch 480 x 640 IPS panel (ST7701 over 16-bit RGB, set up over
+# 3-wire SPI) with GT911 capacitive touch, an ESP32-S3 with 16 MB of flash and 8 MB of octal PSRAM. A TCA9554 I2C
+# expander drives the display's reset (EXIO1) and select (EXIO3), the touch panel's reset (EXIO2), the card's DAT3
+# (EXIO4) and the buzzer (EXIO8); Waveshare counts its pins from 1, ESPHome from 0. The pins, the panel's setup and its
+# timings are those of Waveshare's own demo (ESP32-S3-Touch-LCD-2.8B-Demo, LCD_Driver/ST7701S.c).
+#
+# The board's hardware and sizes only; what the screen does is components/skyscope.
+
+substitutions:
+  # 800 diagonal pixels over 2.8 inches.
+  DISPLAY_DPI: "285.7"
+  # LVGL's angle: 0 is the panel's own way up, standing (480 x 640), and the cheapest, since every other angle
+  # turns each frame in software. 90 lies it down (640 x 480); the settings page turns it.
+  ROTATION: "0"
+  # Map tiles at twice their pixels: at 286 dpi a tile's words are too small to read at 1:1.
+  TILE_SCALE: "2"
+  FONT_SMALL_PX: "18"
+  FONT_LABEL_PX: "22"
+  FONT_TITLE_PX: "30"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    version: recommended
+    advanced:
+      assertion_level: SILENT
+      loop_task_stack_size: 16384
+    # The panel is fed from PSRAM all the time (display: below). A feed that falls behind (the PSRAM busy drawing a
+    # frame) starts again on the next frame rather than leaving the picture shifted, and the cache reads PSRAM in the
+    # longer lines Espressif advises for an RGB panel, so the rest gets in its way less.
+    sdkconfig_options:
+      CONFIG_LCD_RGB_RESTART_IN_VSYNC: y
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: y
+
+# 120 MHz (experimental in ESP-IDF) made no difference to the short marks the panel's feed leaves while a map is drawn.
+psram:
+  mode: octal
+  speed: 80MHz
+
+# The panel's setup lines. GPIO1 and GPIO2 are also the card's command and clock: the panel is set up once at start,
+# then deselected (EXIO3 high), and the card takes the two pins when it starts (card: below).
+spi:
+  id: lcd
+  clk_pin: GPIO2
+  mosi_pin: GPIO1
+
+# The touch panel, the expander, the clock chip and the motion sensor share one bus.
+i2c:
+  id: touch_bus
+  sda: GPIO15
+  scl: GPIO7
+  frequency: 400kHz
+  scan: false
+
+# TCA9554 GPIO expander, address 0x20; pca9554 is ESPHome's compatible component for it.
+pca9554:
+  id: io_expander
+  address: 0x20
+  i2c_id: touch_bus
+
+# The backlight's PWM, as Waveshare's demo drives it.
+output:
+  - platform: ledc
+    id: backlight
+    pin: GPIO6
+    frequency: 4kHz
+
+# The expander's pins that only need holding: the card's DAT3 high, so the card talks SD rather than SPI, and the
+# buzzer off (the expander's own pull-ups would leave it half on).
+switch:
+  - platform: gpio
+    id: card_dat3
+    internal: true
+    restore_mode: ALWAYS_ON
+    pin:
+      pca9554: io_expander
+      number: 3
+      mode: OUTPUT
+  - platform: gpio
+    id: buzzer
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      pca9554: io_expander
+      number: 7
+      mode: OUTPUT
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: touch_bus
+    # Read when the GT911 raises its interrupt, not polled.
+    interrupt_pin: GPIO16
+    reset_pin:
+      pca9554: io_expander
+      number: 1
+      mode: OUTPUT
+    display: panel
+
+display:
+  # The project's own driver (components/rgb_panel): ESPHome's mipi_rgb always sets the panel's pixel format (16 or 18
+  # bits), and the data lines are wired for the panel's own 24-bit format (COLMOD 70h, as Waveshare's demo leaves it):
+  # in 16 or 18 bits the panel reads each colour from other lines and every colour on the glass is wrong. rgb_panel
+  # sends only the sequence below and lets go of the SPI lines after it (the card has them to itself).
+  - platform: rgb_panel
+    id: panel
+    spi_id: lcd
+    spi_mode: MODE0
+    data_rate: 4MHz
+    cs_pin:
+      pca9554: io_expander
+      number: 2
+      mode: OUTPUT
+    reset_pin:
+      pca9554: io_expander
+      number: 0
+      mode: OUTPUT
+    dimensions: {width: 480, height: 640}
+    # The panel has no memory of its own: its whole frame is read from PSRAM all the time, at two bytes a clock.
+    # Waveshare's demo runs it at 30 MHz (82 frames a second), which leaves too little of the PSRAM for the rest: the
+    # picture jumps and drawing slows until the watchdog restarts the screen. 12 MHz gives 33 frames a second, which
+    # the glass shows as steadily (10 MHz was no better).
+    pclk_frequency: 12MHz
+    pclk_inverted: false
+    hsync_pulse_width: 8
+    hsync_back_porch: 10
+    hsync_front_porch: 50
+    vsync_pulse_width: 2
+    vsync_back_porch: 18
+    vsync_front_porch: 8
+    # The frame goes to the panel through two buffers of internal RAM, refilled from PSRAM 10 rows at a time (19 KB),
+    # as ESPHome's drivers do. Read by the panel's DMA straight from PSRAM, it could not keep up and the picture shifted
+    # sideways (even with LVGL drawing in internal RAM); at 32 rows a late refill left it shifted by 32 rows. Each
+    # refill drops the rows it read from the cache again (rgb_panel does this whenever it has bounce rows): without
+    # that, the frame passing through pushed out what drawing needed and short marks flickered over the map.
+    bounce_rows: 10
+    de_pin: GPIO40
+    hsync_pin: GPIO38
+    vsync_pin: GPIO39
+    pclk_pin: GPIO41
+    # The data lines in Waveshare's order, each pixel's lowest bit first (blue, green, red), for pixels in the chip's
+    # own byte order (lvgl: byte_order below).
+    data_pins:
+      - GPIO5
+      - {number: GPIO45, ignore_strapping_warning: true}
+      - GPIO48
+      - GPIO47
+      - GPIO21
+      - GPIO14
+      - GPIO13
+      - GPIO12
+      - GPIO11
+      - GPIO10
+      - GPIO9
+      - {number: GPIO46, ignore_strapping_warning: true}
+      - {number: GPIO3, ignore_strapping_warning: true}
+      - GPIO8
+      - GPIO18
+      - GPIO17
+    # Waveshare's sequence (LCD_Driver/ST7701S.c), then the display on.
+    init_sequence:
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xEF, 0x08]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xC0, 0x4F, 0x00]
+      - [0xC1, 0x10, 0x02]
+      - [0xC2, 0x07, 0x02]
+      - [0xCC, 0x10]
+      - [0xB0, 0x00, 0x10, 0x17, 0x0D, 0x11, 0x06, 0x05, 0x08, 0x07, 0x1F, 0x04, 0x11, 0x0E, 0x29, 0x30, 0x1F]
+      - [0xB1, 0x00, 0x0D, 0x14, 0x0E, 0x11, 0x06, 0x04, 0x08, 0x08, 0x20, 0x05, 0x13, 0x13, 0x26, 0x30, 0x1F]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+      - [0xB0, 0x65]
+      - [0xB1, 0x71]
+      - [0xB2, 0x82]
+      - [0xB3, 0x80]
+      - [0xB5, 0x42]
+      - [0xB7, 0x85]
+      - [0xB8, 0x20]
+      - [0xC0, 0x09]
+      - [0xC1, 0x78]
+      - [0xC2, 0x78]
+      - [0xD0, 0x88]
+      - [0xEE, 0x42]
+      - [0xE0, 0x00, 0x00, 0x02]
+      - [0xE1, 0x04, 0xA0, 0x06, 0xA0, 0x05, 0xA0, 0x07, 0xA0, 0x00, 0x44, 0x44]
+      - [0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+      - [0xE3, 0x00, 0x00, 0x22, 0x22]
+      - [0xE4, 0x44, 0x44]
+      - [0xE5, 0x0C, 0x90, 0xA0, 0xA0, 0x0E, 0x92, 0xA0, 0xA0, 0x08, 0x8C, 0xA0, 0xA0, 0x0A, 0x8E, 0xA0, 0xA0]
+      - [0xE6, 0x00, 0x00, 0x22, 0x22]
+      - [0xE7, 0x44, 0x44]
+      - [0xE8, 0x0D, 0x91, 0xA0, 0xA0, 0x0F, 0x93, 0xA0, 0xA0, 0x09, 0x8D, 0xA0, 0xA0, 0x0B, 0x8F, 0xA0, 0xA0]
+      - [0xEB, 0x00, 0x00, 0xE4, 0xE4, 0x44, 0x00, 0x40]
+      - [0xED, 0xFF, 0xF5, 0x47, 0x6F, 0x0B, 0xA1, 0xAB, 0xFF, 0xFF, 0xBA, 0x1A, 0xB0, 0xF6, 0x74, 0x5F, 0xFF]
+      - [0xEF, 0x08, 0x08, 0x08, 0x40, 0x3F, 0x64]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xE6, 0x16, 0x7C]
+      - [0xE8, 0x00, 0x0E]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0x11]
+      - delay 200ms
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xE8, 0x00, 0x0C]
+      - delay 150ms
+      - [0xE8, 0x00, 0x00]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0x29]
+      - delay 20ms
+    update_interval: never
+    auto_clear_enabled: false
+
+lvgl:
+  displays: [panel]
+  touchscreens:
+    - touchscreen_id: touch
+  # Asked for as a tenth, which ESPHome makes an eighth of the screen (77 KB) and keeps in internal RAM: LVGL draws
+  # the glass in strips there, and each pixel crosses into PSRAM once, into the panel's frame. Drawn whole in PSRAM as
+  # on the other boards, every pixel went there three times (drawn, read back, copied), with the panel reading its
+  # frame from the same PSRAM all the while.
+  buffer_size: 10%
+  # Pixels in the chip's own byte order, as the panel's data lines take them (display: data_pins).
+  byte_order: little_endian
+  rotation: ${ROTATION}
+  log_level: WARN
+  default_font: font_label
+  # One empty page: the screen builds what it shows in C++ (components/skyscope).
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+
+font:
+  - {file: "gfonts://Roboto Condensed@500", id: font_small, size: "${FONT_SMALL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto Condensed@500", id: font_label, size: "${FONT_LABEL_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+  - {file: "gfonts://Roboto@500", id: font_title, size: "${FONT_TITLE_PX}", glyphsets: [GF_Latin_Kernel], bpp: 4}
+
+skyscope:
+  dpi: ${DISPLAY_DPI}
+  tile_scale: ${TILE_SCALE}
+  font_small: font_small
+  font_label: font_label
+  font_title: font_title
+  brightness_output: backlight
+  # The GT911 tracks several fingers: pinch to zoom, two fingers to pan.
+  touchscreen_id: touch
+  # The TF slot, for the map card: one data line of SD/MMC (CLK GPIO2, CMD GPIO1, D0 GPIO42, as Waveshare's demo), the
+  # first two shared with the panel's setup lines (spi: above); its DAT3 is held high by the expander (switch: above).
+  card:
+    slot: 1
+    width: 1
+    clk_pin: 2
+    cmd_pin: 1
+    data_pins: [42]

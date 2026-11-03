@@ -51,6 +51,7 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
 | Board | File |
 |---|---|
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` (the default) |
+| Waveshare ESP32-S3-Touch-LCD-2.8B (Rev 1.1, 480 × 640) | `boards/waveshare-lcd-28b.yaml` |
 | Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720; not yet tried on a real one) | `boards/waveshare-p4-lcd-4c.yaml` |
 
 `skyscope.yaml` builds the board its `board` substitution names: `esphome -s board waveshare-p4-lcd-4c run
@@ -67,6 +68,15 @@ v1.x`) would need `engineering_sample: true` in the file and a build of its own.
 glass is round, and the screen keeps everything inside the circle: the pages and the keyboard in the largest square it
 holds, the status, the credit and a plane's card moved in from the edge as far as their width needs, and no plane or
 label in the corners beyond it (`skyscope:` `round: true`, `glass.h`).
+
+The LCD 2.8B's panel takes its picture over a 16-bit RGB bus from a frame the ESP32-S3 keeps in PSRAM, a frame more
+than the AMOLED needs; its setup and pins are those of Waveshare's own demo. That frame is read from PSRAM all the time,
+so the panel runs slower than the demo's (a pixel clock of 12 MHz, not 30): faster, it takes so much of the PSRAM that
+the picture jumps and drawing slows until the watchdog restarts the screen. The screen drives the panel with a driver
+of its own (`components/rgb_panel`), since ESPHome's sets a pixel format the board's wiring does not match and every
+colour comes out wrong. To keep the PSRAM free for the panel, LVGL draws in an eighth of the screen in internal RAM
+(77 KB), and the frame reaches the panel through small buffers of internal RAM that leave the cache as they found it;
+the board is best standing (0°), since every other angle turns each frame in software.
 
 A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB)
 and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:`
@@ -110,7 +120,7 @@ position and are not shown.
 
 ### The map card
 
-Both boards have a TF (microSD) slot. With a card in it, formatted FAT32, every map tile the screen fetches is kept on
+Every board has a TF (microSD) slot. With a card in it, formatted FAT32, every map tile the screen fetches is kept on
 the card as well as in memory, so a map seen once comes back without downloading it again, after a restart too: quicker
 on a slow network, and less asked of the tile servers. Each map's tiles are kept as long as its terms allow:
 OpenStreetMap's and Esri's for as long as their servers say (`Cache-Control`, a week where they say nothing), the FAA's
@@ -140,7 +150,10 @@ leaves a broken tile to be read, and leaves at most that one file, which the nex
 once its download is complete.
 
 The board files set the slot (`card:` in the `skyscope:` block): on the P4, slot 0 of its SD/MMC host, four data lines,
-powered by its LDO channel 4 (slot 1 of the same host is the Wi-Fi chip's); on the S3, one data line on GPIO 4, 5 and 6.
+powered by its LDO channel 4 (slot 1 of the same host is the Wi-Fi chip's); on the AMOLED 2.41, one data line on GPIO 4,
+5 and 6; on the LCD 2.8B, one data line on GPIO 2, 1 and 42, the first two shared with the lines that set up its panel
+(which is set up once at start, before the card is looked for), and the card's DAT3 held high by the board's I/O
+expander.
 
 ## Install
 
