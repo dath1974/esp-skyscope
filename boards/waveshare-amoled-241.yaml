@@ -8,8 +8,9 @@
 substitutions:
   # 750 diagonal pixels over 2.41 inches.
   DISPLAY_DPI: "311.2"
-  # LVGL's angle for lying down (600 x 450). 0 stands it up (450 x 600).
-  ROTATION: "90"
+  # LVGL's angle: 0 is the panel's own way up, standing (450 x 600), and the cheapest, since every other angle
+  # turns each frame in software. 90 lies it down (600 x 450); the settings page turns it.
+  ROTATION: "0"
   # Map tiles at twice their pixels: at 311 dpi a tile's words are too small to read at 1:1.
   TILE_SCALE: "2"
   FONT_SMALL_PX: "20"

@@ -73,9 +73,12 @@ static void test_geo() {
 }
 
 static void test_scope() {
-  // The radar's scope is on unless switched off, and its beam turns only round it, on the radar.
+  // The radar's scope is on unless switched off, and its beam turns only round it, on the radar. A screen starts on
+  // the light street map, not the radar.
   Settings s;
-  CHECK(s.scope && s.sweep && s.map == RADAR && scope_shown(s) && sweeps(s));
+  CHECK(s.map == STREETS && s.theme == LIGHT && !scope_shown(s) && !sweeps(s));
+  s.map = RADAR;
+  CHECK(s.scope && s.sweep && scope_shown(s) && sweeps(s));
   s.scope = false;
   CHECK(!scope_shown(s) && !sweeps(s));
   s.scope = true;
@@ -533,6 +536,7 @@ static void test_feed() {
 
 static void test_tiles() {
   Settings s;
+  s.theme = DARK;  // Esri's dark gray below; the light one is the default
   s.lat = 40.64;
   s.lon = -73.78;
   s.located = true;
@@ -595,6 +599,7 @@ static void test_tiles() {
   // Streets is Esri's dark or light gray by the appearance; the tiles of each are their own in the cache.
   Settings st;
   st.map = STREETS;
+  st.theme = DARK;
   CHECK(tiles::source_id(st) == tiles::SRC_GRAY_DARK);
   st.theme = LIGHT;
   CHECK(tiles::source_id(st) == tiles::SRC_GRAY_LIGHT);
@@ -660,6 +665,7 @@ static void test_frame_key() {
   s.lon = -73.78;
   s.located = true;
   s.map = SECTIONAL;
+  s.theme = DARK;  // so the light appearance below is a change
   const tiles::Plan p = tiles::plan(s, 600, 450, 2);
   const std::string key = tiles::frame_key(s, p);
   CHECK(!key.empty() && key == tiles::frame_key(s, tiles::plan(s, 600, 450, 2)));

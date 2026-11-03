@@ -68,9 +68,9 @@ struct Settings {
   int range_nm = 20;
   // The map under the planes.
   std::string place;       // what the place was found as, an airport's code in capitals ("KJFK"), else a short name
-  MapStyle map = RADAR;
+  MapStyle map = STREETS;  // a plain light map to start with: Esri's light gray canvas, by `theme`
   std::string custom_url;  // {z} {x} {y} template, PNG or JPEG
-  Theme theme = DARK;      // the map's variant or night rendering, and the screen's own colours
+  Theme theme = LIGHT;     // the map's variant or night rendering, and the screen's own colours
   int map_brightness = 100;  // percent of a map's light kept, in either appearance
   int tile_scale = 0;      // 1 or 2 screen pixels per tile pixel; 0 the board's default
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`

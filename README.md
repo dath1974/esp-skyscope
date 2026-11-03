@@ -8,7 +8,8 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   IFR high enroute charts, or any 256-pixel PNG/JPEG tile server of your own. One **appearance** switch, dark or light:
   maps without a dark version of their own are drawn dark by rules made for each (the IFR charts turn only their paper
   and ink round and keep their colours; the sectional is dimmed; topo and OpenStreetMap are inverted with their hues
-  kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map.
+  kept). Place names over the streets and the imagery (optional). Range rings and a compass rose over any map. A new
+  screen starts on the streets, light.
 - **Airspace** (optional, United States): the FAA's Class B, C and D airspace outlines and runways, with dashed
   centerlines 10 NM out from the long runways of towered airports, over any map, the way a controller's scope draws
   them: in the phosphor on the radar, in the charts' blue and magenta over a map. On the radar the scope itself (its
@@ -205,9 +206,9 @@ with its manifest (`tools/release_site.py`). The tag's message is the summary th
 All settings are on that page and in the menu, and the screen keeps them across restarts and updates. Once it is set up and running,
 tapping the status bar at the top shows the screen's address for a moment.
 
-**Rotation** is set there too (the screen restarts to turn). 0° is the panel's own way up and the least
-expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41, 0° is
-portrait and 90° landscape).
+**Rotation** is set there too (the screen restarts to turn). 0° is the panel's own way up, every board's default and the
+least expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41 and the
+LCD 2.8B, 0° is portrait and 90° landscape).
 
 ## The menu
 
