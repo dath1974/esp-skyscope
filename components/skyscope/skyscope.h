@@ -116,6 +116,11 @@ class Skyscope : public Component,
 #endif
 
   void setup() override;
+  // A change still waiting its few seconds to be saved is saved before any restart (the API's, a network joined, new
+  // firmware): it would be lost otherwise.
+  void on_safe_shutdown() override {
+    if (save_pending_) save_settings_();
+  }
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::LATE; }
