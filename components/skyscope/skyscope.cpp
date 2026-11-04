@@ -1,5 +1,6 @@
 // The loop's side of Skyscope: the settings, what the glass shows and what a finger does.
 #include "skyscope.h"
+#include "http.h"
 
 #include "colours.h"
 #include "panel_sync.h"
@@ -14,6 +15,7 @@
 #include "esphome/components/captive_portal/captive_portal.h"
 #endif
 
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 
@@ -346,7 +348,54 @@ void Skyscope::use_timezone_() {
 #endif
 }
 
+#ifdef SKYSCOPE_TEST_API
+namespace {
+// In memory a restart leaves as it is (and power on fills with noise): the origin, and a mark and sum to know it by.
+struct KeptDivert {
+  uint32_t mark;
+  char origin[96];
+  uint32_t sum;
+};
+__NOINIT_ATTR KeptDivert kept_divert;
+constexpr uint32_t DIVERT_MARK = 0x5C0DE7E5;
+uint32_t divert_sum(const KeptDivert &k) {
+  uint32_t h = 2166136261u;
+  for (char c : k.origin) h = (h ^ (uint8_t) c) * 16777619u;
+  return h;
+}
+}  // namespace
+
+std::string Skyscope::kept_divert_() {
+  const KeptDivert &k = kept_divert;
+  if (k.mark != DIVERT_MARK || k.origin[sizeof(k.origin) - 1] != 0 || k.sum != divert_sum(k)) return "";
+  return k.origin;
+}
+
+void Skyscope::keep_divert_(const std::string &origin) {
+  KeptDivert &k = kept_divert;
+  std::memset(&k, 0, sizeof(k));
+  if (origin.empty() || origin.size() >= sizeof(k.origin)) return;
+  std::memcpy(k.origin, origin.data(), origin.size());
+  k.mark = DIVERT_MARK;
+  k.sum = divert_sum(k);
+}
+#endif
+
 void Skyscope::setup() {
+#ifdef SKYSCOPE_TEST_API
+  divert_ = kept_divert_();
+  if (!divert_.empty()) {
+    // Before the worker asks anything; the map card left out, so no tile of the mock's is ever kept on it.
+    ::sky::http::divert_to(divert_);
+    card_fitted_ = false;
+#ifdef USE_UPDATE
+    // The update server too, which ESPHome's own client asks: its releases are the mock's.
+    if (firmware_ && firmware_->get_source_url())
+      firmware_->set_source_url(::sky::http::diverted(firmware_->get_source_url(), divert_));
+#endif
+    ESP_LOGW(TAG, "A test: every request goes to %s", divert_.c_str());
+  }
+#endif
   ui::set_dpi(dpi_);
   ui::fonts.small = font_small_ ? font_small_->get_lv_font() : nullptr;
   ui::fonts.label = font_label_ ? font_label_->get_lv_font() : ui::fonts.small;

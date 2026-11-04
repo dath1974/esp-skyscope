@@ -133,7 +133,11 @@ void close_idle(uint32_t now, uint32_t idle_ms) {
   }
 }
 
-Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept) {
+static std::string divert_origin;
+void divert_to(const std::string &origin) { divert_origin = origin; }
+
+Result get(const std::string &asked, Body &body, size_t most, const std::string &agent, const char *accept) {
+  const std::string url = diverted(asked, divert_origin);
   Result r;
   for (int attempt = 0; attempt < 2; ++attempt) {
     body.clear();

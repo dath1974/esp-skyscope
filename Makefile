@@ -17,18 +17,23 @@
 #                         that needs no screen
 #   make test-host        the C++, with the address and undefined-behaviour
 #                         sanitizers
-#   make test-python      tools/release_site.py and tests/mock_feed.py
+#   make test-python      tools/release_site.py and the mock (tests/mock_feed.py)
 #   make test-page        the web page's script (Node 18 or newer)
 #   make test-markers     every kind of aircraft drawn on a sheet,
 #                         tests/build/markers.png
 #
 # Tests - Real ESP32 Hardware Needed
-# Must specify DEVICE=<ESP32 IP Address>
+# Must specify DEVICE=<ESP32 IP Address>. All but test-esp32-public run
+# against a mock here (tests/mock_feed.py, port PORT, 8095 unless given),
+# asking nothing of a public service, so each run goes the same way on every
+# board. Screens tested at once each need their own PORT.
 #   make test-esp32       the tests
 #   make test-esp32-full  also each map drawn whole, a restart and sleep
-#   make test-esp32-mock  against a mock receiver and update server here;
-#                         INSTALL=<firmware.ota.bin> to install that firmware
+#   make test-esp32-mock  the mock's receiver and update server, and every
+#                         failure of each; INSTALL=<firmware.ota.bin> to
+#                         install that firmware
 #   make test-esp32-soak  memory over SOAK minutes [SOAK=30] [CHURN=0]
+#   make test-esp32-public  the public services themselves, at a test place
 #
 # Release, in order (release.yml does the rest once the tag is pushed)
 #   make release-version VERSION=<x.y.z>
@@ -43,6 +48,8 @@
 #   make help             print this list
 
 DEVICE ?=
+# The mock's port for the tests on a screen: another for each screen tested at once.
+PORT ?= 8095
 # The board a firmware is built for (boards/<BOARD>.yaml), and every board.
 BOARD ?= waveshare-amoled-241
 BOARDS := $(basename $(notdir $(wildcard boards/*.yaml)))
@@ -62,7 +69,7 @@ export MSG
 
 .PHONY: all firmware firmware-all firmware-flash firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers \
-	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak \
+	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak test-esp32-public \
 	release-version release-tag release clean help
 
 all: firmware test $(if $(DEVICE),test-esp32)
@@ -138,34 +145,38 @@ test-markers:
 test-esp32:
 	@test -n "$(DEVICE)" || \
 	  { echo "make test-esp32 DEVICE=<the screen's address>"; exit 2; }
-	tests/device_test.py $(DEVICE)
+	tests/device_test.py $(DEVICE) --port $(PORT)
+
+# The public services the mock stands in for, each asked by the screen at a
+# test place: that they still answer as the screen expects.
+test-esp32-public:
+	@test -n "$(DEVICE)" || \
+	  { echo "make test-esp32-public DEVICE=<the screen's address>"; exit 2; }
+	tests/device_test.py $(DEVICE) --public
 
 # Also each map drawn whole, a restart that keeps the settings, and the
 # screen going off and waking at a tap.
 test-esp32-full:
 	@test -n "$(DEVICE)" || \
 	  { echo "make test-esp32-full DEVICE=<the screen's address>"; exit 2; }
-	tests/device_test.py $(DEVICE) --maps --reboot --sleep
+	tests/device_test.py $(DEVICE) --port $(PORT) --maps --reboot --sleep
 
-# Against a mock receiver and update server this machine serves
-# (tests/mock_feed.py, port 8095): known planes, a busy sky, every failure a
-# feed or an update server can have, and installs that must fail; with
-# INSTALL=<firmware.ota.bin> that firmware installed from it. The screen
-# must reach this machine (WSL: networkingMode=mirrored).
+# The mock's receiver and update server: known planes, a busy sky, every
+# failure a feed or an update server can have, and installs that must fail;
+# with INSTALL=<firmware.ota.bin> that firmware installed from it.
 test-esp32-mock:
 	@test -n "$(DEVICE)" || \
 	  { echo "make test-esp32-mock DEVICE=<the screen's address>"; exit 2; }
-	tests/device_test.py $(DEVICE) --no-touch --mock \
+	tests/device_test.py $(DEVICE) --port $(PORT) --no-touch --mock \
 	  $(if $(INSTALL),--install $(INSTALL))
 
-# Memory over SOAK minutes (and with CHURN, the map changed every CHURN
-# minutes).
+# Memory over SOAK minutes (and with CHURN, the view changed every CHURN
+# minutes), under the mock's circling planes.
 test-esp32-soak:
 	@test -n "$(DEVICE)" || \
 	  { echo "make test-esp32-soak DEVICE=<the screen's address>" \
 	    "[SOAK=minutes] [CHURN=minutes]"; exit 2; }
-	tests/device_test.py $(DEVICE) --no-touch \
-	  --soak $(SOAK) --churn $(CHURN)
+	tests/device_test.py $(DEVICE) --port $(PORT) --soak $(SOAK) --churn $(CHURN)
 
 # Only skyscope.yaml is committed, and only when it has no other changes.
 release-version:

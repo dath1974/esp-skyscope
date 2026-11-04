@@ -14,9 +14,14 @@ tests/device_test.py --mock starts one of its own, in the same process. By hand,
     GET  /firmware/manifest.json  a release, as tools/release_site.py writes it (the screen asks it with the test
                                   API's {"source": url} on /api/firmware)
     GET  /firmware/<name>.ota.bin its firmware
+    GET  /tiles/<z>/<x>/<y>.png   a map tile (a custom map's {z}/{x}/{y}): a plain checkered square, each its own colour
+    GET  /<server>/<path>         a public service, for a screen that sends it every request (tests/mock_services.py);
+                                  the project's releases (<x>.github.io) are the release above
 
 Scenarios: "fixed" (a few planes with every kind of field, at known places), "busy" (600 planes with long names),
-"crowd" (4500 planes, 600 KB: as much as a screen takes), "moving" (one plane flying east at 480 kt), "odd"
+"crowd" (4500 planes, 600 KB: as much as a screen takes), "moving" (one plane flying east at 480 kt), "circling" (80
+planes of every kind flying circles out to 80 NM, so each turns through every heading, a few changing for others every
+minute: a long run's sky, for the soak), "odd"
 (what a receiver should not send but may: wrong types, nulls, duplicates, words past their length in UTF-8, places off
 the earth, entries that are no plane), "empty". Faults, for the next `times` requests (0: until changed): "429"
 (Retry-After), "429-reset" (x-ratelimit-reset), "403" (refused, saying nothing more), "paced" (a good answer with
@@ -41,6 +46,8 @@ import json
 import math
 import threading
 import time
+
+import mock_services
 
 NM_PER_DEGREE = 60.0
 
@@ -82,6 +89,30 @@ KINDS = {"a00001": "airliner", "a00002": "airliner", "a00003": "light", "a00004"
          "a00006": "jet", "a00007": "airliner", "a00008": "turboprop", "a00020": "helicopter", "a00021": "helicopter",
          "a00022": "quad", "a00023": "glider", "a00024": "balloon", "a00025": "drone", "a00026": "drone",
          "a00027": "fast", "a00028": "airship", "a00029": "vehicle"}
+# The circling scenario's planes, by turns: what makes each kind (shapes.h) and how fast it flies.
+CIRCLING = [({"t": "B738"}, 300), ({"t": "B77W"}, 420), ({"t": "B744"}, 450), ({"t": "GLF6"}, 400), ({"t": "PC12"}, 250),
+            ({"t": "C172"}, 110), ({"t": "EC35"}, 120), ({"t": "F16"}, 480), ({"category": "B1"}, 60),
+            ({"category": "B2"}, 20), ({"category": "B2", "desc": "GOODYEAR AIRSHIP"}, 35), ({"category": "B6"}, 40)]
+
+
+def circling(lat: float, lon: float, seconds: float):
+    """80 planes flying circles round the middle, at `seconds` since the scenario began."""
+    planes = []
+    for i in range(80):
+        fields, gs = CIRCLING[i % len(CIRCLING)]
+        radius = 2 + (i % 20) * (i // 20 + 1)  # 2 to 78 NM
+        # Every minute one plane in twenty is another, so the screen lets go of planes and their tracks as it runs.
+        generation = int((seconds + i * 3) // 60) if i % 20 == 0 else 0
+        sense = 1 if i % 2 else -1  # half of them each way round
+        angle = math.radians(i * 47) + sense * gs / 3600 * seconds / radius
+        lat_p, lon_p = offset(lat, lon, radius * math.cos(angle), radius * math.sin(angle))
+        track = (math.degrees(angle) + 90 * sense) % 360
+        planes.append({"hex": f"e{i:02x}{generation:03x}", "flight": f"CIRC{i:<4d}", "r": f"N3{i:04d}", "alt_baro": 1500 + (i * 613) % 38000,
+                       "gs": gs, "track": round(track, 1) % 360, "lat": round(lat_p, 6), "lon": round(lon_p, 6),
+                       "seen_pos": 0.4, **fields})
+    return planes
+
+
 # The odd scenario: (what the entry is, whether it is a plane to keep). Positions from the middle, in NM, as FIXED.
 ODD = [
     ({"hex": "A0000B", "flight": "UPPER1", "lat": (1, 1), "alt_baro": 5000}, "a0000b"),  # hex in capitals
@@ -169,6 +200,8 @@ class Feed:
                     p["lat"], p["lon"] = (round(v, 6) for v in offset(self.lat, self.lon, *p["lat"]))
                 planes.append(p)
             return planes + ODD_JUNK
+        if self.scenario == "circling":
+            return circling(self.lat, self.lon, now - self.started)
         if self.scenario == "moving":
             east = -10 + 480 / 3600 * (now - self.started)  # 480 kt, from 10 NM west
             lat, lon = offset(self.lat, self.lon, 0, east)
@@ -281,8 +314,26 @@ def handler_for(feed: Feed, firmware: Firmware):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if self.path.startswith("/firmware/"):
+            # Its own update server, and the project's releases for a screen that sends every request here.
+            if self.path.startswith("/firmware/") or self.path.split("/")[1].endswith(".github.io"):
                 self.firmware()
+                return
+            if self.path.startswith("/tiles/"):
+                self.tile()
+                return
+            with feed.lock:
+                lat, lon = feed.lat, feed.lon
+            service = mock_services.answer(self.path, lat, lon, time.time(), feed.aircraft)
+            if service:
+                status, kind, body, what = service
+                self.note(what)
+                self.send_response(status)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                if kind == "image/png":
+                    self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if not (self.path.split("?")[0].endswith("aircraft.json") or self.path.startswith("/v2/")):
                 self.answer(404, b'{"msg":"not here"}', what="404")
@@ -356,7 +407,7 @@ def handler_for(feed: Feed, firmware: Firmware):
                 self.answer(200, body, what="ok")
 
         def firmware(self):
-            if self.path == "/firmware/manifest.json":
+            if self.path.split("?")[0].endswith("/manifest.json"):
                 fault = firmware.take_fault("")
                 with firmware.lock:
                     body = json.dumps(firmware.manifest(fault)).encode()
@@ -369,7 +420,7 @@ def handler_for(feed: Feed, firmware: Firmware):
                 return
             with firmware.lock:
                 name, image = firmware.name(), firmware.image
-            if self.path != "/firmware/" + name:
+            if not self.path.split("?")[0].endswith("/" + name):
                 self.answer(404, b'{"msg":"not here"}', what="404")
                 return
             fault = firmware.take_fault("bin-")
@@ -389,6 +440,21 @@ def handler_for(feed: Feed, firmware: Firmware):
                 self.wfile.flush()
                 self.close_connection = fault == "bin-truncated"
                 self.note(fault or "bin-ok")  # once sent whole (or cut short): a download taken in
+
+        def tile(self):
+            try:
+                z, x, y = (int(v) for v in self.path.split("?")[0].removesuffix(".png").split("/")[2:5])
+            except ValueError:
+                self.answer(404, b'{"msg":"no such tile"}', what="tile-404")
+                return
+            self.note("tile")
+            body = mock_services.tile_png(z, x, y)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
 
         def do_POST(self):
             self.arrived = time.time()
@@ -412,7 +478,17 @@ class Server:
     def __init__(self, port=8095, **feed):
         self.feed = Feed(**feed)
         self.firmware = Firmware()
-        self.httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), handler_for(self.feed, self.firmware))
+        # Room for every connection a screen opens at once (a map's tiles come several together): Python's default
+        # queue of 5 overflows, and the connections it drops come late or not at all.
+        # A connection the screen closes (an idle one let go, a download given up) is no error of the mock's.
+        def handle_error(server, request, client_address):
+            import sys
+            if not isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, TimeoutError)):
+                http.server.ThreadingHTTPServer.handle_error(server, request, client_address)
+
+        server_class = type("Server", (http.server.ThreadingHTTPServer,),
+                            {"request_queue_size": 64, "handle_error": handle_error})
+        self.httpd = server_class(("0.0.0.0", port), handler_for(self.feed, self.firmware))
         self.httpd.daemon_threads = True
         self.port = self.httpd.server_address[1]
 

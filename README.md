@@ -311,6 +311,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |
+| `POST /api/test` | for tests: `{"divert": "http://<host>:<port>"}` sends every HTTPS request the screen makes (every public service: feeds, tiles, airspace, weather, the update server) to that server as `/<server>/<path>`, a plain `http://` address (a receiver) as it is, from the restart it makes until power off or `{"divert": ""}` (another restart); the map card is left alone meanwhile, and `GET /api/status` says where (`divert`) |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -318,8 +319,9 @@ curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
   -d '{"lat": 51.4700, "lon": -0.4543, "range_nm": 15, "map": "dark_gray"}'
 ```
 
-The page and the API are open to anyone on your network, as an ESPHome device's own web server is. The two test endpoints
-(`/api/touch`, `/api/ui`) are left out of a build with `test_api: false` in the `skyscope:` block.
+The page and the API are open to anyone on your network, as an ESPHome device's own web server is. The test endpoints
+(`/api/touch`, `/api/ui`, `/api/test`, and `{"source"}` and the network changes above) are left out of a build with
+`test_api: false` in the `skyscope:` block.
 
 ## Data sources
 
@@ -373,33 +375,47 @@ receiver's range, are missing, and positions may be late.
   - `make test-host`: the C++ host tests (`tests/test_host.cpp`, with the address and undefined-behaviour sanitizers;
     needs a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
   - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads,
-    and the mock receiver and update server (`tests/test_mock_feed.py`) that the tests on a real screen use.
+    and the mock (`tests/test_mock_feed.py`) that the tests on a real screen use: its receiver, update server and
+    stand-ins for the public services.
   - `make test-page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
     firmware section's words, and that the whole script parses.
 - With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is
-  put back, and it prints nothing of the screen's place):
+  put back, and it prints nothing of the screen's place). Every one of these but `test-esp32-public` runs against a
+  mock this machine serves (`tests/mock_feed.py`, port 8095, or `PORT=`: screens tested at once each need their own)
+  and asks nothing of a public service, so a run goes the
+  same way every time and on every board: the screen is sent to the mock (it restarts), every request it makes of a
+  public service goes there, and it is sent back at the end (another restart). The mock stands in for the ADS-B exchanges, every map's
+  tiles, the FAA's airspace and airports, the weather, the weather radar, place search and the update server
+  (`tests/mock_services.py` says what each answers, and the host tests read each answer with the screen's own code);
+  a run checks that it answered every request. These need a firmware built with the test API (`test_api: true`, the
+  default), and the screen must reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and
+  allow inbound connections to it (see below).
   - `make test-esp32 DEVICE=<address>`: the page, settings (round trip, wrong values refused), status and memory,
-    aircraft, the update check against the published release, and touches through `/api/touch` (the menu opened,
-    stepped, cancelled and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and
-    Install's second tap; the known Wi-Fi networks (a made-up one moved and forgotten, never joined); a plane's card;
-    the address; a swipe between maps and back; the weather page and its tabs; the weather radar and its loop;
-    a drag on the brightness strip).
-  - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, a restart that keeps the
-    settings, and the screen going off and waking at a tap that does nothing else.
-  - `make test-esp32-mock DEVICE=<address>`: the screen pointed for a while at a mock receiver and update server this
-    machine serves (`tests/mock_feed.py`, port 8095, at a test place). The receiver: the planes it lists kept and
-    placed where they should be, the filters, the range and the card; no planes, a moving one, 600, and 4500 in 600 KB;
-    entries no receiver should send (wrong types, duplicates, UTF-8 past a field's length); every failure a feed can
-    have (refusals, a pace, server errors, answers cut short, broken, too big or not JSON, too slow, none), each
-    waited out as long as it should be; answers chunked or redirected; an address that cannot be found, then
-    corrected; falling back to an exchange and back. The update server: a release offered, its failures said, and
-    installs that must fail (no image, cut short, a wrong digest, not an image) leaving the firmware as it is. With
-    `INSTALL=.esphome/build/skyscope-<board>/build/firmware.ota.bin`, that build installed from the mock. The
-    screen must be able to reach this machine: under WSL, set `networkingMode=mirrored` in `.wslconfig` and allow
-    inbound connections to it (see below).
-  - `make test-esp32-soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour, the map and range changed every
-    two minutes, failing if memory keeps falling, if it is lower each time the same view comes round, or if a record
-    that grows as the screen runs passes its bound.
+    aircraft, the mock's airspace read exactly, and touches through `/api/touch` (the menu opened, stepped, cancelled
+    and saved, paged, recoloured; a range typed on its keyboard; the Wi-Fi list; Check and Install's second tap; the
+    known Wi-Fi networks (a made-up one moved and forgotten, never joined); a plane's card; the address; a swipe
+    between maps and back; the weather page and its tabs; the weather radar and its loop; a drag on the brightness
+    strip).
+  - `make test-esp32-full DEVICE=<address>`: also every map drawn whole without a tile error, each from its own
+    server, a restart that keeps the settings, and the screen going off and waking at a tap that does nothing else.
+  - `make test-esp32-mock DEVICE=<address>`: the mock as a receiver and as the update server. The receiver: the planes
+    it lists kept and placed where they should be, the filters, the range and the card; no planes, a moving one, 600,
+    and 4500 in 600 KB; entries no receiver should send (wrong types, duplicates, UTF-8 past a field's length); every
+    failure a feed can have (refusals, a pace, server errors, answers cut short, broken, too big or not JSON, too
+    slow, none), each waited out as long as it should be; answers chunked or redirected; an address that cannot be
+    found, then corrected; falling back to an exchange and back. The update server: a release offered, its failures
+    said, and installs that must fail (no image, cut short, a wrong digest, not an image) leaving the firmware as it
+    is. With `INSTALL=.esphome/build/skyscope-<board>/build/firmware.ota.bin`, that build installed from the mock.
+  - `make test-esp32-soak DEVICE=<address> SOAK=60 CHURN=2`: memory sampled for an hour under the mock's 80 planes of
+    every kind circling the test place (each symbol through every heading, two planes watched), the view changed every
+    two minutes (every map, near and far, dark and light), failing if memory keeps falling, if it is lower each time
+    the same view comes round, if the screen restarts, or if a record that grows as the screen runs passes its bound
+    (the plane symbols are held to a megabyte).
+- `make test-esp32-public DEVICE=<address>`: the public services themselves, which the mock stands in for, each
+  asked by the screen at a test place (New York JFK): adsb.fi and adsb.lol answer with planes, the published release
+  is found, the FAA's airspace and runways are read, every map is drawn whole, the weather radar's scan and loop come,
+  and the weather page fills in for KJFK. Run it to know the services still answer as the screen expects; it is not
+  repeatable (the sky and the services change), and needs no test API but for the weather page.
 
 ### A screen reaching a test server under WSL
 
@@ -412,12 +428,15 @@ networkingMode=mirrored
 ```
 
 then `wsl --shutdown` and open WSL again: it shares the PC's own address. Windows' firewall for WSL still refuses
-connections from the network; in a PowerShell run as administrator, allow the mock's port:
+connections from the network; in a PowerShell run as administrator, allow the mock's ports (8095, and one more for each
+screen tested at once):
 
 ```powershell
 New-NetFirewallHyperVRule -Name skyscope-mock -DisplayName "Skyscope mock feed" -Direction Inbound `
-  -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8095
+  -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8095-8099
 ```
+
+(A rule made before for 8095 alone: `Set-NetFirewallHyperVRule -Name skyscope-mock -LocalPorts 8095-8099`.)
 
 ## License
 

@@ -18,6 +18,8 @@
 //                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
+//   POST /api/test         with the test API: {"divert": "http://host:port"} sends every HTTPS request to a test's mock
+//                          from the restart it makes on, until power off or {"divert": ""} (and its restart)
 //
 // These run in the HTTP server's task: they read a copy of the settings and hand new ones to the loop (defer), which
 // owns them.
@@ -168,6 +170,9 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       n["flights"] = flights_.size();
     }
     out["psram_free"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+#ifdef SKYSCOPE_TEST_API
+    out["divert"] = divert_;  // where a test sends every request, "" for nowhere
+#endif
     out["glass"] = std::to_string(width_) + "x" + std::to_string(height_);
     // The panel's own way up (rotation 0, nothing turned) and the rotation now.
     out["glass_native"] = std::to_string(native_width_) + "x" + std::to_string(native_height_);
@@ -445,6 +450,21 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 #ifdef SKYSCOPE_TEST_API
+  if (url == "/api/test" && post) {
+    JsonDocument in;
+    const std::string text = std::move(body_);
+    body_.clear();
+    const bool broken = (bool) deserializeJson(in, text) || !in["divert"].is<const char *>();
+    const std::string origin = broken ? std::string() : in["divert"].as<std::string>();
+    if (broken || (!origin.empty() && (origin.rfind("http://", 0) != 0 || origin.size() >= 96 || origin.back() == '/'))) {
+      request->send(400, "application/json", "{\"error\":\"divert\"}");
+      return;
+    }
+    keep_divert_(origin);
+    request->send(200, "application/json", "{\"restarting\":true}");
+    this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });
+    return;
+  }
   if ((url == "/api/touch" && post) || url == "/api/ui") {
     const std::string text = std::move(body_);
     body_.clear();

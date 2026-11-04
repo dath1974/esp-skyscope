@@ -68,6 +68,67 @@ class MockFeed(unittest.TestCase):
         plane = json.loads(self.get()[1])["aircraft"][0]
         self.assertLess(plane["lon"], -73.7781)  # still west of the middle
 
+    def test_circling_planes_turn_through_every_heading(self):
+        self.server.feed.set(scenario="circling")
+        planes = json.loads(self.get()[1])["aircraft"]
+        self.assertEqual(len(planes), 80)
+        self.assertEqual(len({p["hex"] for p in planes}), 80)
+        # Each flies round the middle: its track across the line from the middle, at its own distance all the way.
+        start = mock_feed.circling(40.6413, -73.7781, 0)
+        later = mock_feed.circling(40.6413, -73.7781, 3600)
+        tracks = set()
+        for t in range(0, 3600, 60):
+            tracks |= {int(p["track"]) // 4 for p in mock_feed.circling(40.6413, -73.7781, t)}
+        self.assertEqual(len(tracks), 90)  # every heading step the screen draws
+        for a, b in zip(start[1:20], later[1:20]):
+            far = [math.hypot((p["lat"] - 40.6413) * 60, (p["lon"] + 73.7781) * 60 * math.cos(math.radians(40.6413)))
+                   for p in (a, b)]
+            self.assertAlmostEqual(far[0], far[1], delta=0.05)
+        # One in twenty is another plane a minute later; the rest stay.
+        changed = {a["hex"] for a in start} - {b["hex"] for b in mock_feed.circling(40.6413, -73.7781, 60)}
+        self.assertEqual(len(changed), 4)
+
+    def test_tiles(self):
+        r, body = self.get("/tiles/9/150/192.png")
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "image/png"))
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n") and body.endswith(b"IEND\xaeB`\x82"))
+        self.assertNotEqual(body, self.get("/tiles/9/151/192.png")[1])
+        self.assertEqual(self.get("/tiles/9/x/192.png")[0].status, 404)
+        self.assertEqual(self.server.feed.log()[0][3], "tile")
+
+    def test_public_services_stood_in_for(self):
+        # A screen sent to the mock asks it every server's address as its path: each answered as that service would.
+        for path, what, kind in [
+                ("/tile.openstreetmap.org/9/150/192.png", "tile", "image/png"),
+                ("/server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/9/192/150", "tile",
+                 "image/png"),
+                ("/server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/"
+                 "9/192/150", "place-names", "image/png"),
+                ("/tiles.arcgis.com/tiles/x/arcgis/rest/services/VFR_Sectional/MapServer/tile/10/385/301", "tile",
+                 "image/png"),
+                ("/services6.arcgis.com/x/arcgis/rest/services/Class_Airspace/FeatureServer/0/query?f=json",
+                 "airspace", "application/json"),
+                ("/aviationweather.gov/api/data/metar?format=json&ids=KTST", "metar", "application/json"),
+                ("/mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-202610300810/9/150/192.png",
+                 "radar-tile", "image/png"),
+                ("/api.adsb.lol/v2/point/40.6/-73.7/25", "exchange", "application/json")]:
+            r, body = self.get(path)
+            self.assertEqual((r.status, r.getheader("Content-Type")), (200, kind), path)
+            self.assertEqual(self.server.feed.log()[-1][3], what)
+        # A fault for the receiver is the receiver's alone: an exchange still answers.
+        self.server.feed.set(fault="500", times=0)
+        self.assertEqual(self.get("/opendata.adsb.fi/api/v2/lat/40.6/lon/-73.7/dist/25")[0].status, 200)
+        self.assertEqual(self.get()[0].status, 500)
+        self.server.feed.set(fault="")
+        r, body = self.get("/example.com/anything")
+        self.assertEqual((r.status, self.server.feed.log()[-1][3]), (404, "unknown"))
+        # The airport only when it is asked for.
+        found = json.loads(self.get("/services6.arcgis.com/x/arcgis/rest/services/US_Airport/FeatureServer/0/query"
+                                    "?where=ICAO_ID%3D%27KTST%27")[1])
+        none = json.loads(self.get("/services6.arcgis.com/x/arcgis/rest/services/US_Airport/FeatureServer/0/query"
+                                   "?where=ICAO_ID%3D%27KXYZ%27")[1])
+        self.assertEqual((len(found["features"]), len(none["features"])), (1, 0))
+
     def test_crowd_and_odd(self):
         self.server.feed.set(scenario="crowd")
         r, body = self.get()

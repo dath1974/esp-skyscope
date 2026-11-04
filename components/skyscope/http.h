@@ -52,6 +52,19 @@ inline int max_age(const char *header) {
   return out;
 }
 
+// A test's mock in place of every server (the test API's /api/test {"divert": origin}): `url` asked of `origin`
+// ("http://192.168.1.5:8095") instead, its server and path kept as the path, so one mock answers for every service and
+// can tell them apart: https://tile.openstreetmap.org/9/150/192.png is asked as
+// http://192.168.1.5:8095/tile.openstreetmap.org/9/150/192.png. Every public service is HTTPS; a plain http:// address
+// (a receiver on the network, the mock itself, one that cannot be found) is asked as it is.
+inline std::string diverted(const std::string &url, const std::string &origin) {
+  constexpr const char *HTTPS = "https://";
+  if (origin.empty() || url.rfind(HTTPS, 0) != 0) return url;
+  return origin + "/" + url.substr(8);
+}
+// Every request to `origin` from now on ("" for none). Set as the screen starts, before the worker asks for anything.
+void divert_to(const std::string &origin);
+
 // Closes the connections no request used for `idle_ms`: the feed's stays open (it is asked every few seconds), a tile
 // server's goes once the map is drawn.
 void close_idle(uint32_t now, uint32_t idle_ms);

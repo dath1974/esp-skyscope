@@ -293,6 +293,11 @@ class Skyscope : public Component,
   void refresh_weather_();  // what the worker found, and another ask when it is old
   int64_t unix_now_() const;  // the clock's Unix seconds, 0 while it is not set
 #ifdef SKYSCOPE_TEST_API
+  // A test's mock in place of every server (/api/test {"divert": origin}, http.h): kept through a restart, which is how
+  // it starts and ends (every cache empty, the map card left out), and gone at power off. "" for none.
+  static std::string kept_divert_();
+  static void keep_divert_(const std::string &origin);
+  std::string divert_;
   // Tests without a finger (probe.cpp): a touch as a second input device, and what the glass shows.
   void make_probe_input_();
   void probe_touch_start_(const touch::Script &s);  // on the loop

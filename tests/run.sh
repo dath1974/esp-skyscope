@@ -12,4 +12,6 @@ if [ ! -f "$include/ArduinoJson.h" ]; then
 fi
 ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fsanitize=address,undefined -isystem "$include" \
   "$here/test_host.cpp" -o "$build/test_host"
-"$build/test_host" "$@"
+# What tests/mock_services.py answers for each public service, read here with the screen's own parsers.
+python3 "$here/mock_services.py" "$build/mock"
+MOCK_ANSWERS="$build/mock" "$build/test_host" "$@"

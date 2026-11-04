@@ -22,7 +22,7 @@ guide; read it for what the screen does and how it is set up.
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
-  `device_test.py` and `mock_feed.py` (against a real screen).
+  `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
 - `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `wake_table.py` (`wake.h`,
   each type's wake category from the FAA's list).
 
@@ -48,7 +48,12 @@ guide; read it for what the screen does and how it is set up.
 - **Public services.** adsb.fi, adsb.lol, Esri, OSM, USGS, FAA, the Aviation Weather Center and the Iowa Environmental
   Mesonet have terms; keep to them. Respect rate-limit headers and backoff in `feed.h`, keep the User-Agent and tile
   caching, and keep attribution as each source requires.
-- **Test endpoints** (`/api/touch`, `/api/ui`) are compiled out with `test_api: false`; keep them behind that flag.
+- **Test endpoints** (`/api/touch`, `/api/ui`, `/api/test`) are compiled out with `test_api: false`; keep them behind
+  that flag.
+- **Tests against the mock.** The device tests (all but `--public`) send the screen to `tests/mock_feed.py`, which
+  stands in for every public service (`tests/mock_services.py`), so a run is the same every time and on every board.
+  A new service the screen asks needs its stand-in there, and its answer read in `test_mock_answers` (test_host.cpp);
+  a run fails on any request the mock did not know. `--public` alone asks the real services.
 - **Round glass.** On a board with `round: true` the corners are not there. Place anything new on the glass through
   `glass.h` and `ui.h` (`ui::pad_page` for a page, `ui::hug_edge` for a box along the top or bottom edge), never by
   the display's width and height alone.

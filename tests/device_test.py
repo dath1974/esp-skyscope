@@ -1,50 +1,69 @@
 #!/usr/bin/env python3
 """Tests on a real screen, over its web API: what the host tests cannot reach (the web server, the settings as the
-screen keeps them, the feed and the tile servers through its own HTTP client, its memory as it runs).
+screen keeps them, its own HTTP client, its memory as it runs).
 
-    tests/device_test.py <address> [--no-touch] [--maps] [--reboot] [--sleep] [--mock [--install IMAGE]]
-                         [--soak MINUTES [--churn MINUTES]]
+    tests/device_test.py <address> [--port N] [--no-touch] [--maps] [--reboot] [--sleep] [--mock [--install IMAGE]]
+    tests/device_test.py <address> [--port N] --soak MINUTES [--churn MINUTES]
+    tests/device_test.py <address> --public
     tests/device_test.py <address> --restore
+
+Every run but --public is against a mock this script serves (tests/mock_feed.py, port 8095 or --port: screens tested at
+once each need their own, and their own run of this script), and asks nothing of a
+public service, so it goes the same way every time and on every board: the screen is sent to the mock (the test API's
+/api/test {"divert": ...}, which restarts it), where every request it makes of a public service (all HTTPS) goes, as
+/<server>/<path>, until the end,
+when it is sent back (another restart). The mock stands in for the ADS-B exchanges, every map's tiles, the FAA's
+airspace, runways and airports, the weather and the weather radar, place search and the update server
+(tests/mock_services.py says what each answers), and the run checks that it answered every request. The screen is
+set to a test place (New York JFK) and the mock's receiver. It needs the test API (`test_api: true`), and the screen
+must reach this machine (WSL: networkingMode=mirrored).
+
+--public is the other way round: the public services themselves, each asked at the test place, to know they still
+answer as the screen expects (what the mock stands in for). It is not repeatable (the sky and the services change), and
+needs no test API but for the weather page.
 
 Every setting it changes is put back at the end, pass or fail: they are kept first in tests/build/settings-<address>.json
 (on this machine only, never printed), asked back several times, and if the screen still does not take them, the file
-stays for --restore to put back.
+stays for --restore to put back (which sends the screen back from the mock too).
 
 It never prints the screen's place. Python's standard library only. Nothing here installs firmware but --install.
 
-- always: the page, the settings (round trip, wrong values refused and nothing changed), status, aircraft, firmware
-  check against the published manifest, the debug switch, unknown paths; the FAA's airspace at a test place (New York
-  JFK): its areas and runways read near, the runways left out far, memory and the loop's longest gap after drawing it,
-  how long it takes to draw; the radar without its scope in each phosphor, and no beam turning then;
-- touches (unless --no-touch, or the firmware is built with `test_api: false`), through /api/touch and /api/ui: a
-  long press opens the menu; its arrows step a value without applying it; Cancel drops it and Save applies it; the
-  paging arrows scroll; a range typed on its keyboard is refused out of reach and shown, not applied, within it; the
-  Wi-Fi list finds networks and goes back; another appearance rebuilds the menu in its colours; Check asks the update server, and
-  Install takes a second tap (never given); a tap on a plane opens its card and a second closes it; a tap on the map
-  shows the screen's address; a drag up the right edge brightens it; a swipe along the bottom changes the map and one
-  back undoes it; a swipe up opens the weather page, whose tabs fill in; the weather radar's scan and its loop;
-- --maps: each map in turn, every tile drawn without an error, and memory after;
-- --reboot: a restart keeps every setting;
+- always: the page, the settings (round trip, wrong values refused and nothing changed), status, aircraft, the debug
+  switch, unknown paths; the mock's airspace (a Class B, C and two D, three runways): exactly that read near, the
+  runways left out far, memory and the loop's longest gap after drawing it, how long it takes to draw; the radar
+  without its scope in each phosphor, and no beam turning then;
+- touches (unless --no-touch), through /api/touch and /api/ui: a long press opens the menu; its arrows step a value
+  without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
+  is refused out of reach and shown, not applied, within it; the Wi-Fi list finds networks and goes back; another
+  appearance rebuilds the menu in its colours; Check asks the update server, and Install takes a second tap (never
+  given); a tap on a plane opens its card and a second closes it; a tap on the map shows the screen's address; a drag
+  up the right edge brightens it; a swipe along the bottom changes the map and one back undoes it; a swipe up opens
+  the weather page, whose tabs fill in with the mock's station; the weather radar's scan and its loop;
+- --maps: each map in turn, every tile drawn without an error, asked of that map's own server, and memory after;
+- --reboot: a restart keeps every setting, and the screen still sent to the mock;
 - --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap;
-- --mock: the screen pointed at a mock receiver this script serves (tests/mock_feed.py), at a test place (New York
-  JFK): the planes it lists are the ones the screen keeps, each where it should be on the glass; the filters, the
-  most shown and watched planes, a plane's card in both units; 600 planes at once; and every failure a feed can have
-  (refusals with Retry-After or a quota's end, a pace, a server error, an answer cut short, broken JSON, too big,
-  too slow, no answer, no list, a web page, nothing, not found, forbidden), each waited out as long as it should be
-  and recovered from; good answers in chunks or redirected; an altitude floor and a shorter range; an empty sky (and a
-  card whose plane went); a plane flying at its speed; odd entries (wrong types, duplicates, UTF-8 past a field's
-  length, places off the earth); 4500 planes in 600 KB; a receiver that cannot be found, then corrected; falling back
-  to an exchange and coming back; and a receiver with no address. Then the same server as
-  the update server (the test API's {"source": url}): a release offered with its summary, none when it is the one
-  running, an update server that fails (an error, broken JSON, no build for this chip, no download) said and got over;
-  and installs that must fail (no image, no answer, cut short, a wrong digest, not an image), each said, the
-  firmware running kept and another install possible after it. The built-in update server is put back. The machine
-  running this must be reachable from the screen (WSL: networkingMode=mirrored);
+- --mock: the mock's receiver: the planes it lists are the ones the screen keeps, each where it should be on the
+  glass; the filters, the most shown and watched planes, a plane's card in both units; 600 planes at once; and every
+  failure a feed can have (refusals with Retry-After or a quota's end, a pace, a server error, an answer cut short,
+  broken JSON, too big, too slow, no answer, no list, a web page, nothing, not found, forbidden), each waited out as
+  long as it should be and recovered from; good answers in chunks or redirected; an altitude floor and a shorter
+  range; an empty sky (and a card whose plane went); a plane flying at its speed; odd entries (wrong types,
+  duplicates, UTF-8 past a field's length, places off the earth); 4500 planes in 600 KB; a receiver that cannot be
+  found, then corrected; falling back to an exchange (the mock's) and coming back; and a receiver with no address.
+  Then the mock as the update server (the test API's {"source": url}): a release offered with its summary, none when
+  it is the one running, an update server that fails (an error, broken JSON, no build for this chip, no download)
+  said and got over; and installs that must fail (no image, no answer, cut short, a wrong digest, not an image), each
+  said, the firmware running kept and another install possible after it;
 - --install IMAGE (with --mock): that firmware (a firmware.ota.bin of a build) installed from the mock: downloaded
   whole, the screen restarted into it with every setting kept;
-- --soak: memory sampled for that long, failing if it keeps falling; with --churn, the map and range changed every
-  so many minutes (every map, near and far), memory compared each time the first of them comes round again, and
-  the records that grow as the screen runs checked for staying bounded.
+- --soak (on its own; the other groups are not run): memory sampled for that long, the mock's 80 planes of every kind
+  circling the test place (so each symbol turns through every heading), two of them watched; failing if it keeps
+  falling or the screen restarts; with --churn, the view changed every so many minutes (every map, near and far, dark
+  and light), memory compared each time the first of them comes round again, and the records that grow as the
+  screen runs (the plane symbols' memory among them) checked for staying bounded;
+- --public: adsb.fi and adsb.lol answer with planes; the published release manifest is read and the screen finds the
+  same version; the FAA's airspace and runways near, none of the runways far; every map drawn whole without a tile
+  error; the weather radar's latest scan and its loop; the weather page, with each tab filled, for KJFK.
 """
 
 import argparse
@@ -307,7 +326,7 @@ class Glass:
         return best if far > 70 else None
 
 
-def test_touch(screen: Screen, run: Run, original: dict):
+def test_touch(screen: Screen, run: Run, original: dict, server=None):
     glass = Glass(screen)
     status, ui = screen.json("/api/ui")
     if status == 404:
@@ -404,15 +423,18 @@ def test_touch(screen: Screen, run: Run, original: dict):
             run.check(row is not None and row["name"].startswith("2. ") and len(row.get("keys", [])) == 2,
                       "a second known network, with keys up and Forget")
             if row:
+                # The second tap within Forget's 4 s, as a finger gives it: nothing waited for between the two but
+                # the first tap itself, and the menu once (a slow screen answers it slowly).
+                first = time.monotonic()
                 glass.tap_key(row["keys"][-1])
-                time.sleep(0.6)
                 still = fake in screen.json("/api/networks")[1]["networks"]
                 row = next((i for i in glass.menu()["picker"]["items"] if i["name"].endswith(fake)), None)
                 run.check(still and row is not None, "Forget asks for a second tap")
                 if row:
                     glass.tap_key(row["keys"][-1])
-                    time.sleep(0.6)
-            gone = fake not in screen.json("/api/networks")[1]["networks"]
+                    print(f"        (the second tap {time.monotonic() - first:.1f} s after the first)")
+            # Forgotten on the loop, which a slow frame holds up a moment.
+            gone = wait_for(lambda: fake not in screen.json("/api/networks")[1]["networks"], 5, 0.3) is not None
             run.check(gone, "and forgets it at the second")
             if not gone:
                 names = screen.json("/api/networks")[1]["networks"]
@@ -524,41 +546,57 @@ def test_touch(screen: Screen, run: Run, original: dict):
     run.check(back is not None, f"a swipe the other way goes back ({was})")
     screen.json("/api/settings", {"map": was})
 
-    # The weather page: a swipe up from the strip opens it; it fills in, a tab at a time, and Close closes it. Nothing
-    # of what it says is printed (the station would give the place away): only its shape.
+    test_weather(screen, run, glass, "KTST" if server else "")
+    test_radar_overlay(screen, run)
+
+
+def test_weather(screen: Screen, run: Run, glass: Glass, station: str = ""):
+    """The weather page: a swipe up from the strip opens it; it fills in, a tab at a time, and Close closes it. Nothing
+    of what it says is printed (the station would give the place away): only its shape, and whether it names
+    `station` (the mock's, or the test place's)."""
+    ui = glass.ui()
+    w, y = ui["width"], ui["height"] - 15
+    if ui.get("asleep"):
+        glass.tap(w // 2, ui["height"] // 2)
+        time.sleep(1.5)
     screen.json("/api/touch", {"gesture": "drag", "x": w // 2, "y": y, "x1": w // 2 + 10, "y1": y - 150, "ms": 400})
     page = wait_for(lambda: glass.ui().get("weather"), 3, 0.3)
     if run.check(page is not None, "a swipe up from the bottom opens the weather page"):
         filled = wait_for(lambda: (lambda p: p if p and "Asking" not in p["line"] else None)(glass.ui().get("weather")), 45, 1)
         run.check(filled is not None, "and it is answered")
         tabs = (filled or page)["tabs"]
-        counts = []
+        counts, named = [], False
         for t in range(len(tabs)):
             glass.tap_key(tabs[t])
             time.sleep(0.5)
-            counts.append(len(glass.ui()["weather"]["lines"]))
+            shown = glass.ui()["weather"]
+            counts.append(len(shown["lines"]))
+            named = named or any(station and station in str(line) for line in [shown["line"], *shown["lines"]])
         run.check(len(counts) == 4 and all(counts), f"each of its four tabs shows something ({counts} lines)")
+        if station:
+            run.check(named, f"and it is {station}'s weather")
         glass.tap_key(glass.ui()["weather"]["close"])
         run.check(wait_for(lambda: "weather" not in glass.ui(), 3, 0.3) is not None, "and Close closes it")
 
-    # The weather radar over a map of tiles: a scan drawn, and the loop going through the last hour's; put back after.
-    radar_was = {k: screen.json("/api/settings")[1][k] for k in ("radar_overlay", "radar_loop")}
-    if screen.json("/api/settings")[1]["map"] != "radar":
-        screen.json("/api/settings", {"radar_overlay": True, "radar_loop": False})
-        scan = wait_for(lambda: screen.json("/api/status")[1].get("radar_scan") or None, 30, 1)
-        run.check(scan is not None, "the radar's latest scan over the map")
-        screen.json("/api/settings", {"radar_loop": True})
-        seen = set()
-        end = time.time() + 90
-        while time.time() < end and len(seen) < 3:
-            seen.add(screen.json("/api/status")[1].get("radar_scan"))
-            time.sleep(1)
-        run.check(len(seen) >= 3, f"and its loop goes through the scans ({len(seen)} seen)")
-        screen.json("/api/settings", radar_was)
-        run.check(wait_for(lambda: not screen.json("/api/status")[1].get("radar_scan"), 10, 1) is not None,
-                  "and goes when it is switched off")
-    else:
-        print("  (the radar scope: no map for the weather radar to go over)")
+
+def test_radar_overlay(screen: Screen, run: Run):
+    """The weather radar over a map of tiles: a scan drawn, and the loop going through the last hour's; put back after."""
+    settings = screen.json("/api/settings")[1]
+    radar_was = {k: settings[k] for k in ("radar_overlay", "radar_loop", "map")}
+    screen.json("/api/settings", {"map": "streets" if settings["map"] == "radar" else settings["map"],
+                                  "radar_overlay": True, "radar_loop": False})
+    scan = wait_for(lambda: screen.json("/api/status")[1].get("radar_scan") or None, 30, 1)
+    run.check(scan is not None, "the radar's latest scan over the map")
+    screen.json("/api/settings", {"radar_loop": True})
+    seen = set()
+    end = time.time() + 90
+    while time.time() < end and len(seen) < 3:
+        seen.add(screen.json("/api/status")[1].get("radar_scan"))
+        time.sleep(1)
+    run.check(len(seen) >= 3, f"and its loop goes through the scans ({len(seen)} seen)")
+    screen.json("/api/settings", radar_was)
+    run.check(wait_for(lambda: not screen.json("/api/status")[1].get("radar_scan"), 10, 1) is not None,
+              "and goes when it is switched off")
 
 
 def test_sleep(screen: Screen, run: Run, original: dict):
@@ -591,13 +629,12 @@ def own_address_towards(device: str) -> str:
         return s.getsockname()[0]
 
 
-def test_mock(screen: Screen, run: Run, original: dict, address: str, install: str = None):
+def test_mock(screen: Screen, run: Run, original: dict, server, install: str = None):
     import mock_feed
 
     print("A mock receiver")
-    server = mock_feed.Server(port=8095, **TEST_PLACE).start()
     feed = server.feed
-    url = f"http://{own_address_towards(address)}:{server.port}/data/aircraft.json"
+    url = original["receiver_url"]  # the mock's (test_settings)
     glass = Glass(screen)
     try:
         if glass.ui().get("asleep"):  # a screen that is off asks for nothing
@@ -800,17 +837,29 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str, install: s
                 return
             at = hit[-1][0]
             time.sleep(max(0.0, at + settle - time.time()))
-            st = screen.json("/api/status")[1]
-            mine = next((f for f in st["feeds"] if f["feed"] == "receiver"), {})
+            # A slow screen may still be taking a long answer in: its report, once it has.
+            def receiver_waiting():
+                st = screen.json("/api/status")[1]
+                mine = next((f for f in st["feeds"] if f["feed"] == "receiver"), {})
+                return (st, mine) if mine.get("waiting") else None
+            st, mine = (wait_for(receiver_waiting, 10, 0.5) if wait_most >= 10 else None) or \
+                (screen.json("/api/status")[1], {})
+            if not mine:
+                mine = next((f for f in st["feeds"] if f["feed"] == "receiver"), {})
             run.check(mine.get("waiting", False) or wait_most < 10, f"{name}: the receiver is left alone "
                       f"({mine.get('error', '')}, {mine.get('retry_in_s', '-')} s)")
             if words:
                 run.check(words in glass.ui()["status"], f"{name}: the status line says so")
             nxt = wait_for(lambda: [r for r in feed.log(at + 0.1)], wait_most + 15, 0.5)
             gap = (nxt[0][0] - at) if nxt else None
+            # Not asked: what the screen says of its receiver then, to know why.
+            now = screen.json("/api/status")[1]
+            said = json.dumps({"receiver": next((f for f in now["feeds"] if f["feed"] == "receiver"), {}),
+                               "source": now["feed_source"], "age_s": now["feed_age_s"], "up_s": now["uptime_s"],
+                               "asleep": now["asleep"]})
             run.check(gap is not None and wait_least <= gap <= wait_most + 3,
                       f"{name}: asked again {gap:.0f} s later (between {wait_least} and {wait_most})" if gap else
-                      f"{name}: asked again", "")
+                      f"{name}: asked again", said)
             ok = wait_for(lambda: [r for r in feed.log(at + 0.1) if r[3] == "ok"], 40, 0.5)
             run.check(bool(ok) and st["uptime_s"] <= screen.json("/api/status")[1]["uptime_s"],
                       f"{name}: recovered, without restarting")
@@ -843,7 +892,8 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str, install: s
         fault("no-list", "no-list", 13, 16)
         tried_again("close", "close")
         fault("close", "close", 13, 16, times=2)
-        fault("huge", "huge", 13, 19, settle=6)  # a megabyte coming in before it is refused
+        # A megabyte coming in before it is refused: the wait counted from then, which a slow screen reaches later.
+        fault("huge", "huge", 13, 25, settle=6)
         tried_again("slow", "slow")
         fault("slow", "slow", 25, 32, times=2, settle=14)  # each given up after the client's 12 s, then 15 s
         fault("404", "404", 13, 16)
@@ -915,7 +965,7 @@ def test_mock(screen: Screen, run: Run, original: dict, address: str, install: s
         screen.json("/api/settings", {**original, "sleep_min": 0, "bedtime": False})
         test_mock_firmware(screen, run, server, url.rsplit("/data/", 1)[0] + "/firmware/manifest.json", install)
     finally:
-        server.stop()
+        feed.set(scenario="fixed", fault="")
         put_back(screen, original)
 
 
@@ -1016,9 +1066,10 @@ def test_mock_firmware(screen: Screen, run: Run, server, source: str, install: s
         if install:
             test_install(screen, run, server, install)
     finally:
-        fw.set(fault="")
+        # The built-in update server is the mock's releases too, for a screen sent to the mock: the one running.
+        fw.set(fault="", version=running)
         if screen.up() and screen.json("/api/firmware", {"source": published})[0] == 200:
-            f = wait_for(lambda: (lambda x: x if x.get("known") and x.get("latest") != "9.9.9" else None)(firmware()),
+            f = wait_for(lambda: (lambda x: x if x.get("known") and x.get("latest") == running else None)(firmware()),
                          30, 1)
             run.check(f is not None and not f.get("error"), "the built-in update server put back", json.dumps(firmware()))
 
@@ -1055,9 +1106,13 @@ def test_install(screen: Screen, run: Run, server, image: str):
         fw.set(image="", version="9.9.9")
 
 
-def test_maps(screen: Screen, run: Run, original: dict):
+def test_maps(screen: Screen, run: Run, original: dict, server=None):
+    """Each map drawn whole: from the mock (`server`), each asked of its own map's server, or from the world."""
     print("Maps (each drawn whole, without a tile error)")
+    if server:
+        import mock_services
     for name in MAPS:
+        since = time.time()
         status, _ = screen.json("/api/settings", {"map": name})
         if not run.check(status == 200, f"{name}: taken"):
             continue
@@ -1077,12 +1132,26 @@ def test_maps(screen: Screen, run: Run, original: dict):
                   f"{last['tiles_done']}/{last['tiles_total']}, {last['tile_error']}")
         run.check(not last["tile_error"], f"{name}: no tile error", last["tile_error"])
         run.check(last["heap_free"] >= HEAP_LEAST, f"{name}: internal RAM free {last['heap_free'] // 1024} KB")
+        if server:
+            # A map seen before in the run is drawn from the screen's cache, and asks nothing.
+            asked = {r[1].split("/")[1] for r in server.feed.log(since) if r[3] == "tile"}
+            run.check(asked <= {mock_services.TILE_SERVERS[name]},
+                      f"{name}: its tiles asked of its own server" if asked else f"{name}: drawn from the cache",
+                      ", ".join(sorted(asked)))
     screen.json("/api/settings", {"map": original["map"]})
 
 
-def test_airspace(screen: Screen, run: Run, original: dict):
-    print("Airspace (the FAA's, at a test place)")
+def test_airspace(screen: Screen, run: Run, original: dict, server=None):
+    """The FAA's airspace at the test place: the mock's (`server`), exactly what it sent, or the FAA's own."""
+    print("Airspace (the mock's)" if server else "Airspace (the FAA's, at a test place)")
     base = {**TEST_PLACE, "place": "TEST", "map": "radar", "airspace": True}
+    if server:
+        import mock_services
+        areas = len(mock_services.AREAS)
+    # The radar first, and a window of the loop's report (5 s) after it: the gaps measured below are the airspace's,
+    # not the change of map's.
+    screen.json("/api/settings", {**base, "airspace": False, "range_nm": 30})
+    time.sleep(11)
     for nm, runways in ((30, True), (250, False)):
         # The screen's own airspace may be shown already (it keeps the last until the next comes): this place's is a
         # reply after this change.
@@ -1094,6 +1163,9 @@ def test_airspace(screen: Screen, run: Run, original: dict):
         def read():
             s = screen.json("/api/status")[1]
             fresh = s["airspace_rev"] != before
+            if server:
+                expected = (areas, len(mock_services.RUNWAYS) if runways else 0)
+                return s if fresh and (s["airspace_areas"], s["airspace_runways"]) == expected else None
             return s if fresh and s["airspace_areas"] > 0 and (s["airspace_runways"] > 0) == runways else None
 
         s = wait_for(read, 60)
@@ -1125,7 +1197,7 @@ def test_airspace(screen: Screen, run: Run, original: dict):
                                                           "tint")})
 
 
-def test_reboot(screen: Screen, run: Run, original: dict):
+def test_reboot(screen: Screen, run: Run, original: dict, origin: str = ""):
     print("Restart")
     screen.json("/api/reboot", {})
     run.check(wait_for(lambda: not screen.up(), 30, 1) is not None, "it goes down")
@@ -1133,25 +1205,46 @@ def test_reboot(screen: Screen, run: Run, original: dict):
     s = screen.json("/api/status")[1]
     run.check(s["uptime_s"] < 120, f"up {s['uptime_s']} s")
     run.check(not differing(screen, original), "every setting kept", differing(screen, original))
+    if origin:
+        run.check(s.get("divert") == origin, "and still sent to the mock")
 
 
-CHURN = [("streets", 15), ("satellite", 40), ("radar", 25), ("sectional", 7), ("osm", 100), ("topo", 5),
-         ("ifr_low", 30), ("ifr_high", 150)]
-# The records that grow as the screen runs, and how far each may: past this a record is not being let go of.
-RECORD_MOST = {"symbols": 400, "label_images": 200, "spot_of": 400, "box_of": 400, "drawn": 400, "again": 400,
+# The views the soak goes round with CHURN: every map (the mock's tiles in place of each), near and far, dark and light.
+CHURN = [{"map": "streets", "range_nm": 15, "theme": "light"}, {"map": "satellite", "range_nm": 40},
+         {"map": "radar", "range_nm": 25}, {"map": "sectional", "range_nm": 7, "theme": "dark"},
+         {"map": "osm", "range_nm": 100}, {"map": "topo", "range_nm": 5, "theme": "light"},
+         {"map": "ifr_low", "range_nm": 30}, {"map": "ifr_high", "range_nm": 150, "theme": "dark"}]
+# The records that grow as the screen runs, and how far each may: past this a record is not being let go of. The plane
+# symbols are held to a megabyte (view.cpp), however many that is.
+RECORD_MOST = {"symbol_kb": 1024, "label_images": 200, "spot_of": 400, "box_of": 400, "drawn": 400, "again": 400,
                "tracks": 600, "cached_tiles": 400}
 
 
-def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, original: dict = None):
-    print(f"Memory over {minutes:g} minutes" + (f", the map changed every {churn:g}" if churn else ""))
+def test_soak(screen: Screen, run: Run, minutes: float, churn: float, server):
+    """Memory over time against the mock: its 80 circling planes (every kind through every heading), two of them
+    watched, the most the glass shows."""
+    print(f"Memory over {minutes:g} minutes" + (f", the view changed every {churn:g}" if churn else ""))
+    server.feed.set(scenario="circling")
+    try:
+        status, answer = screen.json("/api/settings", {"most": 60, "glide": True, "track_s": 60, "watch": [
+            {"id": "N30001", "colour": "red"}, {"id": "N30005", "colour": "blue"}]})
+        if run.check(status == 200, "the circling planes, two watched", str(answer)):
+            soak(screen, run, minutes, churn)
+    finally:
+        server.feed.set(scenario="fixed")
+
+
+def soak(screen: Screen, run: Run, minutes: float, churn: float):
     samples, rounds = [], []  # every sample; and with churn, the one at each return to CHURN's first view
     end = time.monotonic() + minutes * 60
     next_change, step = time.monotonic(), 0
-    worst = {}
+    worst, up, last = {}, 0, time.time()
     while time.monotonic() < end:
+        if time.time() - last > 120:
+            raise Slept(f"this machine was asleep for {(time.time() - last) / 60:.0f} minutes")
+        last = time.time()
         if churn and time.monotonic() >= next_change:
-            name, nm = CHURN[step % len(CHURN)]
-            screen.json("/api/settings", {"map": name, "range_nm": nm})
+            screen.json("/api/settings", CHURN[step % len(CHURN)])
             next_change = time.monotonic() + churn * 60
             if step % len(CHURN) == 0 and step:
                 time.sleep(20)  # its tiles drawn (from the cache, if it keeps them)
@@ -1160,15 +1253,19 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, origin
                 print(f"    round {len(rounds)}: free {s['heap_free'] // 1024} KB, PSRAM {s['psram_free'] // 1024} KB")
             step += 1
         s = screen.json("/api/status")[1]
+        if not run.check(s["uptime_s"] >= up, "no restart", f"restarted ({s.get('reset_reason')})"):
+            return
+        up = s["uptime_s"]
         samples.append((s["heap_free"], s["heap_largest"]))
         for k, v in s["records"].items():
             worst[k] = max(worst.get(k, 0), v)
         print(f"    {len(samples):3d}: free {s['heap_free'] // 1024} KB, largest {s['heap_largest'] // 1024} KB, "
-              f"{s.get('sockets', '-')} sockets, "
-              f"PSRAM {s['psram_free'] // 1024} KB, {s['aircraft']} aircraft, {s['records']['cached_tiles']} tiles")
+              f"{s.get('sockets', '-')} sockets, PSRAM {s['psram_free'] // 1024} KB, {s['aircraft']} aircraft, "
+              f"{s['records']['symbols']} symbols in {s['records'].get('symbol_kb', '-')} KB, "
+              f"{s['records']['cached_tiles']} tiles")
+        print("           " + ", ".join(f"{k} {v}" for k, v in s["records"].items()
+                                       if k not in ("symbols", "symbol_kb", "cached_tiles")))
         time.sleep(30)
-    if churn and original:
-        screen.json("/api/settings", {"map": original["map"], "range_nm": original["range_nm"]})
     lows = [f for f, _ in samples]
     run.check(min(lows) >= HEAP_LEAST, f"never under {HEAP_LEAST // 1024} KB free", f"{min(lows) // 1024} KB")
     if len(samples) >= 6:
@@ -1179,6 +1276,8 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, origin
     for k, most in RECORD_MOST.items():
         if k in worst:
             run.check(worst[k] <= most, f"{k} at most {worst[k]}", f"over {most}")
+        else:
+            run.check(False, f"{k} reported", "not in /api/status (older firmware?)")
     if len(rounds) >= 2:
         # The first round is after the tile cache filled once; each later one at the same view should be no lower.
         (h0, p0), (h1, p1) = rounds[0], rounds[-1]
@@ -1186,7 +1285,118 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float = 0, origin
                   f"{h0 // 1024} and {h1 // 1024} KB")
         run.check(p1 >= p0 - 512_000, f"PSRAM at the same view: {p0 // 1024} and {p1 // 1024} KB")
     elif churn:
-        print("  (too short for the map to come round twice: no comparison of rounds)")
+        print("  (too short for the views to come round twice: no comparison of rounds)")
+
+
+def test_settings(origin: str) -> dict:
+    """Every setting, as a new screen has them but for the test place, the mock's receiver and a darker map: what
+    every group against the mock starts from, so no screen's own choices (its beam off, its planes filtered, its way
+    up) make one run differ from another."""
+    return {**TEST_PLACE, "located": True, "place": "TEST", "range_nm": 15, "map": "streets", "custom_url": "",
+            "theme": "dark", "map_brightness": 100, "tile_scale": 0, "rings": True, "place_names": True,
+            "airspace": False, "tint": "green", "scope": True, "sweep": True,
+            "feed": "receiver", "receiver_url": origin + "/data/aircraft.json", "fallback": False, "refresh_s": 5,
+            "alt_min": 0, "alt_max": 60000, "ground": False, "most": 30, "marker": "type", "label": "auto",
+            "by_altitude": True, "glide": True, "track_s": 60, "watch": [], "rotation": -1, "metric": False,
+            "brightness": 80, "sleep_min": 0, "bedtime": False, "bed_off": "22:00", "bed_on": "07:00",
+            "bed_wake": True, "timezone": "UTC0", "weather_station": "", "radar_overlay": False,
+            "radar_loop": False}
+
+
+def divert(screen: Screen, origin: str) -> bool:
+    """Every request the screen makes sent to `origin` ("" for none), from the restart this makes."""
+    if screen.json("/api/test", {"divert": origin})[0] != 200:
+        return False
+    wait_for(lambda: not screen.up(), 30, 1)
+    if wait_for(screen.up, 90) is None:
+        return False
+    return screen.json("/api/status")[1].get("divert", "") == origin
+
+
+def against_mock(screen: Screen, run: Run, args):
+    """Every group but the public one: the screen sent to the mock, which stands in for every service it asks."""
+    import mock_feed
+
+    server = mock_feed.Server(port=args.port, **TEST_PLACE).start()
+    origin = f"http://{own_address_towards(args.address)}:{server.port}"
+    started = time.time()
+    try:
+        print("Sent to the mock (the screen restarts)")
+        if not run.check(divert(screen, origin), "every request goes to the mock",
+                         f"can the screen reach {origin}?"):
+            return
+        test = test_settings(origin)
+        turns = screen.json("/api/settings")[1].get("rotation") != test["rotation"]
+        status, answer = screen.json("/api/settings", test)
+        if not run.check(status == 200, "the test's settings taken", str(answer)):
+            return
+        if turns:
+            # Another way up restarts the screen (still sent to the mock).
+            wait_for(lambda: not screen.up(), 15, 1)
+            if not run.check(wait_for(screen.up, 90) is not None, "the board's own way up, after a restart"):
+                return
+        test = screen.json("/api/settings")[1]
+        # The map drawn whole, and a window of the screen's report after it (5 s): its first frames after the restart
+        # are not what the checks below measure.
+        wait_for(lambda: (lambda s: s["tiles_total"] > 0 and s["tiles_done"] >= s["tiles_total"])(
+            screen.json("/api/status")[1]) or None, 60)
+        time.sleep(11)
+        if args.soak:
+            # The soak alone: memory over time.
+            test_soak(screen, run, args.soak, args.churn, server)
+        else:
+            test_basics(screen, run, test)
+            test_airspace(screen, run, test, server)
+            if not args.no_touch:
+                test_touch(screen, run, test, server)
+            if args.maps:
+                test_maps(screen, run, test, server)
+            if args.reboot:
+                test_reboot(screen, run, test, origin)
+            if args.mock:
+                test_mock(screen, run, test, server, args.install)
+            if args.sleep:
+                test_sleep(screen, run, test)
+        # Nothing the screen asked was beyond the mock (named by its server alone: a path may hold a place).
+        unknown = sorted({r[1].split("/")[1] for r in server.feed.log(started) if r[3] == "unknown"})
+        run.check(not unknown, "every request answered by the mock", ", ".join(unknown))
+    finally:
+        print("Back to the world (the screen restarts)")
+        run.check(divert(screen, ""), "requests go where they should again")
+        server.stop()
+
+
+def test_public(screen: Screen, run: Run):
+    """The public services the screen is made for, each asked at the test place: what the mock stands in for."""
+    print("Public services (at a test place)")
+    base = {**TEST_PLACE, "place": "TEST", "range_nm": 15, "map": "radar", "airspace": False, "fallback": False,
+            "place_names": True, "radar_overlay": False, "radar_loop": False, "weather_station": "KJFK",
+            "sleep_min": 0, "bedtime": False}
+    status, answer = screen.json("/api/settings", base)
+    if not run.check(status == 200, "the test place taken", str(answer)):
+        return
+    for name in ("adsb_fi", "adsb_lol"):
+        since = time.monotonic()
+        screen.json("/api/settings", {"feed": name})
+
+        def answered():
+            s = screen.json("/api/status")[1]
+            mine = next((f for f in s["feeds"] if f["feed"] == name), {})
+            fresh = s["feed_source"] == name and 0 <= s["feed_age_s"] < time.monotonic() - since
+            return s if fresh and not mine.get("error") else None
+
+        s = wait_for(answered, 60)
+        run.check(s is not None, f"{name}: answers, {s and s['aircraft']} aircraft",
+                  json.dumps(screen.json("/api/status")[1].get("feeds")))
+    test_firmware(screen, run)
+    base = screen.json("/api/settings")[1]
+    test_airspace(screen, run, base)
+    test_maps(screen, run, base)
+    test_radar_overlay(screen, run)
+    if screen.call("/api/ui")[0] == 404:
+        print("  (no test API: the weather page is not looked at)")
+        return
+    test_weather(screen, run, Glass(screen), "KJFK")
 
 
 def kept_settings(address: str):
@@ -1220,15 +1430,23 @@ def main():
     parser.add_argument("--install", metavar="IMAGE", help="with --mock: install this firmware.ota.bin from the mock")
     parser.add_argument("--soak", type=float, metavar="MINUTES")
     parser.add_argument("--churn", type=float, metavar="MINUTES", default=0)
+    parser.add_argument("--port", type=int, default=8095,
+                        help="the mock's port: another for each screen tested at once (each let through a firewall)")
+    parser.add_argument("--public", action="store_true", help="the public services alone, at a test place")
     parser.add_argument("--restore", action="store_true", help="put back the settings a run could not")
     args = parser.parse_args()
 
     sys.stdout.reconfigure(line_buffering=True)  # a soak's samples as they come, through a pipe too
     screen = Screen(args.address)
-    if not screen.up():
+    # A screen a run before has just restarted, or one slow on its Wi-Fi, is given a moment.
+    if wait_for(screen.up, 30, 1) is None:
         raise SystemExit(f"No screen answers at {screen.base}")
     saved = kept_settings(args.address)
+    if not args.public and screen.json("/api/status")[1].get("divert") is None:
+        raise SystemExit("This firmware has no test API (test_api: false): only --public runs on it")
     if args.restore:
+        if screen.json("/api/status")[1].get("divert"):
+            print("Back to the world:", "done" if divert(screen, "") else "the screen did not take it; restart it")
         if not saved.exists():
             raise SystemExit(f"No settings kept for {args.address} ({saved})")
         ok = put_back(screen, json.loads(saved.read_text()))
@@ -1245,21 +1463,10 @@ def main():
     saved.parent.mkdir(parents=True, exist_ok=True)
     saved.write_text(json.dumps(original))
     try:
-        test_basics(screen, run, original)
-        test_firmware(screen, run)
-        test_airspace(screen, run, original)
-        if not args.no_touch:
-            test_touch(screen, run, original)
-        if args.maps:
-            test_maps(screen, run, original)
-        if args.reboot:
-            test_reboot(screen, run, original)
-        if args.mock:
-            test_mock(screen, run, original, args.address, args.install)
-        if args.sleep:
-            test_sleep(screen, run, original)
-        if args.soak:
-            test_soak(screen, run, args.soak, args.churn, original)
+        if args.public:
+            test_public(screen, run)
+        else:
+            against_mock(screen, run, args)
     except Slept as e:
         print(f"STOPPED: {e}; what came after it means nothing. Run it again with this machine kept awake.")
         run.failed += 1

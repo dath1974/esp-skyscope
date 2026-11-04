@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -372,6 +373,15 @@ static void test_card() {
   CHECK(card::lifetime_s(SRC_GRAY_DARK, 0) == 0);
   CHECK(http::max_age("max-age=604800") == 604800 && http::max_age("public, max-age=3600, s-maxage=99") == 3600);
   CHECK(http::max_age("no-store") == 0 && http::max_age("private, no-cache") == 0 && http::max_age("public") == -1);
+  // A test's mock in place of every server: the server and path kept as the path; the mock's own address as it is.
+  const std::string mock = "http://192.168.1.5:8095";
+  CHECK(http::diverted("https://tile.openstreetmap.org/9/150/192.png", mock) ==
+        "http://192.168.1.5:8095/tile.openstreetmap.org/9/150/192.png");
+  CHECK(http::diverted("https://aviationweather.gov/api/data/metar?format=json&ids=KJFK", mock) ==
+        "http://192.168.1.5:8095/aviationweather.gov/api/data/metar?format=json&ids=KJFK");
+  CHECK(http::diverted(mock + "/data/aircraft.json", mock) == mock + "/data/aircraft.json");
+  CHECK(http::diverted("http://nowhere.invalid/data/aircraft.json", mock) == "http://nowhere.invalid/data/aircraft.json");
+  CHECK(http::diverted("https://opendata.adsb.fi/api/v2/x", "") == "https://opendata.adsb.fi/api/v2/x");
   CHECK(http::max_age("max-age=-5") == 0 && http::max_age(nullptr) == -1);
   // The header: written and read back, and when a tile is still good.
   {
@@ -1985,6 +1995,62 @@ static void test_firmware() {
   CHECK(u.start(AVAILABLE) && u.error.empty());
 }
 
+// What tests/mock_services.py answers in place of each public service (tests/run.sh writes it to $MOCK_ANSWERS), read
+// with the screen's own parsers: what a test against the mock expects is what the screen makes of it.
+static void test_mock_answers() {
+  const char *folder = std::getenv("MOCK_ANSWERS");
+  if (!folder) {
+    std::printf("  (no MOCK_ANSWERS: the mock's answers are not read)\n");
+    return;
+  }
+  auto read = [&](const char *name) {
+    std::ifstream file(std::string(folder) + "/" + name + ".json");
+    std::stringstream text;
+    text << file.rdbuf();
+    return text.str();
+  };
+  const double lat = 40.6413, lon = -73.7781;
+  JsonDocument doc;
+  std::string error;
+  // The airspace: a Class B, a C and two D (the E passed over), and three runways, two of them at the B's airport.
+  airspace::Map map;
+  std::vector<uint32_t> airports;
+  const std::string areas = read("airspace"), runways = read("runways");
+  CHECK(airspace::read_airspace(areas.c_str(), areas.size(), doc, map, airports, error) && map.areas.size() == 4);
+  CHECK(airspace::read_runways(runways.c_str(), runways.size(), doc, airports, map, error) && map.runways.size() == 3);
+  CHECK(map.runways[0].towered && map.runways[1].towered && !map.runways[2].towered);
+  // The weather at its station, with the advisories over the place.
+  std::vector<weather::Metar> metars;
+  const std::string metar = read("metar"), taf = read("taf"), mos = read("mos");
+  CHECK(weather::read_metars(metar.c_str(), metar.size(), doc, metars, error) && metars.size() == 1 &&
+        metars[0].id == "KTST" && metars[0].category == weather::VFR);
+  weather::Taf t;
+  CHECK(weather::read_taf(taf.c_str(), taf.size(), doc, t, error) && t.raw.rfind("TAF KTST", 0) == 0);
+  CHECK(weather::taf_lines(t.raw).size() == 3);
+  std::vector<weather::MosRow> rows;
+  CHECK(weather::read_mos(mos.c_str(), mos.size(), doc, rows, error) && rows.size() == 16);
+  std::vector<weather::Advisory> advisories;
+  const std::string sigmets = read("airsigmet"), gairmets = read("gairmet"), pireps = read("pirep");
+  CHECK(weather::read_sigmets(sigmets.c_str(), sigmets.size(), doc, lat, lon, 20, advisories, error) &&
+        advisories.size() == 1);
+  CHECK(weather::read_gairmets(gairmets.c_str(), gairmets.size(), doc, lat, lon, 20, advisories, error) &&
+        advisories.size() == 2);
+  std::vector<weather::Pirep> reports;
+  CHECK(weather::read_pireps(pireps.c_str(), pireps.size(), doc, reports, error) && reports.size() == 1);
+  // The radar's latest scan, the airport and the place searched for, and an exchange's planes.
+  const std::string latest = read("radar-latest");
+  CHECK(radar::read_latest(latest.c_str(), latest.size(), doc) == 1793347800u / 60 - 5);
+  std::vector<places::Found> found;
+  const std::string faa = read("airports"), osm = read("places");
+  CHECK(places::read_faa(faa.c_str(), faa.size(), doc, found, error) && found.size() == 1 && found[0].name == "KTST");
+  found.clear();
+  CHECK(places::read_nominatim(osm.c_str(), osm.size(), "testville", doc, found, error) && found.size() == 1 &&
+        found[0].name == "Testville");
+  std::vector<feed::Flight> flights;
+  const std::string exchange = read("exchange");
+  CHECK(feed::parse(exchange.c_str(), exchange.size(), doc, flights, error) && flights.size() == 1);
+}
+
 int main(int argc, char **argv) {
   test_geo();
   test_settings();
@@ -2016,6 +2082,7 @@ int main(int argc, char **argv) {
   test_firmware();
   test_touch();
   test_pixels();
+  test_mock_answers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;
