@@ -144,12 +144,13 @@ display:
     vsync_pulse_width: 2
     vsync_back_porch: 18
     vsync_front_porch: 8
-    # The frame goes to the panel through two buffers of internal RAM, refilled from PSRAM 10 rows at a time (19 KB),
-    # as ESPHome's drivers do. Read by the panel's DMA straight from PSRAM, it could not keep up and the picture shifted
-    # sideways (even with LVGL drawing in internal RAM); at 32 rows a late refill left it shifted by 32 rows. Each
-    # refill drops the rows it read from the cache again (rgb_panel does this whenever it has bounce rows): without
-    # that, the frame passing through pushed out what drawing needed and short marks flickered over the map.
-    bounce_rows: 10
+    # The frame goes to the panel through two buffers of internal RAM, refilled from PSRAM 20 rows at a time (38 KB):
+    # with 10, some refills of a busy sky came up to 0.8 ms late, held off by other work, and a late one sends rows of
+    # the buffer before (stripes from the left edge). Read by the panel's DMA straight from PSRAM, it could not keep up and the picture shifted
+    # sideways (even with LVGL drawing in internal RAM); at 32 rows a late refill left it shifted by 32 rows. rgb_panel
+    # times every refill, and counts and logs those that come late (/api/status: refills). (ESP-IDF 5.5 takes but
+    # ignores the flag that would drop a refill's rows from the cache again: each refill fetches the next rows into it.)
+    bounce_rows: 20
     de_pin: GPIO40
     hsync_pin: GPIO38
     vsync_pin: GPIO39
