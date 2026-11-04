@@ -217,11 +217,10 @@ lvgl:
   displays: [panel]
   touchscreens:
     - touchscreen_id: touch
-  # Asked for as a tenth, which ESPHome makes an eighth of the screen (77 KB) and keeps in internal RAM: LVGL draws
-  # the glass in strips there, and each pixel crosses into PSRAM once, into the panel's frame. Drawn whole in PSRAM as
-  # on the other boards, every pixel went there three times (drawn, read back, copied), with the panel reading its
-  # frame from the same PSRAM all the while.
-  buffer_size: 10%
+  # All of the screen, in PSRAM, as on the other boards. An eighth of it in internal RAM (77 KB) took less of the
+  # PSRAM's time, but left too little internal RAM for a busy sky (each plane shown takes some 1.5 KB of it); with the
+  # panel's refills leaving the cache as they found it (display: bounce_rows), the PSRAM keeps up with this.
+  buffer_size: 100%
   # Pixels in the chip's own byte order, as the panel's data lines take them (display: data_pins).
   byte_order: little_endian
   rotation: ${ROTATION}

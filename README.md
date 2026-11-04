@@ -75,9 +75,9 @@ than the AMOLED needs; its setup and pins are those of Waveshare's own demo. Tha
 so the panel runs slower than the demo's (a pixel clock of 12 MHz, not 30): faster, it takes so much of the PSRAM that
 the picture jumps and drawing slows until the watchdog restarts the screen. The screen drives the panel with a driver
 of its own (`components/rgb_panel`), since ESPHome's sets a pixel format the board's wiring does not match and every
-colour comes out wrong. To keep the PSRAM free for the panel, LVGL draws in an eighth of the screen in internal RAM
-(77 KB), and the frame reaches the panel through small buffers of internal RAM that leave the cache as they found it;
-the board is best standing (0°), since every other angle turns each frame in software.
+colour comes out wrong. The frame reaches the panel through small buffers of internal RAM that leave the cache as
+they found it, so the panel's constant reading of the PSRAM does not crowd out drawing; the board is best standing
+(0°), since every other angle turns each frame in software.
 
 A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB)
 and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:`
