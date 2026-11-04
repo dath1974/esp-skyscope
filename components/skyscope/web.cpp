@@ -31,6 +31,9 @@
 #include <cstdio>
 
 #include "esphome/components/wifi/wifi_component.h"
+#ifdef USE_RGB_PANEL
+#include "esphome/components/rgb_panel/rgb_panel.h"
+#endif
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
@@ -184,6 +187,21 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["frame_draw_ms"] = std::round(ui::frame_stats.draw_ms * 10) / 10;
     out["frame_wait_ms"] = std::round(ui::frame_stats.wait_ms * 10) / 10;
     out["frame_send_ms"] = std::round(ui::frame_stats.send_ms * 10) / 10;
+#ifdef USE_RGB_PANEL
+    // An RGB panel's refills (rgb_panel.h): a late one is a mark on the glass.
+    {
+      const rgb_panel::Refills r = rgb_panel::refills();
+      JsonObject refills = out["refills"].to<JsonObject>();
+      refills["count"] = r.count;
+      refills["late"] = r.late;
+      refills["late_recent"] = r.late_recent;
+      refills["fill_us_max"] = r.fill_us_max;
+      refills["span_us_max"] = r.span_us_max;
+      refills["budget_us"] = r.budget_us;
+      refills["near_recent"] = r.near_recent;
+      refills["lateness_us_max"] = r.lateness_us_max;
+    }
+#endif
     out["frame_pixels"] = (uint32_t) ui::frame_stats.pixels;
     if (wifi::global_wifi_component) {
       out["wifi_rssi"] = wifi::global_wifi_component->wifi_rssi();

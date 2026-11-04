@@ -4,9 +4,10 @@ The panel is set up once over 3-wire SPI (9-bit words: a command, then its data)
 nothing added to it, so a panel left in its own pixel format stays in it; the SPI lines are let go afterwards (a card
 may share them). Its picture then comes over 16 data lines from a frame in PSRAM: read there by the panel's DMA (the
 default, `bounce_rows: 0`), or copied a few rows at a time into two buffers of internal RAM by an interrupt
-(`bounce_rows`), which keeps up better but leaves the picture shifted when a copy comes late; each copy drops what it
-read from the cache again. Pixels go out as LVGL draws them, in the chip's own byte order (lvgl: byte_order:
-little_endian), the data lines given lowest bit first.
+(`bounce_rows`), which keeps up better but sends the wrong rows when a copy comes late. With bounce rows the driver
+keeps the frame itself and times every copy: late ones are counted (the screen's /api/status, `refills`) and logged.
+Pixels go out as LVGL draws them, in the chip's own byte order (lvgl: byte_order: little_endian), the data lines given
+lowest bit first.
 """
 
 from esphome import pins
@@ -108,6 +109,7 @@ CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _validate_rows)
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
+    cg.add_define("USE_RGB_PANEL")
     await display.register_display(var, config)
     await spi.register_spi_device(var, config, write_only=True)
     dims = config[CONF_DIMENSIONS]
