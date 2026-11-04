@@ -32,9 +32,18 @@ esp32:
     # The panel is fed from PSRAM all the time (display: below). A feed that falls behind (the PSRAM busy drawing a
     # frame) starts again on the next frame rather than leaving the picture shifted, and the cache reads PSRAM in the
     # longer lines Espressif advises for an RGB panel, so the rest gets in its way less.
+    #
+    # The code and its fixed data run from PSRAM, copied there at start (some 1.6 MB of it), and the panel's refills
+    # run even while flash is written. Run from flash, every write (an update, a saved setting) turned the cache off,
+    # the refills stopped, and the panel showed the same few rows over and over until the write was done: the glass
+    # flashed through the whole of an update. The flash and the PSRAM share one cache, and the PSRAM answers some
+    # eight times faster than this board's flash (two bits a clock), so code read from it holds up the panel's feed
+    # less, not more.
     sdkconfig_options:
       CONFIG_LCD_RGB_RESTART_IN_VSYNC: y
       CONFIG_ESP32S3_DATA_CACHE_LINE_64B: y
+      CONFIG_SPIRAM_XIP_FROM_PSRAM: y
+      CONFIG_LCD_RGB_ISR_IRAM_SAFE: y
 
 # 120 MHz (experimental in ESP-IDF) made no difference to the short marks the panel's feed leaves while a map is drawn.
 psram:
