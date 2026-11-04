@@ -533,7 +533,7 @@ void Skyscope::firmware_changed_() {
   f.summary = info.summary;
   f.release_url = info.release_url;
   f.error = install_.error;
-  shared_.updating = install_.updating;
+  shared_.updating = install_.busy();
 #endif
 }
 
@@ -554,6 +554,32 @@ void Skyscope::install_firmware_() {
   this->set_timeout(1500, [this]() { firmware_->perform(false); });
 #endif
 }
+
+#ifdef USE_OTA_STATE_LISTENER
+// On the loop. Firmware sent from a computer (esphome run or upload) holds the loop from its first byte to its last,
+// so the updating page is drawn on the glass here and now, and the worker rests: without this the map stood still
+// through the upload with nothing said. One that fails or is broken off puts the screen back as it was.
+void Skyscope::on_ota_global_state(ota::OTAState state, float, uint8_t, ota::OTAComponent *) {
+  if (state == ota::OTA_STARTED) {
+    if (!install_.upload_started()) return;
+    ESP_LOGI(TAG, "Firmware coming in: the screen says it is updating");
+    close_menu_();
+  } else if (state == ota::OTA_ERROR || state == ota::OTA_ABORT) {
+    if (!install_.uploading) return;
+    install_.upload_ended();
+    ESP_LOGW(TAG, "The firmware sent to the screen did not all come in");
+  } else {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.updating = install_.busy();
+  }
+  if (!ui_built_) return;
+  update_status_(millis());
+  if (install_.uploading) lv_refr_now(nullptr);
+}
+#endif
 void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
   out["mounted"] = c.mounted;
   out["error"] = c.error;

@@ -1997,6 +1997,17 @@ static void test_firmware() {
   Tracker u;
   u.seen(AVAILABLE, true);
   CHECK(u.start(AVAILABLE) && u.error.empty());
+  // Firmware sent from a computer: busy from its start, once, and no longer once it fails; the page's own install
+  // stays as it was through it.
+  Tracker c;
+  CHECK(!c.busy() && c.upload_started() && c.busy());
+  CHECK(!c.upload_started());
+  c.upload_ended();
+  CHECK(!c.busy() && c.error.empty());
+  // The screen's own install says it is updating already: its own download is no second start.
+  CHECK(u.busy() && !u.upload_started() && !u.uploading);
+  u.upload_ended();
+  CHECK(u.busy() && u.updating);
 }
 
 // What tests/mock_services.py answers in place of each public service (tests/run.sh writes it to $MOCK_ANSWERS), read

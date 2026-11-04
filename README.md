@@ -169,7 +169,8 @@ esphome run skyscope.yaml          # over USB the first time; add -s board <name
 
 Later builds can go over Wi-Fi: `esphome run skyscope.yaml --device <the screen's address>`, or
 `make firmware-flash DEVICE=<the screen's address>` (with `BOARD=<name>` for another board), which builds with the
-Makefile's ESPHome version first (`DEVICE` can be a serial port too).
+Makefile's ESPHome version first (`DEVICE` can be a serial port too). The screen shows **Updating** while a build sent
+over Wi-Fi comes in, then restarts into it.
 
 ## Updates
 

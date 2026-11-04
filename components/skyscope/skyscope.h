@@ -22,6 +22,9 @@
 #ifdef USE_TIME
 #include "esphome/components/time/real_time_clock.h"
 #endif
+#ifdef USE_OTA_STATE_LISTENER
+#include "esphome/components/ota/ota_backend.h"
+#endif
 #ifdef USE_UPDATE
 #include "esphome/components/http_request/update/http_request_update.h"
 #include "esphome/components/update/update_entity.h"
@@ -71,6 +74,10 @@ class Skyscope : public Component,
     ,
                  public touchscreen::TouchListener
 #endif
+#ifdef USE_OTA_STATE_LISTENER
+    ,
+                 public ota::OTAGlobalStateListener
+#endif
 {
  public:
   void set_web_server_base(web_server_base::WebServerBase *base) { base_ = base; }
@@ -113,6 +120,10 @@ class Skyscope : public Component,
 #ifdef USE_UPDATE
   void set_firmware(http_request::HttpRequestUpdate *firmware) { firmware_ = firmware; }
   void set_coprocessor(update::UpdateEntity *coprocessor) { coprocessor_ = coprocessor; }
+#endif
+#ifdef USE_OTA_STATE_LISTENER
+  // Firmware coming in by any of ESPHome's ways (web.cpp): one sent from a computer gets the updating page too.
+  void on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *component) override;
 #endif
 
   void setup() override;

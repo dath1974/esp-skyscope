@@ -1,7 +1,7 @@
 """Skyscope: live aircraft over a map, fetched and drawn by an ESP32-S3 screen on its own."""
 
 import esphome.codegen as cg
-from esphome.components import esp32, font, output, time, wifi
+from esphome.components import esp32, font, ota, output, time, wifi
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
@@ -207,6 +207,8 @@ async def to_code(config):
         cg.add_define("SKYSCOPE_TEST_API")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
+    # Told when firmware comes in by ESPHome's own ways too (sent from a computer), to say it is updating.
+    ota.request_ota_state_listeners()
     if CONF_COPROCESSOR_UPDATE_ID in config:
         cg.add(var.set_coprocessor(await cg.get_variable(config[CONF_COPROCESSOR_UPDATE_ID])))
     if radio := config.get(CONF_RADIO):

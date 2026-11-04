@@ -33,6 +33,7 @@ inline Line menu_line(bool checking, bool known, bool available, bool installing
 struct Tracker {
   bool updating = false;  // asked to install, until the screen restarts or the install fails
   bool flashing = false;  // the entity has said it is installing
+  bool uploading = false;  // firmware sent from a computer (esphome run or upload) is coming in
   std::string error;      // for the page, "" for none
   State failed_in = UNKNOWN;  // what the entity said as the last install failed
 
@@ -63,5 +64,18 @@ struct Tracker {
     error = check_failed ? SERVER_FAILED : "";
     return false;
   }
+
+  // Firmware sent from a computer, which holds the loop until it is all in: the screen says it is updating from its
+  // first byte, unless an install of its own already says so. True when the screen should say so now. One that fails
+  // or is broken off leaves the screen as it was; a good one restarts it.
+  bool upload_started() {
+    if (updating || uploading) return false;
+    uploading = true;
+    return true;
+  }
+  void upload_ended() { uploading = false; }
+
+  // New firmware on its way in, either way: the screen says so and asks for nothing else.
+  bool busy() const { return updating || uploading; }
 };
 }  // namespace sky::firmware

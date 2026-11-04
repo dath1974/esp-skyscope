@@ -396,6 +396,9 @@ void Skyscope::setup() {
     ESP_LOGW(TAG, "A test: every request goes to %s", divert_.c_str());
   }
 #endif
+#ifdef USE_OTA_STATE_LISTENER
+  ota::get_global_ota_callback()->add_global_state_listener(this);
+#endif
   ui::set_dpi(dpi_);
   ui::fonts.small = font_small_ ? font_small_->get_lv_font() : nullptr;
   ui::fonts.label = font_label_ ? font_label_->get_lv_font() : ui::fonts.small;
@@ -656,7 +659,7 @@ void Skyscope::build_ui_() {
   setup_wifi_ = button_(setup_, "Choose a network here", LV_SIZE_CONTENT, ui::mm(8), -1, true);
   lv_obj_add_event_cb(setup_wifi_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
-    if (self->install_.updating || !self->joining_.empty()) return;
+    if (self->install_.busy() || !self->joining_.empty()) return;
     self->open_menu_();
     self->open_picker_(PICKING_NETWORKS);
   }, LV_EVENT_CLICKED, this);
@@ -664,7 +667,7 @@ void Skyscope::build_ui_() {
   lv_obj_add_flag(setup_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(setup_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
-    if (!self->install_.updating && self->joining_.empty()) self->open_menu_();
+    if (!self->install_.busy() && self->joining_.empty()) self->open_menu_();
   }, LV_EVENT_LONG_PRESSED, this);
 
   ui_built_ = true;
@@ -1029,7 +1032,7 @@ void Skyscope::update_status_(uint32_t now) {
     title = "Updating the Wi-Fi chip";
     body = "Its firmware is being brought up to date with the screen's. The screen restarts by itself when it is done, "
            "in a minute or so.";
-  } else if (install_.updating) {
+  } else if (install_.busy()) {
     title = "Updating";
     body = "New firmware is being installed. The screen restarts by itself when it is done.";
   } else if (!joining_.empty()) {
@@ -1055,7 +1058,7 @@ void Skyscope::update_status_(uint32_t now) {
   } else if (!settings_.located) {
     // On a network with no place yet, the menu opens by itself, once: its first rows are the place, and its top the
     // address for a browser. Cancelled, this page says what to do instead.
-    if (online && !offline_ && !asked_where_ && !menu_ && !install_.updating) {
+    if (online && !offline_ && !asked_where_ && !menu_ && !install_.busy()) {
       asked_where_ = true;
       this->defer([this]() { open_menu_(); });
     }
@@ -1069,7 +1072,7 @@ void Skyscope::update_status_(uint32_t now) {
   }
   set_shown(setup_, !title.empty());
   // While it asks for a network or looks for one: not while it restarts into one or updates.
-  set_shown(setup_wifi_, !offline_ && !online && !coprocessor_updating_ && !install_.updating && joining_.empty());
+  set_shown(setup_wifi_, !offline_ && !online && !coprocessor_updating_ && !install_.busy() && joining_.empty());
   if (!title.empty()) {
     set_text(setup_title_, title);
     set_text(setup_body_, body);
