@@ -630,7 +630,10 @@ void Skyscope::worker_() {
         bool ok = r.status == 200;
         if (ok) {
           JsonDocument doc;  // one plane at a time (feed.h): a kilobyte or two
-          ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error);
+          // As many planes as the largest piece of PSRAM holds, with as much again to spare for their words.
+          const size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / sizeof(feed::Flight) / 2;
+          ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room);
+          if (ok && flights.size() == room) ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
         }
         const uint32_t done = millis();

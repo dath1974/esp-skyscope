@@ -494,6 +494,10 @@ static void test_feed() {
   std::string fi = REPLY;
   fi.replace(fi.find("\"ac\""), 4, "\"aircraft\"");
   CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error) && flights.size() == 3);
+  // No more planes than there is room for: the first of the list, in room taken once.
+  std::vector<feed::Flight> two;
+  CHECK(feed::parse(fi.c_str(), fi.size(), doc, two, error, 2) && two.size() == 2 && two.capacity() == 2);
+  CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error, 0) && flights.empty());
   CHECK(!feed::parse("{\"msg\":\"bad\"}", 13, doc, flights, error) && error == "bad");
   CHECK(!feed::parse("<html>", 6, doc, flights, error));
   // Read plane by plane: what is no plane in the list is passed over, and brackets and quotes inside strings are words.

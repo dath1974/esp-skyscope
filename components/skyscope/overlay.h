@@ -12,6 +12,7 @@
 #include "geo.h"
 #include "glass.h"
 #include "plan.h"
+#include "psram.h"
 #include "settings.h"
 #include "shapes.h"
 #include "wake.h"
@@ -37,7 +38,9 @@ inline int band(const feed::Flight &f) {
   return b;
 }
 
-// Where each plane has been, with the moment, so a track is the last N seconds of it.
+// Where each plane has been, with the moment, so a track is the last N seconds of it. Each plane's places are kept in
+// PSRAM: five minutes of them (the longest track) are a kilobyte or two a plane, which a busy sky made too much of the
+// internal RAM.
 class Tracks {
  public:
   struct Place { uint32_t at; double lat, lon; };
@@ -66,7 +69,7 @@ class Tracks {
   size_t size() const { return seen_.size(); }
 
  private:
-  std::map<std::string, std::vector<Place>> seen_;
+  std::map<std::string, std::vector<Place, InPsram<Place>>> seen_;
 };
 
 // The colour of a plane someone watches (1 to plan::WATCH_COLOURS), by its registration, callsign or address; 0 for none.

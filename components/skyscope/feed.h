@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -212,8 +213,13 @@ inline bool flight_of(JsonObjectConst p, Flight &f) {
 
 // The planes of a reply, or false with `error` set when it is not one. Each plane is read on its own into `doc`: read
 // whole, ArduinoJson looks through every string it holds for each new one, and a list of a thousand planes took
-// seconds (4500 took over a minute, and then ran out of the slots a document has on a 32-bit chip).
-template<typename Doc> bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, std::string &error) {
+// seconds (4500 took over a minute, and then ran out of the slots a document has on a 32-bit chip). At most `most`
+// planes are kept, the first in the list: room for them all is taken at once, counted first, as a list grown a plane
+// at a time asked for twice its size in one piece (some 2 MB for 4500) with the old one still held, and a screen with
+// no piece that large stopped.
+template<typename Doc>
+bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, std::string &error,
+           size_t most = SIZE_MAX) {
   static const JsonDocument keep = plane_filter();
   const char *end = text + length, *p = scan::space(text, end);
   const char *list = nullptr, *list_end = nullptr;
@@ -252,7 +258,17 @@ template<typename Doc> bool parse(const char *text, size_t length, Doc &doc, std
     return false;
   }
   out.clear();
-  for (p = scan::space(list + 1, list_end); p < list_end && *p != ']';) {
+  size_t count = 0;
+  for (const char *q = scan::space(list + 1, list_end); q < list_end && *q != ']';) {
+    const char *item_end = scan::value(q, list_end);
+    if (!item_end) return broken(nullptr);
+    count += *q == '{';
+    q = scan::space(item_end, list_end);
+    if (q < list_end && *q == ',') q = scan::space(q + 1, list_end);
+    else if (q < list_end && *q != ']') return broken(q);
+  }
+  out.reserve(std::min(count, most));
+  for (p = scan::space(list + 1, list_end); p < list_end && *p != ']' && out.size() < most;) {
     const char *item_end = scan::value(p, list_end);
     if (!item_end) return broken(nullptr);
     if (*p == '{') {  // anything else in the list is no plane
