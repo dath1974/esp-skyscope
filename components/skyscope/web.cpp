@@ -158,6 +158,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       const view::Counts c = view::counts(view_);
       JsonObject n = out["records"].to<JsonObject>();
       n["symbols"] = c.symbols;
+      n["symbol_kb"] = c.symbol_kb;  // the plane symbols' PSRAM, held to a budget (view.cpp)
       n["label_images"] = c.label_images;
       n["spot_of"] = c.spot_of;
       n["drawn"] = c.drawn;

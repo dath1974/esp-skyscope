@@ -136,8 +136,20 @@ static void dot(lv_layer_t *layer, ap::Point c, int d, lv_color_t fill, int bord
 struct Image {
   uint8_t *data = nullptr;
   lv_image_dsc_t dsc{};
+  Image() = default;
+  Image(const Image &) = delete;
+  Image &operator=(const Image &) = delete;
+  // Let go of by the cache past its budget, between frames: nothing LVGL is drawing still points at it, and LVGL keeps
+  // no copy of its own (its image cache is off), dropped all the same in case one is ever turned on.
+  ~Image() {
+    if (!data) return;
+    lv_image_cache_drop(&dsc);
+    heap_caps_free(data);
+  }
 };
-static sprites::Cache<Image> symbols;
+// Up to a megabyte of symbols in PSRAM: a frame of the most planes the glass shows, each with its halo, needs half
+// that at the largest; past it the symbols drawn longest ago go (sprites.h).
+static sprites::Cache<Image> symbols(1024 * 1024);
 static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, shapes::Kind kind, lv_color_t colour,
                   lv_opa_t opa) {
   // At most two masks made a frame (sprites.h): a plane that turned onto a new step takes the nearest one meanwhile.
@@ -741,6 +753,7 @@ std::vector<Spot> spots(View *view) {
 Counts counts(const View *view) {
   Counts c;
   c.symbols = symbols.size();
+  c.symbol_kb = symbols.bytes() / 1024;
   if (!view) return c;
   c.spot_of = view->spot_of.size();
   c.drawn = view->drawn.size();

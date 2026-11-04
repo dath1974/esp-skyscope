@@ -897,6 +897,25 @@ static void test_sprites() {
   auto *borrowed = cache.get(30, 270, 7, 1);
   CHECK(cache.size() == 3 && borrowed == cache.get(30, 180, 7, 1));
   CHECK(cache.get(30, 270, 8, 1) != borrowed && cache.size() == 4);  // the next frame makes it
+  CHECK(cache.bytes() == 3 * 33 * 33 + 34 * 34 + 4 * sizeof(sprites::Cache<int>::Entry));  // one is 31 long
+  {
+    // Past its budget the masks drawn longest ago go as a frame starts, until a quarter of it is free again.
+    const size_t one = 33 * 33 + sizeof(sprites::Cache<int>::Entry);
+    sprites::Cache<int> kept(3 * one);
+    kept.get(30, 0, 1);
+    kept.get(30, 90, 1);
+    auto *late = kept.get(30, 180, 5);
+    kept.get(30, 270, 5);
+    CHECK(kept.size() == 4);  // over, but nothing goes until the next frame starts
+    CHECK(kept.get(30, 180, 6) == late && kept.size() == 2 && kept.bytes() == 2 * one);  // frame 1's two went
+    CHECK(kept.get(30, 270, 6) != nullptr && kept.size() == 2);
+    kept.get(30, 0, 6);
+    kept.get(30, 90, 6);
+    CHECK(kept.size() == 4);
+    // The frame before's masks are never let go, even over the budget: it would only make them again.
+    kept.get(30, 0, 7);
+    CHECK(kept.size() == 4);
+  }
 }
 
 static void test_shapes() {

@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <cstddef>
 #include <new>
 #include <memory>
 #include <vector>
@@ -107,45 +108,51 @@ inline Mask render(float length, int step, shapes::Kind kind = shapes::AIRLINER)
   return m;
 }
 
-// Masks made as they are first needed, by kind, length (whole pixels) and heading step, kept for as long as the screen
-// runs: a few lengths (plain, watched, each with its halo, larger off the radar) of the kinds in the sky times 90
-// headings (one, for a kind that does not turn). Each kind and length is one table of 90 entries, and each entry is made in PSRAM as its mask is: internal RAM holds only the short list of lengths, so
-// it does not shrink as the headings come (one small allocation an entry, some 260 bytes with the map's, used it up).
+// Masks made as they are first needed, by kind, length (whole pixels) and heading step: a few lengths (plain, watched,
+// each with its halo, larger off the radar) of the kinds in the sky times 90 headings (one, for a kind that does not
+// turn). Each kind and length is one table of 90 entries, and each entry is made in PSRAM as its mask is: internal RAM
+// holds only the short list of lengths, so it does not shrink as the headings come (one small allocation an entry,
+// some 260 bytes with the map's, used it up).
+//
+// Kept while they fit in `budget` bytes: every kind at every length and heading would take several megabytes, more
+// than a screen has to spare, and a long run in a busy sky comes near it. Past the budget, as a new frame starts, the
+// masks drawn longest ago go (never one the frame before drew) until a quarter of it is free again; one asked for again
+// is made again. `Extra`'s destructor lets go of what it holds.
 template<typename Extra> class Cache {
  public:
   struct Entry {
     Mask mask;
     Extra extra;  // what the drawing side keeps beside it (an LVGL image descriptor)
+    uint32_t used = 0;  // the frame that last drew it
+    size_t bytes = 0;   // its mask's pixels and the entry, counted while it is kept
   };
   static constexpr int STEPS = 360 / HEADING_STEP;
-  Cache() = default;
+  explicit Cache(size_t budget = SIZE_MAX) : budget_(budget) {}
   Cache(const Cache &) = delete;
   Cache &operator=(const Cache &) = delete;
   ~Cache() {
     for (auto &t : tables_) {
       for (int i = 0; i < STEPS; ++i)
-        if (t.steps[i]) {
-          t.steps[i]->~Entry();
-          release(t.steps[i]);
-        }
+        if (t.steps[i]) drop(t.steps[i]);
       release(t.steps);
     }
   }
   // The mask of `length` and `heading`. At most `budget` masks are made by the calls of one `frame`: past that, a mask
   // not made yet is the nearest heading of that length already made (for a frame or two), so no frame waits for many.
   Entry *get(int length, int heading, uint32_t frame = 0, int budget = 1 << 30, shapes::Kind kind = shapes::AIRLINER) {
-    const int step = shapes::TURNS[kind] ? heading_step(heading) : 0;
-    Entry **steps = table(length, kind);
-    if (!steps) return nullptr;
-    if (steps[step]) return steps[step];
     if (frame != frame_) {
+      if (bytes_ > budget_) trim(frame_);
       frame_ = frame;
       made_ = 0;
     }
+    const int step = shapes::TURNS[kind] ? heading_step(heading) : 0;
+    Entry **steps = table(length, kind);
+    if (!steps) return nullptr;
+    if (steps[step]) return use(steps[step]);
     if (made_ >= budget) {
       for (int d = 1; d <= STEPS / 2; ++d)
         for (const int near : {(step + d) % STEPS, (step - d + STEPS) % STEPS})
-          if (steps[near]) return steps[near];
+          if (steps[near]) return use(steps[near]);
       // None of this length yet: this one is made all the same.
     }
     ++made_;
@@ -155,11 +162,14 @@ template<typename Extra> class Cache {
     if (!room) return nullptr;
     Entry *entry = new (room) Entry();
     entry->mask = std::move(mask);
+    entry->bytes = (size_t) entry->mask.size * entry->mask.size + sizeof(Entry);
     steps[step] = entry;
     ++count_;
-    return entry;
+    bytes_ += entry->bytes;
+    return use(entry);
   }
   size_t size() const { return count_; }
+  size_t bytes() const { return bytes_; }
 
  private:
   struct Table {
@@ -167,6 +177,36 @@ template<typename Extra> class Cache {
     shapes::Kind kind;
     Entry **steps;  // STEPS of them, in PSRAM
   };
+  Entry *use(Entry *e) {
+    e->used = frame_;
+    return e;
+  }
+  void drop(Entry *e) {
+    e->~Entry();
+    release(e);
+  }
+  // The masks not drawn since before `last` (the frame just ended), oldest first, until three quarters of the budget
+  // is left; in a few passes over the tables, by age, so nothing is allocated to sort them.
+  void trim(uint32_t last) {
+    uint32_t oldest = 0;
+    for (auto &t : tables_)
+      for (int i = 0; i < STEPS; ++i)
+        if (t.steps[i]) oldest = std::max(oldest, last - t.steps[i]->used);
+    const size_t goal = budget_ / 4 * 3;
+    for (int pass = 1; pass <= 4 && bytes_ > goal && oldest > 0; ++pass) {
+      // Older than this goes: the oldest quarter of the ages first, everything but the last frame's at the end.
+      const uint32_t age = std::max<uint32_t>(1, oldest - (uint32_t) ((uint64_t) oldest * pass / 4));
+      for (auto &t : tables_)
+        for (int i = 0; i < STEPS && bytes_ > goal; ++i) {
+          Entry *e = t.steps[i];
+          if (!e || last - e->used < age) continue;
+          bytes_ -= e->bytes;
+          --count_;
+          drop(e);
+          t.steps[i] = nullptr;
+        }
+    }
+  }
   Entry **table(int length, shapes::Kind kind) {
     for (auto &t : tables_)
       if (t.length == length && t.kind == kind) return t.steps;
@@ -177,8 +217,10 @@ template<typename Extra> class Cache {
     return steps;
   }
   std::vector<Table> tables_;
+  size_t budget_;
   uint32_t frame_ = 0;
   int made_ = 0;
   size_t count_ = 0;
+  size_t bytes_ = 0;
 };
 }  // namespace sky::sprites
