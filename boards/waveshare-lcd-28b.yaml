@@ -29,6 +29,8 @@ esp32:
     advanced:
       assertion_level: SILENT
       loop_task_stack_size: 16384
+      # For the PSRAM at 120 MHz (psram: below).
+      enable_idf_experimental_features: true
     # The panel is fed from PSRAM all the time (display: below). A feed that falls behind (the PSRAM busy drawing a
     # frame) starts again on the next frame rather than leaving the picture shifted, and the cache reads PSRAM in the
     # longer lines Espressif advises for an RGB panel, so the rest gets in its way less.
@@ -45,10 +47,11 @@ esp32:
       CONFIG_SPIRAM_XIP_FROM_PSRAM: y
       CONFIG_LCD_RGB_ISR_IRAM_SAFE: y
 
-# 120 MHz (experimental in ESP-IDF) made no difference to the short marks the panel's feed leaves while a map is drawn.
+# 120 MHz, experimental in ESP-IDF: the flash goes to 120 MHz with it (they share a clock), and the timing follows the
+# chip's temperature.
 psram:
   mode: octal
-  speed: 80MHz
+  speed: 120MHz
 
 # The panel's setup lines. GPIO1 and GPIO2 are also the card's command and clock: the panel is set up once at start,
 # then deselected (EXIO3 high), and the card takes the two pins when it starts (card: below).
