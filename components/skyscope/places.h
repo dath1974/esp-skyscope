@@ -98,8 +98,27 @@ inline std::string named_url(const std::string &q) {
          "&outFields=IDENT,ICAO_ID,NAME,SERVCITY,STATE&where=" + encoded(where);
 }
 
+// Names in English, where OpenStreetMap has one: the screen's fonts hold only Latin letters, and a place's own name
+// in its own script (Naypyidaw's in Burmese) would show as a row of boxes.
 inline std::string nominatim_url(const std::string &q) {
-  return "https://nominatim.openstreetmap.org/search?format=json&limit=6&extratags=1&q=" + encoded(trimmed(q));
+  return "https://nominatim.openstreetmap.org/search?format=json&limit=6&extratags=1&accept-language=en&q=" +
+         encoded(trimmed(q));
+}
+
+// Whether the screen's fonts can write `s`: Latin letters (each board's fonts are Google's Latin set) and the common
+// punctuation (dashes, curly quotes); nothing from U+0250 on, where the other scripts begin.
+inline bool latin(const std::string &s) {
+  for (size_t i = 0; i < s.size(); i += keyboard::char_length((unsigned char) s[i])) {
+    const unsigned char c = (unsigned char) s[i];
+    uint32_t code = c;
+    if (c >= 0xF0) return false;
+    if (c >= 0xE0 && i + 2 < s.size())
+      code = (c & 0x0Fu) << 12 | ((unsigned char) s[i + 1] & 0x3Fu) << 6 | ((unsigned char) s[i + 2] & 0x3Fu);
+    else if (c >= 0xC0 && i + 1 < s.size())
+      code = (c & 0x1Fu) << 6 | ((unsigned char) s[i + 1] & 0x3Fu);
+    if (code >= 0x250 && !(code >= 0x2010 && code <= 0x2026)) return false;
+  }
+  return true;
 }
 
 // The FAA's airports in an answer, each named by its identifier (its ICAO code where it has one).
@@ -166,7 +185,8 @@ inline bool read_nominatim(const char *text, size_t length, const std::string &q
     else if (airport && !tagged.empty()) f.name = tagged;
     else f.name = trimmed(f.detail.substr(0, f.detail.find(',')));
     f.name = keyboard::clipped(f.name, MOST_NAME);
-    if (f.name.empty()) continue;
+    // A place the screen could not write is no use to pick: left out.
+    if (f.name.empty() || !latin(f.name)) continue;
     out.push_back(f);
     if (out.size() >= MOST_FOUND) break;
   }
