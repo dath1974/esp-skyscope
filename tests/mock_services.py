@@ -13,6 +13,7 @@ Anything else is 404, noted as "unknown" so a test can say nothing went unanswer
 """
 
 import json
+import re
 import math
 import struct
 import time
@@ -205,7 +206,23 @@ def answer(path: str, lat: float, lon: float, now: float, aircraft):
                 return as_json("radar-latest", radar_latest(now))
             if rest.startswith("cache/tile.py/"):
                 return 200, "image/png", tile_png(*tile_numbers(parts, True), layer=True), "radar-tile"
+        if server == "api.adsbdb.com" and rest.startswith("v0/callsign/"):
+            # A flight's route (follow.h, a build with routes): the mock's own flight from its airport, else none.
+            if rest.removeprefix("v0/callsign/").upper() != "MOCK1":
+                return 404, "application/json", b'{"response":"unknown callsign"}', "route"
+            far = offset(lat, lon, 300, 45)
+            airport = lambda code, la, lo: {"icao_code": code, "latitude": round(la, 4), "longitude": round(lo, 4)}
+            return as_json("route", {"response": {"flightroute": {"callsign": "MOCK1",
+                                                                  "origin": airport(STATION, lat, lon),
+                                                                  "destination": airport("KFAR", *far)}}})
         if server in ("opendata.adsb.fi", "api.adsb.lol"):
+            # A plane looked up worldwide (follow.h): by callsign, registration or hex, only the planes that match.
+            lookup = re.match(r"(?:api/)?v2/(callsign|reg|registration|hex)/([^/]+)$", rest)
+            if lookup:
+                kind, wanted = lookup.group(1), urllib.parse.unquote(lookup.group(2)).strip().upper()
+                field = {"callsign": "flight", "reg": "r", "registration": "r", "hex": "hex"}[kind]
+                found = [p for p in aircraft() if str(p.get(field, "")).strip().upper() == wanted]
+                return as_json("lookup", {"now": now, "ac": found, "total": len(found)})
             return as_json("exchange", {"now": now, "ac": aircraft()})
     except (ValueError, IndexError):
         pass
@@ -230,7 +247,9 @@ def write_fixtures(folder: str, lat: float = 40.6413, lon: float = -73.7781, now
              "pirep": "/aviationweather.gov/api/data/pirep?format=json",
              "mos": "/mesonet.agron.iastate.edu/api/1/mos.json?model=GFS&station=KTST",
              "radar-latest": "/mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.json",
-             "exchange": "/opendata.adsb.fi/api/v2/lat/40.6/lon/-73.7/dist/25"}
+             "exchange": "/opendata.adsb.fi/api/v2/lat/40.6/lon/-73.7/dist/25",
+             "lookup": "/api.adsb.lol/v2/callsign/MOCK1",
+             "route": "/api.adsbdb.com/v0/callsign/MOCK1"}
     for name, path in paths.items():
         status, _, body, what = answer(path, lat, lon, now, lambda: plane)
         assert status == 200 and what == name, (name, status, what)

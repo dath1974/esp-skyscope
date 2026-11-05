@@ -210,14 +210,16 @@ std::shared_ptr<weather::Report> find_weather(const Settings &settings, http::Bo
     const http::Result r = http::get(mos_url(report->station), body, MOST_REPLY_BYTES, agent, "application/json");
     if (r.status == 200) read_mos(text(), body.size, doc, report->mos, error);
   }
-  const double reach = std::max(50, settings.range_nm);
+  // As far as the planes come from at most: a range out over an ocean asks no more of the weather than that.
+  const int range_nm = std::min(settings.range_nm, FEED_REACH_NM);
+  const double reach = std::max(50, range_nm);
   if (ask(airsigmet_url()) &&
       !read_sigmets(text(), body.size, doc, settings.lat, settings.lon, reach, report->advisories, error))
     note(error);
   if (ask(gairmet_url()) &&
       !read_gairmets(text(), body.size, doc, settings.lat, settings.lon, reach, report->advisories, error))
     note(error);
-  if (ask(pirep_url(settings.lat, settings.lon, settings.range_nm)) &&
+  if (ask(pirep_url(settings.lat, settings.lon, range_nm)) &&
       !read_pireps(text(), body.size, doc, report->pireps, error))
     note(error);
   body.clear();
@@ -257,6 +259,31 @@ void Skyscope::worker_() {
   const int width = width_, height = height_;
   uint32_t search_rev = 0, nominatim_at = 0, weather_ask = 0;
   bool was_offline = false, was_card = false;
+  // The plane followed (follow.h): the settings before the view's follow (`settings` is them as shown), the view's
+  // middle the loop gave, the plane as the reports have seen it and for which follow, the asks still to make for it and
+  // when the next is due. exchange_at: when an exchange was last asked, so two requests are never too close.
+  Settings saved;
+  follow::Centre centre;
+  uint32_t centre_rev = 0;
+  follow::Follower follower;
+  std::string follow_for, follow_hex_for;
+  std::vector<follow::Ask> follow_asks;
+  size_t follow_next = 0;
+  uint32_t follow_due = 0, exchange_at = 0;
+  // Its route (follow.h, a build with routes): the callsign it was asked for, and when it may be asked again.
+  std::string route_for;
+  uint32_t route_due = 0;
+  auto publish_follower = [&]() {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.follower = follower;
+    shared_.follower_for = follow_for;
+    shared_.follower_rev++;
+  };
+  // Waits out the gap an exchange asks between two requests, from the last one to either.
+  auto space_out = [&]() {
+    const uint32_t since = millis() - exchange_at;
+    if (exchange_at && since < follow::ASK_GAP_MS) vTaskDelay(pdMS_TO_TICKS(follow::ASK_GAP_MS - since));
+  };
 
   // ---- The map card: mounted at the start, and a download left unfinished (by a restart) carried on.
   uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0;
@@ -387,10 +414,18 @@ void Skyscope::worker_() {
         weather_ask = shared_.weather_ask;
         wants_weather = true;
       }
+      bool reshow = false;
       if (shared_.settings_rev != settings_rev) {
-        settings = radio_only ? offline::shown(shared_.settings, has_card) : shared_.settings;
+        saved = radio_only ? offline::shown(shared_.settings, has_card) : shared_.settings;
         settings_rev = shared_.settings_rev;
+        reshow = true;
       }
+      if (shared_.centre_rev != centre_rev) {
+        centre = shared_.centre;
+        centre_rev = shared_.centre_rev;
+        reshow = true;
+      }
+      if (reshow) settings = follow::shown(saved, radio_only ? follow::Centre{} : centre);
       if (shared_.plan_rev != plan_rev) {
         plan = shared_.plan;
         plan_rev = shared_.plan_rev;
@@ -558,6 +593,118 @@ void Skyscope::worker_() {
       publish_card();
     }
 
+    // ---- The plane followed: a new one looked for afresh; until it is found, each way of asking for it in turn and
+    // then again a while later; once found, by its hex whenever the reports round it have not had it for a while.
+    if (saved.follow != follow_for ||
+        (!saved.follow_hex.empty() && saved.follow_hex != follow_hex_for && saved.follow_hex != follower.hex())) {
+      follow_for = saved.follow;
+      follow_hex_for = saved.follow_hex;
+      follower.reset();
+      follow_asks = follow::asks(saved.follow, saved.follow_hex);
+      follow_next = 0;
+      follow_due = millis();
+      if (!follow_for.empty()) ESP_LOGI(TAG, "Following %s: %u ways to ask", follow_for.c_str(), (unsigned) follow_asks.size());
+      route_for.clear();
+      route_due = 0;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.route = follow::Route{};
+      }
+      publish_follower();
+    }
+    if (!follow_for.empty() && online && connected && !was_offline &&
+        (int32_t) (millis() - follow_due) >= 0) {
+      const bool looking = !follower.known();
+      const uint32_t at = millis();
+      if (!looking && follower.age_ms(at) < follow::HEX_EVERY_MS) {
+        // The reports round it have it: nothing to ask.
+        follow_due = at + follow::HEX_EVERY_MS - follower.age_ms(at);
+      } else if (looking && follow_asks.empty()) {
+        follow_due = at + follow::LOOK_EVERY_MS;
+      } else {
+        const follow::Ask ask = looking ? follow_asks[follow_next] : follow::Ask{follow::BY_HEX, follower.hex()};
+        Feed exchange = ADSB_LOL;
+        bool free = false;
+        for (const Feed f : follow::lookup_feeds(saved.feed)) {
+          const providers::State &st = providers.state(f);
+          if (!st.blocked || !providers::before(at, st.until)) {
+            exchange = f;
+            free = true;
+            break;
+          }
+        }
+        if (!free) {
+          follow_due = at + 5000;  // both exchanges are waiting: soon again
+        } else {
+          space_out();
+          ui::worker_phase = ui::FEED_FETCH;
+          const http::Result r = http::get(follow::url(exchange, ask), body, MOST_FEED_BYTES, agent_, "application/json");
+          ui::worker_phase = ui::IDLE;
+          exchange_at = millis() | 1;
+          std::vector<feed::Flight> flights;
+          std::string error = r.error;
+          JsonDocument doc;
+          const bool ok = r.status == 200 &&
+                          feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, 16);
+          body.clear();
+          if (!ok) {
+            providers.failed(exchange, millis(), providers::Answer{r.status, r.retry_after_s, r.rate_reset_s, r.rate_limit, error});
+            ESP_LOGW(TAG, "Following %s: %s did not answer (%s)", follow_for.c_str(), feed::credit(exchange), error.c_str());
+            follow_due = millis() + 5000;
+          } else {
+            const feed::Flight *found = follow::pick(flights);
+            if (found && (looking || found->hex == follower.hex())) {
+              if (looking) ESP_LOGI(TAG, "Following %s: found as %s", follow_for.c_str(), found->hex.c_str());
+              follower.seen(*found, millis());
+              publish_follower();
+            }
+            if (looking && !found && ++follow_next >= follow_asks.size()) {
+              follow_next = 0;
+              follow_due = millis() + follow::LOOK_EVERY_MS;
+              ESP_LOGI(TAG, "Following %s: not up now, asked again in %u s", follow_for.c_str(),
+                       (unsigned) (follow::LOOK_EVERY_MS / 1000));
+            } else if (!looking || found) {
+              follow_due = millis() + follow::HEX_EVERY_MS;
+            }
+          }
+          std::lock_guard<std::mutex> guard(lock_);
+          shared_.providers = providers;
+        }
+      }
+    }
+
+#ifdef SKYSCOPE_ROUTES
+    // ---- Its route: asked once for each callsign it flies under, once it is found; again ten minutes after a failure.
+    if (follower.known() && !follower.last().callsign.empty() && follower.last().callsign != route_for && online &&
+        connected && !was_offline && (int32_t) (millis() - route_due) >= 0) {
+      follow::Route route;
+      std::string error;
+      body.clear();
+      const http::Result r = http::get(follow::route_url(follower.last().callsign), body, 16 * 1024, agent_,
+                                       "application/json");
+      JsonDocument doc;
+      const bool ok = (r.status == 200 || r.status == 404) &&
+                      follow::read_route(reinterpret_cast<const char *>(body.data), body.size, doc, route, error);
+      body.clear();
+      if (ok) {
+        route.callsign = route_for = follower.last().callsign;
+        ESP_LOGI(TAG, "Following %s: %s", route_for.c_str(),
+                 route.known ? (route.from + " to " + route.to).c_str() : "no route known");
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.route = route;
+        shared_.follower_rev++;
+      } else {
+        route_due = millis() + 10 * 60 * 1000;
+        ESP_LOGW(TAG, "Route: %s", (r.error.empty() ? error : r.error).c_str());
+      }
+    }
+    if (follow_for.empty() && !route_for.empty()) {
+      route_for.clear();
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.route = follow::Route{};
+    }
+#endif
+
     const uint32_t now = millis();
     if (!online || !settings.located || plan.view.width == 0) {
       vTaskDelay(pdMS_TO_TICKS(250));
@@ -567,6 +714,16 @@ void Skyscope::worker_() {
     // ---- The planes, every refresh_s, or at once for a new place or range, from the first exchange free
     // (providers.h): the preferred one, or while it waits the next in the list.
     providers.set_order(settings.feed, settings.fallback, !settings.receiver_url.empty(), radio_fitted);
+    // The plane followed, wherever a report has it: seen again, by its hex.
+    auto see_followed = [&](const std::vector<feed::Flight> &flights) {
+      if (!follower.known()) return;
+      for (const auto &f : flights)
+        if (f.hex == follower.hex()) {
+          follower.seen(f, millis());
+          publish_follower();
+          return;
+        }
+    };
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
     char place[64];
     std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm, (int) settings.feed,
@@ -603,6 +760,7 @@ void Skyscope::worker_() {
         if (!ok && answer.error.empty()) answer.error = "no radio";
         const uint32_t done = millis();
         if (ok) {
+          see_followed(flights);
           overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
           const uint32_t every = providers.succeeded(RADIO, done, RADIO_EVERY_MS, answer);
           feed_due = done + every;
@@ -619,11 +777,22 @@ void Skyscope::worker_() {
           feed_due = done;
         }
       } else {
-        const std::string url = feed::url(source, settings.lat, settings.lon, radius_nm, settings.receiver_url);
+        // Following a plane: the planes round it, out to the view's farthest corner from it, as far as the exchanges go.
+        double ask_lat = settings.lat, ask_lon = settings.lon;
+        int ask_nm = radius_nm;
+        if (centre.on && follower.known()) {
+          const geo::Place p = follower.where(millis());
+          ask_lat = p.lat;
+          ask_lon = p.lon;
+          ask_nm = follow::reach_nm(plan.view, p.lat, p.lon);
+        }
+        const std::string url = feed::url(source, ask_lat, ask_lon, ask_nm, settings.receiver_url);
+        if (source != RECEIVER) space_out();
         const uint32_t asked = millis();
         ui::worker_phase = ui::FEED_FETCH;
         const http::Result r = http::get(url, body, MOST_FEED_BYTES, agent_, "application/json");
         const uint32_t fetched = millis();
+        if (source != RECEIVER) exchange_at = fetched | 1;
         ui::worker_phase = ui::FEED_PARSE;
         std::vector<feed::Flight> flights;
         std::string error = r.error;
@@ -634,6 +803,7 @@ void Skyscope::worker_() {
           const size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / sizeof(feed::Flight) / 2;
           ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room);
           if (ok && flights.size() == room) ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
+          if (ok) see_followed(flights);
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
         }
         const uint32_t done = millis();
@@ -667,7 +837,7 @@ void Skyscope::worker_() {
     }
 
     // ---- The airspace and runways (airspace.h), once for each place and range while they are shown.
-    if (settings.airspace) {
+    if (settings.airspace && settings.range_nm <= airspace::MOST_RANGE_NM) {
       const airspace::Ask ask = airspace::ask(plan.view, settings.range_nm);
       if (ask.airspace + ask.runways != airspace_asked && (int32_t) (now - airspace_due) >= 0) {
         auto map = std::make_shared<airspace::Map>();

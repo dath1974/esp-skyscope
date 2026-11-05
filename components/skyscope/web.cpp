@@ -3,7 +3,8 @@
 //   GET  /                 the settings page (page.h)
 //   GET  /api/settings     every setting, as settings.h writes them
 //   POST /api/settings     a JSON object of the settings to change; 400 {"error": key} names the first that is wrong
-//   GET  /api/status       Wi-Fi, memory, the feed and the map
+//                          ({"follow": "BAW286"} follows a plane anywhere, {"follow": ""} stops)
+//   GET  /api/status       Wi-Fi, memory, the feed and the map, and the plane followed (follow.h)
 //   GET  /api/aircraft     the planes of the last report
 //   GET  /api/firmware     the firmware running and the newest on the update server
 //   POST /api/firmware     {"check": true} asks the update server again, {"install": true} installs its firmware;
@@ -289,6 +290,29 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["airspace_rev"] = shared_.airspace_rev;  // counts the replies taken: a new place's is a new one
     out["airspace_error"] = shared_.airspace_error;
     out["zoom"] = shared_.plan.view.zoom;
+    // The plane followed (follow.h): how it is going, and where it is, or is likely to be while out of reach.
+    if (!shared_.settings.follow.empty()) {
+      JsonObject fo = out["follow"].to<JsonObject>();
+      const follow::Follower &fl = shared_.follower;
+      const bool answered = shared_.follower_for == shared_.settings.follow;
+      fo["asked"] = shared_.settings.follow;
+      fo["state"] = answered ? follow::PHASES[fl.phase(now_ms)] : "looking";
+      fo["status"] = answered ? follow::status(fl, shared_.settings.follow, now_ms) : "Looking for " + shared_.settings.follow;
+      if (answered && fl.known()) {
+        const geo::Place p = fl.where(now_ms);
+        fo["hex"] = fl.hex();
+        fo["callsign"] = fl.last().callsign;
+        fo["registration"] = fl.last().registration;
+        fo["lat"] = std::round(p.lat * 1e4) / 1e4;
+        fo["lon"] = std::round(p.lon * 1e4) / 1e4;
+        fo["estimated"] = fl.estimating(now_ms);
+        fo["seen_s"] = fl.age_ms(now_ms) / 1000;
+        if (shared_.route.known) {
+          fo["route"]["from"] = shared_.route.from;
+          fo["route"]["to"] = shared_.route.to;
+        }
+      }
+    }
     if (card_fitted_) card_json_(out["card"].to<JsonObject>(), shared_.card);
     send_json(request, 200, out);
     return;

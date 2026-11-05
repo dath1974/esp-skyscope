@@ -32,6 +32,7 @@ CONF_RADIO = "radio"
 CONF_GAIN = "gain"
 CONF_PPM = "ppm"
 CONF_TEST_API = "test_api"
+CONF_ROUTES = "routes"
 CONF_CARD = "card"
 CONF_SLOT = "slot"
 CONF_WIDTH = "width"
@@ -154,6 +155,9 @@ CONFIG_SCHEMA = cv.Schema(
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
         cv.Optional(CONF_TEST_API, default=True): cv.boolean,
+        # The followed plane's route from adsbdb (follow.h). Off unless asked for: adsbdb's route data may not be copied
+        # without its owner's leave, so it stays out of the published firmware.
+        cv.Optional(CONF_ROUTES, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -205,6 +209,8 @@ async def to_code(config):
         cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
     if config[CONF_TEST_API]:
         cg.add_define("SKYSCOPE_TEST_API")
+    if config[CONF_ROUTES]:
+        cg.add_define("SKYSCOPE_ROUTES")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
     # Told when firmware comes in by ESPHome's own ways too (sent from a computer), to say it is updating.

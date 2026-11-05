@@ -102,7 +102,7 @@ void Skyscope::release() {
 #endif
 
 bool Skyscope::can_pinch_() const {
-  return ui_built_ && !menu_ && !asleep_ && settings_.located && !install_.busy() && joining_.empty() &&
+  return ui_built_ && !menu_ && !asleep_ && (settings_.located || following_()) && !install_.busy() && joining_.empty() &&
          lv_obj_has_flag(setup_, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -116,6 +116,7 @@ void Skyscope::begin_preview_() {
   if (previewing_) return;
   previewing_ = true;
   held_ = settings_;
+  held_centre_ = centre_;
   target_view_ = plan_.view;
   ESP_LOGD(TAG, "Previewing");
 }
@@ -199,6 +200,18 @@ void Skyscope::end_pinch_() {
 
 void Skyscope::settle_preview_() {
   settle_at_ = 0;
+  if (following_()) {
+    // Following a plane: the fingers choose the range and the view's middle, and the place stays as it was. The view
+    // goes on following the plane after (follow_tick_).
+    Settings s = settings_;
+    s.range_nm = pinch::range_nm(target_view_);
+    follow::Centre c = centre_;
+    c.lat = target_view_.lat;
+    c.lon = target_view_.lon;
+    use_view_(s, &c);
+    ESP_LOGD(TAG, "Previewing %d NM round the plane followed", s.range_nm);
+    return;
+  }
   Settings s = settings_;
   s.located = true;
   s.lat = target_view_.lat;
@@ -216,8 +229,16 @@ void Skyscope::settle_preview_() {
   ESP_LOGD(TAG, "Previewing %d NM", s.range_nm);
 }
 
-void Skyscope::use_view_(const Settings &s) {
+void Skyscope::use_view_(const Settings &s, const follow::Centre *centre) {
   const uint32_t before = plan_rev_;
+  if (centre && *centre != centre_) {
+    centre_ = *centre;
+    reshow_();
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.centre = centre_;
+    shared_.centre_rev++;
+    replan_locked_();
+  }
   use_settings_(s);
   planned_at_ = millis();
   target_view_ = plan_.view;  // as planned: a map's zoom is a whole one
@@ -247,7 +268,9 @@ void Skyscope::end_preview_(bool keep) {
   s.lon = held_.lon;
   s.range_nm = held_.range_nm;
   s.place = held_.place;
-  use_view_(s);
+  // Following a plane: its view's middle as it was too, if it is still following that plane.
+  const bool same = held_centre_.on && centre_.on && held_centre_.hex == centre_.hex;
+  use_view_(s, same ? &held_centre_ : nullptr);
   ESP_LOGD(TAG, "Dropped");
 }
 

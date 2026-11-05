@@ -11,7 +11,8 @@ constexpr double MAX_LATITUDE = 85.05112878;
 constexpr double EARTH_METRES = 6371000.0;
 constexpr double NM = 1852.0;
 constexpr double PI = 3.14159265358979323846;
-constexpr double MIN_ZOOM = 2.0, MAX_ZOOM = 18.0;
+// Zoom 1 is the world twice as wide as a tile: far enough out for MAX_RANGE_NM on any glass, wherever it is.
+constexpr double MIN_ZOOM = 1.0, MAX_ZOOM = 18.0;
 
 inline double radians(double d) { return d * PI / 180.0; }
 inline double degrees(double r) { return r * 180.0 / PI; }
@@ -31,6 +32,28 @@ inline double metres_between(double lat1, double lon1, double lat2, double lon2)
   const double p1 = radians(lat1), p2 = radians(lat2), dp = p2 - p1, dl = radians(lon2 - lon1);
   const double a = std::sin(dp / 2) * std::sin(dp / 2) + std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
   return 2 * EARTH_METRES * std::asin(std::min(1.0, std::sqrt(a)));
+}
+
+// The place `metres` from (lat, lon) setting off on `bearing` (degrees from true north) along a great circle, as a long
+// flight goes; its longitude kept within -180 to 180.
+inline Place destination(double lat, double lon, double bearing, double metres) {
+  const double d = metres / EARTH_METRES, b = radians(bearing), p1 = radians(lat);
+  const double p2 = std::asin(std::sin(p1) * std::cos(d) + std::cos(p1) * std::sin(d) * std::cos(b));
+  const double l2 = radians(lon) + std::atan2(std::sin(b) * std::sin(d) * std::cos(p1),
+                                              std::cos(d) - std::sin(p1) * std::sin(p2));
+  return {degrees(p2), std::remainder(degrees(l2), 360.0)};
+}
+
+// The place `f` of the way (0 to 1) along the great circle from one place to another.
+inline Place between(double lat1, double lon1, double lat2, double lon2, double f) {
+  const double p1 = radians(lat1), l1 = radians(lon1), p2 = radians(lat2), l2 = radians(lon2);
+  const double d = metres_between(lat1, lon1, lat2, lon2) / EARTH_METRES;
+  if (d < 1e-9) return {lat1, lon1};
+  const double a = std::sin((1 - f) * d) / std::sin(d), b = std::sin(f * d) / std::sin(d);
+  const double x = a * std::cos(p1) * std::cos(l1) + b * std::cos(p2) * std::cos(l2);
+  const double y = a * std::cos(p1) * std::sin(l1) + b * std::cos(p2) * std::sin(l2);
+  const double z = a * std::sin(p1) + b * std::sin(p2);
+  return {degrees(std::atan2(z, std::hypot(x, y))), degrees(std::atan2(y, x))};
 }
 
 inline double metres_per_pixel(double lat, double zoom) {

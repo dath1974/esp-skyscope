@@ -39,6 +39,7 @@ struct Plane {
   int watch = 0;               // 1 to WATCH_COLOURS for a watched plane, in its colour
   std::string id;              // the transponder's address: what a finger picks it by
   uint8_t kind = 0;            // what it is drawn as (shapes.h Kind), AIRLINER unless the marker is by type
+  bool estimated = false;      // where a plane followed is likely to be, out of reach (follow.h): drawn faint
 };
 
 // A map drawn as a radar scope: its phosphor (colours.h TINTS), the middle of the scope on the frame, and whether its
@@ -60,6 +61,10 @@ struct Overlay {
   uint32_t at = 0;          // millis() when it came
   std::vector<Plane> planes;
   Radar radar;
+  // The followed plane's route (follow.h route_on): x, y, x, y ..., INT16_MIN, INT16_MIN between pieces; drawn under
+  // everything else in a neutral line.
+  std::vector<int16_t> route;
+  std::string followed;  // the id of the plane followed, "" for none: a tap near it takes it before any other
 };
 
 struct Point { float x, y; };
@@ -291,6 +296,9 @@ inline std::vector<std::string> lines(const std::string &label) {
 
 // The plane nearest `x`, `y` on a picture shown at `sx`, `sy` of the one the planes were placed on, within `reach`
 // pixels of it, at `now`; "" for none.
+// The plane followed comes first: a tap within reach of it (a quarter more, as it is drawn larger) takes it, however
+// many others are closer in a busy sky.
+constexpr float FOLLOWED_REACH = 1.25f;
 inline std::string pick(const Overlay &o, float x, float y, float reach, uint32_t now, float sx = 1, float sy = 1) {
   std::string best;
   float nearest = reach * reach;
@@ -298,6 +306,7 @@ inline std::string pick(const Overlay &o, float x, float y, float reach, uint32_
     if (p.id.empty()) continue;
     const Point c = at(o, p, now, sx, sy);
     const float d = (c.x - x) * (c.x - x) + (c.y - y) * (c.y - y);
+    if (p.id == o.followed && d <= reach * reach * FOLLOWED_REACH * FOLLOWED_REACH) return p.id;
     if (d <= nearest) { nearest = d; best = p.id; }
   }
   return best;

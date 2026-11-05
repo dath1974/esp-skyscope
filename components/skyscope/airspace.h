@@ -49,6 +49,8 @@ struct Map {
 // Runways are asked for up to this range (beyond it a long runway is a few pixels), and only those this long: the
 // shortest a jet uses, which leaves out grass strips and helipads.
 constexpr int RUNWAY_RANGE_NM = 80;
+// Beyond this range the airspace is not asked for (it would be a whole country of it) nor drawn.
+constexpr int MOST_RANGE_NM = 250;
 constexpr int SHORTEST_RUNWAY_FT = 2500;
 // A towered airport's runways this long have their centerlines drawn out this far from each end.
 constexpr int CENTERLINE_RUNWAY_FT = 5000;

@@ -8,7 +8,7 @@
 //
 // They meet in `Shared` under `lock_`, and the base frame under `frame_lock_`. The web page and its API (web.cpp) run
 // in the HTTP server's task and only ever read a copy of the settings or hand a new one to the loop. The worker also
-// finds the places typed in the menu (places.h).
+// finds the places typed in the menu (places.h), and the plane followed (follow.h), whose view the loop moves with it.
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/font/font.h"
@@ -44,6 +44,7 @@
 #include "card_io.h"
 #include "feed.h"
 #include "firmware.h"
+#include "follow.h"
 #include "keyboard.h"
 #include "networks.h"
 #include "offline.h"
@@ -186,6 +187,14 @@ class Skyscope : public Component,
       std::string latest, summary, release_url, error;
       float progress = 0;  // percent, while installing
     } firmware;
+    // loop -> worker: the view's middle while a plane is followed (follow.h). worker -> loop: that plane as the reports
+    // have seen it, for the follow named in follower_for.
+    follow::Centre centre;
+    uint32_t centre_rev = 0;
+    follow::Follower follower;
+    std::string follower_for;
+    uint32_t follower_rev = 0;
+    follow::Route route;  // where it flies from and to, in a build with routes (follow.h)
     // loop -> worker: a place to find, typed in the menu; worker -> loop: what was found for the search found_rev.
     std::string search;
     uint32_t search_rev = 0, found_rev = 0;
@@ -290,7 +299,7 @@ class Skyscope : public Component,
   void unfreeze_();     // a frame of the plan's own is in the canvas: the live planes again
   void end_pinch_();
   void settle_preview_();
-  void use_view_(const Settings &s);
+  void use_view_(const Settings &s, const follow::Centre *centre = nullptr);
   void end_preview_(bool keep);
   void preview_tick_(uint32_t now);
   // A swipe along the strip at the bottom changes the map (swipe.cpp): its name shown at once, the map planned and
@@ -333,7 +342,9 @@ class Skyscope : public Component,
   void card_json_(JsonObject out, const Shared::Card &c) const;
   // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
   // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
-  const Settings &shown_() const { return offline_ ? offline_settings_ : settings_; }
+  // Following a plane (follow.h) moves the view's middle with it, and so shown_ is follow::shown of them too.
+  const Settings &shown_() const { return shown_settings_; }
+  void reshow_();  // shown_settings_ again, from settings_, offline_ and centre_
   void go_offline_(bool offline);
   // settings
   void load_settings_();
@@ -372,6 +383,42 @@ class Skyscope : public Component,
   offline::Tracker offline_tracker_;
   bool offline_{false}, offline_card_{false};  // offline_card_: offline_settings_ were made with a map card in
   Settings offline_settings_;  // offline::shown(settings_), while offline_
+  Settings shown_settings_;
+  // The plane followed (follow.h): the view's middle, the plane as the worker last told of it and for which follow, and
+  // the middle the view had when a preview began (preview.cpp), for its Cancel.
+  follow::Centre centre_, held_centre_;
+  follow::Follower follower_;
+  std::string follower_for_;
+  uint32_t follower_rev_{0};
+  // Since when the screen has been on and online to ask for the plane: no stop is decided before it has had the time
+  // to (asleep, nothing is asked, and the plane only looks lost).
+  uint32_t follow_asking_since_{0};
+  follow::Trail trail_;  // its way so far, for its track (follow.h)
+  bool following_() const { return centre_.on; }
+  void follow_tick_(uint32_t now);  // the follower from the worker, the view moved with the plane, a landing's stop
+  // The view's middle there (and the range `range_nm`, where it is one), its frame planned, the glass as it was moved
+  // to it meanwhile.
+  void set_centre_(const follow::Centre &c, int range_nm = 0);
+  // The keys down the left edge while a plane is followed: the whole route in view, or the plane at PLANE_RANGE_NM.
+  void show_route_();
+  void show_plane_();
+  void refresh_follow_keys_();
+  follow::Route route_;
+  bool route_view_{false};  // the whole route is in view: the view moves only once the plane would leave it
+  lv_obj_t *follow_keys_{nullptr}, *route_key_{nullptr}, *plane_key_{nullptr};
+  // Their symbols, drawn (the fonts have none): the route's leg and the sight's four ticks, their points kept here as
+  // LVGL keeps only a pointer to them.
+  lv_point_precise_t route_leg_[3]{}, sight_ticks_[4][2]{};
+  lv_obj_t *round_key_(lv_obj_t *parent, int across);
+  void draw_route_symbol_(lv_obj_t *key, int side);
+  void draw_sight_symbol_(lv_obj_t *key, int side);
+  // The card's line of altitude, the arrow of a climb or descent (drawn: the fonts have none) and the rest after it.
+  lv_obj_t *card_motion_{nullptr}, *card_arrow_{nullptr}, *card_after_{nullptr};
+  lv_point_precise_t card_arrow_points_[5]{};
+  int card_arrow_way_{0};
+  size_t route_points_{0};  // the route's points on the glass in the last overlay, for the test API
+  void follow_picked_();  // the card's Follow, or Stop following, for the plane picked
+  lv_obj_t *card_follow_{nullptr};
   ESPPreferenceObject pref_;
   uint32_t save_at_{0};
   bool save_pending_{false};

@@ -32,7 +32,12 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <p id="used"></p><div id="found"></div>
 <div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" step="any" min="-85" max="85" required></div>
 <div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" step="any" min="-180" max="180" required></div></div>
-<label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="250">
+<label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="5000">
+<p class="hint">Up to 5000 NM, for following a plane across an ocean. The exchanges answer for 250 NM round a point at most, so the planes shown come from that far round the place, or round the plane followed.</p>
+<div class="row"><div><label for="follow">Follow a plane</label><input id="follow" name="follow" placeholder="N12345, G-EUPT, BAW286 or BA 286"></div>
+<div><label for="follow_label">Its label</label><select id="follow_label" name="follow_label"><option value="auto">As the other planes'</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div></div>
+<label for="follow_track_min">Its track (minutes, 0 for the whole flight)</label><input id="follow_track_min" name="follow_track_min" type="number" min="0" max="1440">
+<p class="hint">Its registration, callsign or flight number (the larger airlines' flight numbers are turned into their callsigns); empty to stop. The screen finds it anywhere in the world, moves the map with it (a chart of the United States gives way to the streets map outside it) and asks for the planes round it; your place stays as it is. Out of reach of the volunteers' receivers, over an ocean, it is shown faint where it is likely to be until it is heard again. Following stops by itself once it has landed. <span id="following"></span></p>
 </section>
 <section><h2>Map</h2>
 <div class="row"><div><label for="map">Background</label><select id="map" name="map">
@@ -130,9 +135,9 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
+const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
 const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop'];
-const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station'];
+const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');
@@ -237,6 +242,8 @@ function radio_words(r){let t='Radio: '+r.state;if(!r.streaming)return t;
 function wait(t){return t>=5400?Math.floor(t/3600)+' h '+String(Math.floor(t%3600/60)).padStart(2,'0')+' min'
  :Math.floor(t/60)+':'+String(t%60).padStart(2,'0')}
 async function status(){try{const s=await(await fetch('api/status')).json();name_rotations(s.glass_native);
+ // The plane followed: how it is going, and its hex once found.
+ $('following').textContent=s.follow?'Now: '+s.follow.status+(s.follow.hex?' ('+s.follow.hex+')':'')+'.':'';
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
  const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol',receiver:'receiver',radio:'radio'};
  let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+NAMES[s.feed_source]:'');

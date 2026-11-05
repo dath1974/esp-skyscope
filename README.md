@@ -31,12 +31,16 @@ from a public ADS-B exchange and the map tiles from public tile servers, decodes
   last seconds; planes
   optionally glide between reports; a "radar beam" that paints them as it passes. Watched aircraft (by registration,
   callsign or ICAO address) always show, in a colour of their own. Altitude limits, ground traffic on or off, the most planes shown.
+- **Follow a plane** anywhere in the world (see [Following a plane](#following-a-plane)): by its registration,
+  callsign or flight number, or from its card. The map moves with it, out to 5000 NM, and over an ocean, out of reach
+  of the receivers, the screen shows where it is likely to be until it is heard again.
 - **On the glass**: drag up or down along the right edge to set the brightness; the screen can turn itself off after a
   while without a touch, and at a bedtime every night, on again at a time or a tap (while it is off no planes or
   tiles are fetched). A long press on the map opens a settings menu with every setting the web page has (see
   [The menu](#the-menu)): its arrows step a value, and a tap on a value's field types it on a keyboard on the glass. It
   also finds a place, changes the Wi-Fi network, and shows the firmware and installs a new release. Tap a plane for
-  its card (type, registration, altitude, climb, speed, heading, operator, squawk); tap the map to see the screen's
+  its card (type, registration, altitude, an arrow up or down for a climb or descent with its rate to the nearest
+  100 ft a minute, speed, heading, operator, squawk); tap the map to see the screen's
   address and range in the status line. Pinch to zoom and drag to pan (see [Zoom and pan](#zoom-and-pan)): a preview,
   kept with **Save**. Swipe along the bottom edge to change the map (see
   [Changing the map with a swipe](#changing-the-map-with-a-swipe)).
@@ -225,8 +229,11 @@ for **Save**; **Cancel** drops them.
   key. Numbers and times get a pad of digits.
 - **Place** finds a place as the page does, but from the screen itself: an airport code (KJFK, JFK) in the FAA's
   airport data, an airport's name there too, then anything in OpenStreetMap's Nominatim, at most once a second and
-  only when **Search** is pressed. Pick one of what it found; an airport is named by its code. Latitude and longitude
-  can be typed instead.
+  only when **Search** is pressed; an airport code the FAA knows gives just that airport. Pick one of what it found; an
+  airport is named by its code. Places come with their English names, and one whose name is in a script the screen
+  cannot write (its letters are Latin only) is left out. Latitude and longitude can be typed instead.
+- **Follow** takes a plane to follow: `N12345`, `G-EUPT`, `BAW286` or `BA 286` (see
+  [Following a plane](#following-a-plane)); empty to stop.
 - **Watched** takes the aircraft with a comma between: `N12345 red, BAW123 blue` (red where no colour is given).
 - **Wi-Fi** shows the network the screen is on; a tap lists the networks it knows, first choice first, then the others
   in reach (the screen scans for them, or uses ESPHome's own scans while it has no network), strongest first, and
@@ -254,10 +261,57 @@ the view as the place and range (the place keeps its name if the middle hardly m
 running out, goes back to the view saved before. Nothing is stored until **Save**. Opening the menu or the screen
 going to sleep drops the preview too.
 
-The range is any whole number from 1 to 250 NM, by a pinch or typed in the menu's Range field. A drawn map's scale
-moves in whole tile levels (each twice the last), so after the three seconds a pinched map may settle a little larger
-or smaller than the fingers left it; the rings and the planes asked for are at the exact range. The radar has no tiles
-and shows any range as it is.
+The range is any whole number from 1 to 5000 NM, by a pinch or typed in the menu's Range field. The exchanges answer
+for 250 NM round a point at most, so beyond that the planes shown are those within 250 NM of the place (or of the plane
+followed), and the airspace is not shown. A drawn map's scale moves in whole tile levels (each twice the last), so
+after the three seconds a pinched map may settle a little larger or smaller than the fingers left it; the rings and the
+planes asked for are at the exact range. The radar has no tiles and shows any range as it is.
+
+While a plane is followed, a pinch or a drag previews the view round it in the same way: **Save** keeps the range (the
+place stays as it was), and the view goes on following the plane from where the fingers left it.
+
+## Following a plane
+
+Type a plane in the menu's **Follow** field or the web page's **Follow a plane**, or tap a plane and press **Follow**
+on its card (**Stop following** there, or an empty field, stops). It can be named by its registration (`N7209W`,
+`G-EUPT`, with or without the dash), its callsign (`BAW286`) or the flight number on a ticket (`BA 286`): the larger
+airlines' flight numbers are turned into the callsign their planes send (a table kept by hand in `follow.h`); for any
+other airline type its callsign. The screen looks it up at adsb.lol or adsb.fi, which both find a plane anywhere in
+the world; a plane not in the air yet is looked for again every two minutes, and the status line says
+`Looking for BA286` meanwhile. Once found, it is followed by its transponder's address, kept with the settings, so
+following carries on through a restart or the screen going to sleep.
+
+- The map moves with it: once the plane is more than 60% of the way from the middle to an edge, the view steps on so
+  the plane sits a little behind the middle, with most of the glass ahead of it. The old picture stays until the new
+  map is whole. Your place is not changed; following stops and the view goes back to it.
+- The planes round it are asked for instead of those round the place, as far as the view reaches from it, at most
+  250 NM. The plane itself is ringed (in blue, unless it is watched in a colour of its own) and has a label of its own,
+  chosen apart from the others' (**Its label**, a controller's data block, `Scope`, unless set otherwise; `auto` is as
+  the others'), so the rest can be bare callsigns while it shows its altitude, speed and wake category.
+- Its track is its whole flight since it was found (from the few minutes the screen had of it before), or as many
+  minutes as **Its track** is set to, up to a day; the other planes keep their own track setting. A long flight keeps
+  its shape in a couple of thousand places, the older part thinned. A stretch out of reach is a straight line across.
+- A chart of the United States (the sectional, the IFR charts, USGS topo) gives way to the streets map while the view
+  is outside the United States, and comes back over it; the map setting itself is not changed. Range rings are not
+  drawn while following, as they measure from the place.
+- Out of reach: the exchanges hear what their volunteers' receivers on the ground hear, so a plane crossing an ocean
+  (the North Atlantic, three or four hours of it) or over a land with few receivers is lost to them. After a minute
+  without a report the screen carries it on along the great circle it was flying, at its last speed, drawn faint and
+  labelled `estimated` (the status line says `out of reach 42 min, estimated`), and asks for it by its address every
+  30 s until it is heard again. A plane lost low and coming down is held where it was last seen instead.
+- Two keys down the left edge while a plane is followed: **Plane** puts it 100 NM round the plane, and **Route** (in a
+  build with routes, below) the whole route and the plane on it; the view then stays put until the plane would leave
+  it. Each keeps its range, as a pinch's **Save** does.
+- Its route, in a build with routes (`make firmware ROUTES=true`, or `routes: true` in the `skyscope:` block; off in
+  the published firmware): the airports it flies from and to, asked of [adsbdb](https://www.adsbdb.com) by its callsign,
+  and the great circle between them drawn under everything in a neutral line (the ink at half strength: light on a
+  dark map, dark on a light one), its own track in its colour over it. Its card names them (`KPDX to EGLL`). This is no
+  filed flight plan (those are not free to have), only the way a long flight roughly flies. adsbdb's route data is
+  David Taylor's and Jim Mason's and may not be copied or published without their leave, which is why it is left out
+  of the releases.
+- Following stops by itself once the plane has landed (on the ground for ten minutes after flying, or lost low and
+  coming down for as long), or after it has been out of reach for twelve hours. A plane found at its gate before it
+  flies is waited for.
 
 ## Changing the map with a swipe
 
@@ -300,8 +354,8 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | Request | What it does |
 |---|---|
 | `GET /api/settings` | every setting |
-| `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing. `{"follow": "BAW286"}` follows a plane, `{"follow": ""}` stops |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the plane followed (`follow`: what was asked, `state` one of looking, live, lost, landed or gave_up, the status line's words, and once found its hex, callsign, registration, where it is or is likely to be, whether that is `estimated`, and the seconds since it was last heard), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, an install's progress, and the manifest it asks (`source`) |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -330,8 +384,9 @@ Everything the screen shows comes from free public services. Please keep to thei
 
 | Source | What | Terms |
 |---|---|---|
-| [adsb.fi](https://adsb.fi) | aircraft (the default) | free for personal, non-commercial use; at most one request a second |
-| [adsb.lol](https://adsb.lol) | aircraft | open data, ODbL; no key yet (it plans to ask feeders for one); limits that change with its load |
+| [adsb.fi](https://adsb.fi) | aircraft (the default), and a plane followed looked up | free for personal, non-commercial use; at most one request a second (lookups and reports kept 1.1 s apart) |
+| [adsbdb](https://www.adsbdb.com) | a followed plane's route, only in a build with `routes: true` | free; its route data (David Taylor, Jim Mason) may not be copied or published without their leave: asked for each flight followed, kept nowhere, and left out of the releases |
+| [adsb.lol](https://adsb.lol) | aircraft, and a plane followed looked up | open data, ODbL; no key yet (it plans to ask feeders for one); limits that change with its load |
 | [Esri gray canvas](https://www.esri.com) | dark and light gray streets | Esri's terms of use |
 | [OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/) | streets | light use only, with a User-Agent and caching (both done) |
 | [Esri World Imagery](https://www.esri.com) | satellite | Esri's terms of use |

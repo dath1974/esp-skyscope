@@ -255,6 +255,7 @@ skyscope:
   font_small: font_small
   font_label: font_label
   font_title: font_title
+  routes: ${routes}
   brightness_output: backlight
   # The GT911 tracks several fingers: pinch to zoom, two fingers to pan.
   touchscreen_id: touch

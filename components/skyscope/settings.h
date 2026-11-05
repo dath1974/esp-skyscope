@@ -52,7 +52,9 @@ inline constexpr Names<6> LABELS{{"auto", "none", "callsign", "altitude", "full"
 inline constexpr Names<6> WATCH_COLOURS{{"red", "orange", "amber", "green", "blue", "purple"}};
 
 inline constexpr int RANGES_NM[] = {2, 3, 5, 8, 10, 15, 20, 30, 40, 60, 80, 120, 160, 250};
-constexpr int MIN_RANGE_NM = 1, MAX_RANGE_NM = 250;
+// The range goes out to a good part of the world, for following a plane across an ocean (follow.h); the exchanges answer
+// for 250 NM round a point at most, so planes come from that far round the place, or round the plane followed.
+constexpr int MIN_RANGE_NM = 1, MAX_RANGE_NM = 5000, FEED_REACH_NM = 250;
 constexpr int ALTITUDE_CEILING = 60000;
 constexpr size_t MOST_WATCHED = 12;
 
@@ -99,6 +101,14 @@ struct Settings {
   bool glide = true;
   int track_s = 60;
   std::vector<Watch> watch;
+  // The plane followed (follow.h), as it was asked for: a registration (N12345, G-EUPT), a callsign (BAW286), a flight
+  // number (BA286) or an ICAO hex; "" for none. follow_hex is its transponder's address once found, kept so a restart
+  // over an ocean still knows which plane it is.
+  std::string follow, follow_hex;
+  // The followed plane's own label, whatever the others' are: a controller's data block unless chosen otherwise.
+  LabelKind follow_label = LABEL_SCOPE;
+  // Minutes of the followed plane's track, 0 for its whole flight since it was found.
+  int follow_track_min = 0;
   // The screen.
   int rotation = -1;  // degrees: 0, 90, 180 or 270, or -1 for the board's own (its YAML's lvgl: rotation)
   bool metric = false;
@@ -128,6 +138,20 @@ inline std::string upper_id(const char *s) {
     if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) out += c;
     else if (c >= 'a' && c <= 'z') out += (char) (c - 32);
   }
+  return out;
+}
+
+// What is typed for a plane to follow, as the settings keep it: upper case letters, digits and dashes (a registration's
+// own: G-EUPT), nothing else.
+inline std::string follow_id(const char *s) {
+  std::string out;
+  for (; s && *s; ++s) {
+    const char c = *s;
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') out += c;
+    else if (c >= 'a' && c <= 'z') out += (char) (c - 32);
+  }
+  while (!out.empty() && out.back() == '-') out.pop_back();
+  while (!out.empty() && out.front() == '-') out.erase(0, 1);
   return out;
 }
 
@@ -167,6 +191,10 @@ inline void to_json(const Settings &s, JsonObject o) {
     e["id"] = item.id;
     e["colour"] = WATCH_COLOURS[item.colour];
   }
+  o["follow"] = s.follow;
+  o["follow_hex"] = s.follow_hex;
+  o["follow_label"] = LABELS[s.follow_label];
+  o["follow_track_min"] = s.follow_track_min;
   o["rotation"] = s.rotation;
   o["metric"] = s.metric;
   o["brightness"] = s.brightness;
@@ -287,6 +315,28 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
         n.watch.push_back({id, colour});
     }
   }
+  // A new plane to follow is found again; one given with its address (a plane's card) is that plane.
+  if (!o["follow"].isNull()) {
+    const char *t = o["follow"].as<const char *>();
+    if (!t) return fail("follow");
+    const std::string id = follow_id(t);
+    if (id.size() == 1 || id.size() > 10) return fail("follow");
+    if (id != n.follow) n.follow_hex.clear();
+    n.follow = id;
+  }
+  if (!o["follow_hex"].isNull()) {
+    const char *t = o["follow_hex"].as<const char *>();
+    std::string hex;
+    for (const char *c = t ? t : ""; *c; ++c) {
+      if (!std::isxdigit((unsigned char) *c)) return fail("follow_hex");
+      hex += (char) std::tolower((unsigned char) *c);
+    }
+    if (!t || (!hex.empty() && hex.size() != 6)) return fail("follow_hex");
+    n.follow_hex = hex;
+  }
+  if (n.follow.empty()) n.follow_hex.clear();
+  if (!choice("follow_label", n.follow_label, LABELS)) return fail("follow_label");
+  if (!number("follow_track_min", n.follow_track_min, 0, 1440)) return fail("follow_track_min");
   if (!number("rotation", n.rotation, -1, 270) || (n.rotation >= 0 && n.rotation % 90)) return fail("rotation");
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");

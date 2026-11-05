@@ -382,6 +382,19 @@ static void draw(lv_event_t *e) {
     ui::part_us[part] += now_us - mark;
     mark = now_us;
   };
+  // The followed plane's route under everything, a neutral line (the ink, or the phosphor, most of its strength) on a
+  // soft halo of the card's colour, so it reads on imagery and streets alike; its own track in its colour lies over it.
+  if (o.route.size() >= 4) {
+    const lv_color_t ink = radar ? phosphor(o, 0.6f) : lv_color_hex(cl::palette(o.light).ink);
+    const int width = std::max(2, s.line + 1);
+    for (int pass = 0; pass < 2; ++pass)
+      for (size_t n = 0; n + 3 < o.route.size(); n += 2) {
+        if (o.route[n] == INT16_MIN || o.route[n + 2] == INT16_MIN) continue;
+        const ap::Point from = on_glass(o.route[n], o.route[n + 1]), to = on_glass(o.route[n + 2], o.route[n + 3]);
+        if (pass == 0) line(layer, from, to, halo, width + 2 * s.halo, LV_OPA_40);
+        else line(layer, from, to, ink, width, LV_OPA_70);
+      }
+  }
   // The tracks first, under every marker: from the oldest place to where the plane is now. On a scope its history,
   // a dot at each place it was, the older ones fainter, as a radar keeps a plane's last returns.
   for (size_t i = 0; i < o.planes.size(); ++i) {
@@ -440,8 +453,9 @@ static void draw(lv_event_t *e) {
     if (outlined(o, p)) {
       // A halo in the card's colour, so the plane reads on streets and on water alike.
       const auto kind = (shapes::Kind) p.kind;
-      shape(layer, c, size + 2 * s.halo, p.heading, kind, halo, LV_OPA_80);
-      shape(layer, c, size, p.heading, kind, colour, LV_OPA_COVER);
+      // A plane followed but out of reach, where it is likely to be: faint, as it is a guess.
+      shape(layer, c, size + 2 * s.halo, p.heading, kind, halo, p.estimated ? LV_OPA_30 : LV_OPA_80);
+      shape(layer, c, size, p.heading, kind, colour, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
       continue;
     }
     if (radar && o.marker == ap::ARROW && (p.vx || p.vy)) {
@@ -453,7 +467,7 @@ static void draw(lv_event_t *e) {
       line(layer, tick[0], tick[1], halo, s.line + 2 * s.halo, LV_OPA_80);
       line(layer, tick[0], tick[1], colour, s.line, LV_OPA_COVER);
     }
-    dot(layer, c, d, colour, radar ? 0 : s.halo, halo);
+    dot(layer, c, d, colour, radar ? 0 : s.halo, halo, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
   }
   lap(ui::MARKERS);
   // The labels last, over everything: a soft pill of the card's colour with the plane's lines in ink, kept apart from each

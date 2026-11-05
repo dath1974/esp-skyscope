@@ -102,7 +102,19 @@ void Skyscope::describe_ui_(JsonObject out) {
     JsonObject card = out["card"].to<JsonObject>();
     card["title"] = text_of(card_title_);
     JsonArray rows = card["rows"].to<JsonArray>();
-    for (lv_obj_t *r : card_rows_) rows.add(text_of(r));
+    // The motion line as it reads: the altitude, the arrow drawn as "up" or "down", and what comes after it.
+    const std::string arrow = shown(card_arrow_) ? (card_arrow_way_ > 0 ? " up " : " down ") : " ";
+    rows.add(text_of(card_rows_[0]));
+    rows.add(text_of(card_rows_[1]) + arrow + text_of(card_after_));
+    rows.add(text_of(card_rows_[2]));
+    if (shown(card_follow_)) place(card["follow"].to<JsonObject>(), card_follow_);
+  }
+  out["route_points"] = route_points_;  // the followed plane's route as drawn (follow.h route_on), 0 for none
+  // The keys down the left edge while a plane is followed.
+  if (follow_keys_ && shown(follow_keys_)) {
+    JsonObject keys = out["follow_keys"].to<JsonObject>();
+    if (shown(route_key_)) place(keys["route"].to<JsonObject>(), route_key_);
+    place(keys["plane"].to<JsonObject>(), plane_key_);
   }
   JsonArray planes = out["planes"].to<JsonArray>();
   // Where a finger finds each now (view.h spots): on a sweeping scope, only the planes its beam has painted.

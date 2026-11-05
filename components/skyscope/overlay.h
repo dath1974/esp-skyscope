@@ -158,6 +158,25 @@ inline std::string climb_arrow(const feed::Flight &f) {
   if (f.on_ground || !f.has_climb || std::abs(f.climb) < CLIMB_FPM) return "";
   return f.climb > 0 ? plan::ARROW_UP : plan::ARROW_DOWN;
 }
+// Which way it is going, for its card's arrow: 1 climbing, -1 descending, 0 level (under CLIMB_FPM) or not known.
+inline int climb_way(const feed::Flight &f) {
+  if (f.on_ground || !f.has_climb || std::abs(f.climb) < CLIMB_FPM) return 0;
+  return f.climb > 0 ? 1 : -1;
+}
+// How fast, roughly, after its card's arrow: "1,800 ft/min" (to the nearest 100) or on a metric screen "9 m/s"; ""
+// where climb_way is 0.
+inline std::string climb_rate(const feed::Flight &f, bool metric) {
+  if (!climb_way(f)) return "";
+  char out[32];
+  if (metric) {
+    std::snprintf(out, sizeof(out), "%ld m/s", std::max(1L, std::lround(std::abs(f.climb) * 0.3048 / 60)));
+  } else {
+    const long fpm = std::lround(std::abs(f.climb) / 100.0) * 100;
+    if (fpm >= 1000) std::snprintf(out, sizeof(out), "%ld,%03ld ft/min", fpm / 1000, fpm % 1000);
+    else std::snprintf(out, sizeof(out), "%ld ft/min", fpm);
+  }
+  return out;
+}
 inline std::string speed_text(const feed::Flight &f, bool metric) {
   if (!f.has_speed) return "";
   char out[24];
@@ -240,6 +259,8 @@ inline plan::Overlay build(const std::vector<feed::Flight> &flights, const Setti
   o.glide = s.glide;
   o.at = now;
   const LabelKind kind = label_kind(s, view, px_per_mm);
+  // The plane followed (follow.h) has a label of its own: `auto` is as the others' would be.
+  const LabelKind followed_kind = s.follow_label == LABEL_AUTO ? kind : s.follow_label;
   for (const feed::Flight *f : shown(flights, s, view)) {
     plan::Plane p;
     const geo::Pixel at = view.point(f->lat, f->lon);
@@ -250,8 +271,11 @@ inline plan::Overlay build(const std::vector<feed::Flight> &flights, const Setti
     // A scope's planes carry their motion whether they glide or not: its vector is where a plane is a minute on.
     if (s.glide || radar) std::tie(p.vx, p.vy) = velocity(*f, view);
     p.watch = watch_colour(*f, s.watch);
-    p.label = label_of(*f, p.watch && kind == LABEL_NONE ? LABEL_CALLSIGN : kind, s.metric);
+    const LabelKind own = !s.follow_hex.empty() && f->hex == s.follow_hex ? followed_kind : kind;
+    p.label = label_of(*f, p.watch && own == LABEL_NONE ? LABEL_CALLSIGN : own, s.metric);
     p.id = f->hex;
+    p.estimated = f->estimated;
+    if (f->estimated) p.label += std::string(p.label.empty() ? "" : "\n") + "estimated";
     p.kind = s.marker == MARKER_TYPE ? shapes::kind_of(f->category, f->type, f->description) : shapes::AIRLINER;
     if (s.track_s > 0) {
       for (const auto &place : thin(tracks.of(f->hex, s.track_s, now), TRACK_POINTS)) {

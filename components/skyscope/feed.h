@@ -36,6 +36,7 @@ struct Flight {
   bool has_climb = false;
   int climb = 0;             // feet a minute
   bool emergency = false;
+  bool estimated = false;    // no report: where a plane followed and out of reach is likely to be (follow.h)
 };
 
 // The URL of `feed` for planes within `radius_nm` of a place. Every one of them caps the radius at 250 nm.

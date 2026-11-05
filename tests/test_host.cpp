@@ -15,6 +15,7 @@
 #include "../components/skyscope/card.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
+#include "../components/skyscope/follow.h"
 #include "../components/skyscope/geo.h"
 #include "../components/skyscope/glass.h"
 #include "../components/skyscope/http.h"
@@ -1029,6 +1030,287 @@ static void test_beam() {
   CHECK((near_beam >> 5 & 0x3F) > (far_back >> 5 & 0x3F));
 }
 
+// Following a plane (follow.h): what is asked for it, how it goes when out of reach, and the view moving with it.
+static void test_follow() {
+  using namespace follow;
+  // Flight numbers turned into callsigns; anything else is none.
+  CHECK(callsign_of("BA286") == "BAW286" && callsign_of("BA0286") == "BAW286" && callsign_of("U21234") == "EZY1234");
+  CHECK(callsign_of("AS1A") == "ASA1A" && callsign_of("6E2131") == "IGO2131" && callsign_of("BA0") == "BAW0");
+  CHECK(callsign_of("N12345").empty() && callsign_of("BAW286").empty() && callsign_of("ZZ123").empty() &&
+        callsign_of("BA12345").empty() && callsign_of("12345").empty());
+  // What is asked: a known hex alone; else the callsigns, the registration (with its dash added) and the hex.
+  auto asked = asks("BA286", "");
+  CHECK(asked.size() >= 3 && asked[0] == (Ask{BY_CALLSIGN, "BAW286"}) && asked[1] == (Ask{BY_CALLSIGN, "BA286"}));
+  asked = asks("N7209W", "");
+  CHECK(std::find(asked.begin(), asked.end(), Ask{BY_REGISTRATION, "N7209W"}) != asked.end() &&
+        std::none_of(asked.begin(), asked.end(), [](const Ask &a) { return a.id.find('-') != std::string::npos; }));
+  asked = asks("GPOLH", "");
+  CHECK(std::find(asked.begin(), asked.end(), Ask{BY_REGISTRATION, "G-POLH"}) != asked.end() &&
+        std::find(asked.begin(), asked.end(), Ask{BY_REGISTRATION, "GP-OLH"}) != asked.end());
+  asked = asks("G-POLH", "");
+  CHECK(std::find(asked.begin(), asked.end(), Ask{BY_REGISTRATION, "G-POLH"}) != asked.end() &&
+        std::find(asked.begin(), asked.end(), Ask{BY_CALLSIGN, "GPOLH"}) != asked.end());
+  asked = asks("A9A734", "");
+  CHECK(asked.back() == (Ask{BY_HEX, "a9a734"}));
+  asked = asks("BAW286", "4ca123");
+  CHECK(asked.size() == 1 && asked[0] == (Ask{BY_HEX, "4ca123"}));
+  CHECK(url(ADSB_LOL, {BY_REGISTRATION, "G-POLH"}) == "https://api.adsb.lol/v2/reg/G-POLH");
+  CHECK(url(ADSB_FI, {BY_CALLSIGN, "BAW286"}) == "https://opendata.adsb.fi/api/v2/callsign/BAW286");
+  CHECK(url(ADSB_FI, {BY_HEX, "a9a734"}) == "https://opendata.adsb.fi/api/v2/hex/a9a734");
+  CHECK(url(ADSB_LOL, {BY_CALLSIGN, "A/../B"}) == "https://api.adsb.lol/v2/callsign/AB");
+  CHECK(lookup_feeds(RECEIVER)[0] == ADSB_LOL && lookup_feeds(ADSB_FI)[0] == ADSB_FI);
+
+  // The settings keep what was typed in one form, and a new plane forgets the old one's hex.
+  Settings s;
+  JsonDocument change;
+  std::string error;
+  change["follow"] = " ba 286 ";
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.follow == "BA286" && s.follow_hex.empty());
+  change.clear();
+  change["follow_hex"] = "4CA123";
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.follow_hex == "4ca123");
+  change.clear();
+  change["follow"] = "BA286";
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.follow_hex == "4ca123");
+  change["follow"] = "g-polh";
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.follow == "G-POLH" && s.follow_hex.empty());
+  change.clear();
+  change["follow_hex"] = "xyz";
+  CHECK(!apply(change.as<JsonObjectConst>(), s, error) && error == "follow_hex");
+  change.clear();
+  change["follow"] = "ABCDEFGHIJK";
+  CHECK(!apply(change.as<JsonObjectConst>(), s, error) && error == "follow");
+  change["follow"] = "";
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.follow.empty() && s.follow_hex.empty());
+  change.clear();
+  change["range_nm"] = 5000;
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && s.range_nm == 5000);
+  change["range_nm"] = 5001;
+  CHECK(!apply(change.as<JsonObjectConst>(), s, error));
+
+  // A flight seen, out of reach, carried on along its great circle, found again; then landing stops it.
+  feed::Flight f;
+  f.hex = "a9a734";
+  f.callsign = "AMF1985";
+  f.lat = 45.59;
+  f.lon = -122.60;
+  f.has_altitude = true;
+  f.altitude = 35000;
+  f.has_heading = true;
+  f.heading = 45;
+  f.has_speed = true;
+  f.speed = 480;
+  Follower fl;
+  CHECK(fl.phase(1000) == LOOKING && status(fl, "AMF1985", 1000) == "Looking for AMF1985");
+  fl.seen(f, 1000);
+  CHECK(fl.phase(30000) == LIVE && status(fl, "N7209W", 30000) == "Following AMF1985");
+  const uint32_t hour = 3600u * 1000;
+  CHECK(fl.phase(1000 + hour) == LOST && fl.estimating(1000 + hour));
+  const geo::Place p = fl.where(1000 + hour);
+  CHECK(near(geo::metres_between(f.lat, f.lon, p.lat, p.lon), 480 * geo::NM, 100) && p.lat > f.lat && p.lon > f.lon);
+  CHECK(status(fl, "N7209W", 1000 + 42 * 60000 + LOST_MS) == "AMF1985 out of reach 43 min, estimated");
+  CHECK(fl.shown(1000 + hour).lat == p.lat);
+  // An estimate goes no further than MOST_ESTIMATE_MS, and half a day lost gives up.
+  const geo::Place far = fl.where(1000 + 11 * hour), most = fl.where(1000 + MOST_ESTIMATE_MS);
+  CHECK(far.lat == most.lat && far.lon == most.lon);
+  CHECK(fl.phase(1000 + GIVE_UP_MS) == GAVE_UP);
+  // On the ground after flying: landed once it has sat there a while.
+  f.on_ground = true;
+  fl.seen(f, 2 * hour);
+  CHECK(fl.phase(2 * hour + 1000) == LIVE && !fl.estimating(2 * hour + LOST_MS + 1000));
+  CHECK(fl.phase(2 * hour + LANDED_MS) == LANDED);
+  // Found at the gate before it flies: never landed, however long it waits there.
+  Follower gate;
+  gate.seen(f, 1000);
+  CHECK(gate.phase(1000 + LANDED_MS + 5000) == LOST && !gate.estimating(1000 + hour));
+  // Lost low and coming down after flying: landing, held where it was, landed after a while.
+  Follower low;
+  f.on_ground = false;
+  low.seen(f, 1000);
+  f.altitude = 1200;
+  f.has_climb = true;
+  f.climb = -700;
+  low.seen(f, 2000);
+  CHECK(low.phase(2000 + LOST_MS + 1) == LOST && !low.estimating(2000 + LOST_MS + 1) &&
+        low.where(2000 + hour).lat == f.lat);
+  CHECK(low.phase(2000 + LANDED_MS) == LANDED);
+  // The answer that found it: the one in the air before one on the ground.
+  std::vector<feed::Flight> found(2, f);
+  found[0].on_ground = true;
+  found[0].hex = "aaaaaa";
+  CHECK(pick(found) == &found[1] && pick({}) == nullptr);
+
+  // The view: kept while the plane is well inside, moved once it is out past KEEP, with the plane behind the middle.
+  const geo::View v(45.0, -122.0, 7, 480, 640);
+  CHECK(!off_centre(v, 45.0, -122.0));
+  const geo::Place edge = v.place(480 * 0.95, 320);
+  CHECK(off_centre(v, edge.lat, edge.lon));
+  const geo::Place c = centre_for(v, edge.lat, edge.lon, true, 90);
+  const geo::View next(c.lat, c.lon, v.zoom, v.width, v.height);
+  const geo::Pixel at = next.point(edge.lat, edge.lon);
+  CHECK(near(at.x, 240 - LEAD * 240, 3) && near(at.y, 320, 3) && !off_centre(next, edge.lat, edge.lon));
+  geo::View round = v;
+  round.round = true;
+  const geo::Place corner = v.place(480 * 0.8, 640 * 0.8);
+  CHECK(off_centre(round, corner.lat, corner.lon));
+
+  // Shown while following: the middle, a world map outside the United States, no rings, the plane watched.
+  Settings home;
+  home.map = SECTIONAL;
+  home.lat = 40.6;
+  home.lon = -73.8;
+  Centre over{true, 51.5, -0.4, "a9a734"};
+  Settings shown_s = shown(home, over);
+  CHECK(shown_s.lat == 51.5 && shown_s.map == STREETS && !shown_s.rings && shown_s.located);
+  CHECK(shown_s.watch.size() == 1 && shown_s.watch[0].id == "A9A734");
+  over.lat = 45.6;
+  over.lon = -122.6;
+  CHECK(shown(home, over).map == SECTIONAL);
+  CHECK(shown(home, Centre{}).lat == 40.6 && shown(home, Centre{}).rings);
+  CHECK(in_united_states(61.2, -149.9) && in_united_states(21.3, -157.9) && !in_united_states(51.5, -0.4));
+  // The planes round it: out to the view's far corner from it, at most the exchanges' reach.
+  CHECK(reach_nm(v, 45.0, -122.0) < FEED_REACH_NM);
+  const geo::View wide(45.0, -122.0, 2, 480, 640);
+  CHECK(reach_nm(wide, 45.0, -122.0) == FEED_REACH_NM);
+  // A great circle: west from London, and over the date line.
+  const geo::Place west = geo::destination(51.5, -0.4, 270, 1000 * 1000);
+  CHECK(west.lon < -10 && west.lat < 51.5 && west.lat > 50);  // due west at first, a great circle bends south
+  CHECK(geo::destination(0, 179.5, 90, 200 * 1000).lon < -178);
+  // The followed plane's own label: a data block among planes labelled by callsign, and back to theirs with `auto`.
+  Settings labels;
+  labels.label = LABEL_CALLSIGN;
+  labels.lat = f.lat;
+  labels.lon = f.lon;
+  CHECK(labels.follow_label == LABEL_SCOPE);
+  feed::Flight other = f;
+  other.hex = "bbbbbb";
+  other.callsign = "OTHER1";
+  f.on_ground = false;
+  f.altitude = 35000;
+  f.has_climb = false;
+  const std::vector<feed::Flight> two{f, other};
+  const geo::View here(f.lat, f.lon, 9, 480, 640);
+  overlay::Tracks none;
+  plan::Overlay o = overlay::build(two, shown(labels, Centre{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
+  auto label_for = [&](const char *id) {
+    for (const auto &p : o.planes) if (p.id == id) return p.label;
+    return std::string("?");
+  };
+  CHECK(label_for("a9a734") == "AMF1985\n350 48" && label_for("bbbbbb") == "OTHER1");
+  labels.follow_label = LABEL_AUTO;
+  o = overlay::build(two, shown(labels, Centre{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
+  CHECK(label_for("a9a734") == "AMF1985");
+  JsonDocument pick_label;
+  pick_label["follow_label"] = "full";
+  CHECK(apply(pick_label.as<JsonObjectConst>(), labels, error) && labels.follow_label == LABEL_FULL);
+  pick_label["follow_label"] = "big";
+  CHECK(!apply(pick_label.as<JsonObjectConst>(), labels, error) && error == "follow_label");
+  // The trail: a place each MIN_STEP_M, thinned at its old end past MOST_POINTS, as many minutes of it as asked.
+  Trail trail;
+  trail.clear("a9a734");
+  for (int i = 0; i < 3000; ++i) trail.add(40.0 + i * 0.01, -100.0, (uint32_t) i * 1000);
+  trail.add(40.0 + 2999 * 0.01 + 0.001, -100.0, 3000000);  // 111 m on: not kept
+  CHECK(trail.hex() == "a9a734" && trail.size() <= Trail::MOST_POINTS && trail.size() > Trail::MOST_POINTS / 2);
+  const auto all = trail.since(3000000, 0);
+  CHECK(near(all.front().lat, 40.0, 1e-4) && near(all.back().lat, 40.0 + 2999 * 0.01, 1e-3));
+  const auto lately = trail.since(2999 * 1000, 1);  // the last minute: one place a second
+  CHECK(lately.size() == 61 && near(lately.back().lat, all.back().lat, 1e-6));
+  // On the frame: thinned to the most asked, the plane's end kept, the far old end cut off.
+  const geo::View near_end(all.back().lat, -100.0, 12, 480, 640);
+  const auto px = track_on(all, near_end, 50);
+  CHECK(!px.empty() && px.size() <= 100 && near(px[px.size() - 1], 320, 1) && near(px[px.size() - 2], 240, 1));
+  CHECK(std::all_of(px.begin(), px.end(), [](int16_t v) { return std::abs(v) <= FAR_PX; }));
+  const geo::View world(all.back().lat, -100.0, 3, 480, 640);
+  const auto whole = track_on(all, world, 50);
+  CHECK(whole.size() == 100 && near(world.place(whole[0], whole[1]).lat, 40.0, 0.1));
+  CHECK(track_on({}, world, 50).empty());
+  JsonDocument minutes;
+  minutes["follow_track_min"] = 480;
+  CHECK(apply(minutes.as<JsonObjectConst>(), labels, error) && labels.follow_track_min == 480);
+  minutes["follow_track_min"] = 2000;
+  CHECK(!apply(minutes.as<JsonObjectConst>(), labels, error) && error == "follow_track_min");
+  CHECK(Settings{}.follow_track_min == 0);
+  // The route: adsbdb's answer read, its great circle, the line on the frame, and a view that holds it all.
+  JsonDocument doc;
+  Route route;
+  const std::string answer = R"({"response":{"flightroute":{"callsign":"BAW266","origin":{"icao_code":"KPDX",
+      "latitude":45.5887,"longitude":-122.5975},"destination":{"icao_code":"EGLL","latitude":51.4706,"longitude":-0.461941}}}})";
+  CHECK(read_route(answer.c_str(), answer.size(), doc, route, error) && route.known && route.from == "KPDX" &&
+        route.to == "EGLL" && near(route.to_lon, -0.461941, 1e-6));
+  Route nothing;
+  const std::string unknown = R"({"response":"unknown callsign"})";
+  CHECK(read_route(unknown.c_str(), unknown.size(), doc, nothing, error) && !nothing.known);
+  CHECK(!read_route("{", 1, doc, nothing, error));
+  CHECK(route_url("baw 266") == "https://api.adsbdb.com/v0/callsign/BAW266");
+  const auto circle = route_places(route, 32);
+  CHECK(circle.size() == 32 && near(circle.front().lat, 45.5887, 1e-6) && near(circle.back().lon, -0.461941, 1e-6));
+  // Portland to London goes up past Hudson Bay and southern Greenland: far north of both ends.
+  CHECK(std::any_of(circle.begin(), circle.end(), [](const geo::Place &p) { return p.lat > 60; }));
+  const Fit all_of_it = fit(circle, 480, 640, false);
+  CHECK(all_of_it.range_nm > 1000 && all_of_it.range_nm < MAX_RANGE_NM);
+  const geo::View fitted = view_for(all_of_it.centre.lat, all_of_it.centre.lon, all_of_it.range_nm, 480, 640);
+  CHECK(std::all_of(circle.begin(), circle.end(), [&](const geo::Place &p) {
+    const geo::Pixel q = fitted.point(p.lat, p.lon);
+    return q.x >= 0 && q.x < 480 && q.y >= 0 && q.y < 640;
+  }));
+  const auto line = route_on(route, fitted);
+  CHECK(line.size() == 128 && std::none_of(line.begin(), line.end(), [](int16_t v) { return v == ROUTE_BREAK; }));
+  // Close in at Portland: the far end leaves the frame by far and is cut off, with no break left dangling.
+  const auto close = route_on(route, view_for(45.5887, -122.5975, 20, 480, 640));
+  CHECK(close.size() >= 4 && close.size() < 128 && close.back() != ROUTE_BREAK && near(close[0], 240, 2));
+  // Over the date line: Tokyo to San Francisco is one piece on a view that holds it, the fit the short way round.
+  Route pacific{true, "JAL2", "RJTT", "KSFO", 35.55, 139.78, 37.62, -122.38};
+  const Fit ocean = fit(route_places(pacific, 24), 480, 640, false);
+  CHECK(ocean.centre.lon > 150 || ocean.centre.lon < -150);
+  CHECK(fit({{45, -122}, {45.1, -122.1}}, 480, 640, false).range_nm < 20);
+  CHECK(fit({{45, -122}}, 480, 640, true).range_nm == MIN_RANGE_NM);
+  const geo::Place mid = geo::between(0, 0, 0, 90, 0.5);
+  CHECK(near(mid.lat, 0, 1e-9) && near(mid.lon, 45, 1e-9));
+  CHECK(age_text(40000) == "40 s" && age_text(12 * 60000) == "12 min" && age_text(3 * hour + 5 * 60000) == "3 h 05 min");
+}
+
+// A plane's card says how fast it climbs or descends, roughly.
+// A tap takes the nearest plane in reach, but the plane followed before any other within its own reach.
+static void test_pick() {
+  plan::Overlay o;
+  o.glide = false;
+  auto add = [&](const char *id, int x, int y) {
+    plan::Plane p;
+    p.id = id;
+    p.x = x;
+    p.y = y;
+    o.planes.push_back(p);
+  };
+  add("near", 102, 100);
+  add("followed", 112, 100);
+  add("far", 200, 100);
+  CHECK(plan::pick(o, 100, 100, 20, 0) == "near");
+  o.followed = "followed";
+  CHECK(plan::pick(o, 100, 100, 20, 0) == "followed");
+  // Its reach is a quarter more than the others', no more.
+  CHECK(plan::pick(o, 88, 100, 20, 0) == "followed" && plan::pick(o, 85, 100, 20, 0) == "near");
+  CHECK(plan::pick(o, 200, 104, 20, 0) == "far" && plan::pick(o, 150, 150, 20, 0).empty());
+}
+
+static void test_climb_text() {
+  feed::Flight f;
+  CHECK(overlay::climb_way(f) == 0 && overlay::climb_rate(f, false).empty());
+  f.has_climb = true;
+  f.climb = 150;
+  CHECK(overlay::climb_way(f) == 0 && overlay::climb_rate(f, false).empty());
+  f.climb = 1830;
+  CHECK(overlay::climb_way(f) == 1 && overlay::climb_rate(f, false) == "1,800 ft/min");
+  f.climb = -640;
+  CHECK(overlay::climb_way(f) == -1 && overlay::climb_rate(f, false) == "600 ft/min" &&
+        overlay::climb_rate(f, true) == "3 m/s");
+  f.climb = -12345;
+  CHECK(overlay::climb_rate(f, false) == "12,300 ft/min");
+  f.climb = 250;
+  CHECK(overlay::climb_rate(f, true) == "1 m/s");
+  f.on_ground = true;
+  CHECK(overlay::climb_way(f) == 0);
+}
+
 static void test_providers() {
   providers::Providers p;
   p.set_order(ADSB_FI, true);
@@ -1171,8 +1453,8 @@ static void test_menu() {
   CHECK(menu::stepped(row("range_nm"), st, 1) && st.range_nm == 7);
   st.range_nm = 6;
   CHECK(menu::stepped(row("range_nm"), st, -1) && st.range_nm == 5);
-  st.range_nm = 250;
-  CHECK(!menu::stepped(row("range_nm"), st, 1) && st.range_nm == 250);
+  st.range_nm = 5000;
+  CHECK(!menu::stepped(row("range_nm"), st, 1) && st.range_nm == 5000);
   // Words go round; the map skips the custom server when none is set.
   st.map = IFR_HIGH;
   CHECK(menu::stepped(row("map"), st, 1) && st.map == RADAR);
@@ -1219,7 +1501,7 @@ static void test_menu() {
   Settings t;
   CHECK(menu::typed_in(row("range_nm"), t, " 12 ") && t.range_nm == 12 && menu::shown(row("range_nm"), t) == "12 NM");
   CHECK(menu::stepped(row("range_nm"), t, 1) && t.range_nm == 15);
-  CHECK(!menu::typed_in(row("range_nm"), t, "300") && t.range_nm == 15);
+  CHECK(!menu::typed_in(row("range_nm"), t, "6000") && t.range_nm == 15);
   CHECK(!menu::typed_in(row("range_nm"), t, "12a") && !menu::typed_in(row("range_nm"), t, ""));
   CHECK(menu::text_of(row("range_nm"), t) == "15");
   // Coordinates: the place's name goes with a coordinate typed, and there is a place from then on.
@@ -1336,6 +1618,11 @@ static void test_places() {
   CHECK(named_url("Paris").empty() && named_url("Airport").empty());
   CHECK(named_url("O'Hare Airport'; DROP").find("%27%3B") == std::string::npos);
   CHECK(nominatim_url("Zürich HB").find("q=Z%C3%BCrich%20HB") != std::string::npos);
+  // Names asked for in English, and one the fonts cannot write left out: they hold Latin letters only.
+  CHECK(nominatim_url("pdx").find("accept-language=en") != std::string::npos);
+  CHECK(latin("Zürich") && latin("Łódź") && latin("St. Mary’s – East") && latin("Portland"));
+  CHECK(!latin("နေပြည်တော်") && !latin("東京") &&
+        !latin("Москва") && !latin("Plane 🛩"));
 
   JsonDocument doc;
   std::vector<Found> found;
@@ -1358,6 +1645,12 @@ static void test_places() {
   places.clear();
   CHECK(read_nominatim(osm.c_str(), osm.size(), "zrh", doc, places, error) && places[0].name == "ZRH");
   CHECK(!read_nominatim("{}", 2, "x", doc, places, error));
+  const std::string burmese = R"([{"lat":"19.7","lon":"96.1","display_name":"နေပြည်, Myanmar",
+      "class":"place","type":"city"},{"lat":"45.5","lon":"-122.6","display_name":"Portland, Oregon","class":"place",
+      "type":"city"}])";
+  std::vector<Found> written;
+  CHECK(read_nominatim(burmese.c_str(), burmese.size(), "pdx", doc, written, error) && written.size() == 1 &&
+        written[0].name == "Portland");
   // The FAA's first, then the airports, then the rest.
   std::reverse(places.begin(), places.end());
   const auto all = in_order(found, places);
@@ -1395,7 +1688,9 @@ static void test_pinch() {
   CHECK(near(v.zoom, from.zoom, 1e-9) && near(middle_now.x, 250, 1e-6) && near(middle_now.y, 285, 1e-6));
   // As far as the range goes, either way.
   CHECK(range_nm(p.moved({0, 200}, {599, 200 + 1})) >= MIN_RANGE_NM);
-  CHECK(range_nm(p.moved({249, 200}, {250, 200})) >= MAX_RANGE_NM - 2);  // measured where the middle moved to
+  CHECK(range_nm(p.moved({249, 200}, {250, 200})) > 1000);  // measured where the middle moved to
+  // Out to the whole range on any glass, a plane followed over an ocean in view: 5000 NM fits at the farthest zoom.
+  CHECK(range_nm(geo::View(45.6, -122.6, geo::MIN_ZOOM, 480, 640)) == MAX_RANGE_NM);
   CHECK(range_nm(p.moved({-50000, 200}, {50000, 200})) == MIN_RANGE_NM);
   // The frame drawn for one view, drawn again for another: every place lands where the other view has it.
   v = p.moved({120, 150}, {380, 260});
@@ -2064,6 +2359,16 @@ static void test_mock_answers() {
   std::vector<feed::Flight> flights;
   const std::string exchange = read("exchange");
   CHECK(feed::parse(exchange.c_str(), exchange.size(), doc, flights, error) && flights.size() == 1);
+  // A plane looked up by its callsign, worldwide (follow.h): that plane.
+  flights.clear();
+  const std::string lookup = read("lookup");
+  CHECK(feed::parse(lookup.c_str(), lookup.size(), doc, flights, error) && flights.size() == 1 &&
+        follow::pick(flights) && follow::pick(flights)->callsign == "MOCK1");
+  // Its route (a build with routes): from the mock's airport.
+  follow::Route route;
+  const std::string route_answer = read("route");
+  CHECK(follow::read_route(route_answer.c_str(), route_answer.size(), doc, route, error) && route.known &&
+        route.from == "KTST" && route.to == "KFAR");
 }
 
 int main(int argc, char **argv) {
@@ -2085,6 +2390,9 @@ int main(int argc, char **argv) {
   test_shapes();
   test_beam();
   test_providers();
+  test_follow();
+  test_climb_text();
+  test_pick();
   test_menu();
   test_keyboard();
   test_places();
