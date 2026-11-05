@@ -567,6 +567,11 @@ void Skyscope::build_ui_() {
     self->open_menu_();
   }, LV_EVENT_LONG_PRESSED, this);
 
+  // The credits, along the bottom of the map: made before the planes so the planes and their labels draw over them.
+  credit_ = label(screen, ui::fonts.small, colours::MUTED);
+  ui::hug_edge(credit_, LV_ALIGN_BOTTOM_LEFT, ui::px(6), -ui::px(4));
+  lv_obj_set_style_text_opa(credit_, LV_OPA_80, 0);
+
   // The planes lie in this, over the map and under everything else.
   planes_ = lv_obj_create(screen);
   lv_obj_remove_style_all(planes_);
@@ -612,10 +617,6 @@ void Skyscope::build_ui_() {
   lv_obj_set_style_max_width(status_, glass::page_width(ui::shape, ui::px(6)), 0);
   lv_label_set_long_mode(status_, LV_LABEL_LONG_WRAP);
   lv_obj_remove_flag(status_, LV_OBJ_FLAG_CLICKABLE);
-
-  credit_ = label(screen, ui::fonts.small, colours::MUTED);
-  ui::hug_edge(credit_, LV_ALIGN_BOTTOM_LEFT, ui::px(6), -ui::px(4));
-  lv_obj_set_style_text_opa(credit_, LV_OPA_80, 0);
 
   // The card of the plane picked.
   card_ = panel(screen);
