@@ -233,7 +233,8 @@ for **Save**; **Cancel** drops them.
   airport is named by its code. Places come with their English names, and one whose name is in a script the screen
   cannot write (its letters are Latin only) is left out. Latitude and longitude can be typed instead.
 - **Follow** takes a plane to follow: `N12345`, `G-EUPT`, `BAW286` or `BA 286` (see
-  [Following a plane](#following-a-plane)); empty to stop.
+  [Following a plane](#following-a-plane)); empty to stop. **Its label** and **Its track** show only while a plane
+  is named there, in the menu and on the web page.
 - **Watched** takes the aircraft with a comma between: `N12345 red, BAW123 blue` (red where no colour is given).
 - **Wi-Fi** shows the network the screen is on; a tap lists the networks it knows, first choice first, then the others
   in reach (the screen scans for them, or uses ESPHome's own scans while it has no network), strongest first, and

@@ -43,7 +43,7 @@ struct Row {
   Pad pad = keyboard::NONE;  // typed on the keyboard, and how
   const char *unit = "";     // after a number typed that is none of the choices: "12 NM"
   const char *hint = "";     // what the keyboard says under the text: what the value may be
-  std::vector<const char *> needs = {};  // flags that must be on for the row to show
+  std::vector<const char *> needs = {};  // flags that must be on, or words that must be set, for the row to show
   size_t most = 0;  // bytes the keyboard takes; 0 for its pad's own
 };
 
@@ -66,13 +66,15 @@ inline const std::vector<Row> &rows() {
        .hint = "A plane to follow anywhere: its registration (N12345, G-EUPT), callsign (BAW286) or flight number "
                "(BA 286). Empty to stop",
        .most = 12},
-      {"follow_label", "Its label", TEXT,
-       {{"auto", "As the others"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"},
-        {"full", "Full"}, {"scope", "Scope"}}},
-      {"follow_track_min", "Its track", NUMBER,
-       {{"0", "Whole flight"}, {"15", "15 min"}, {"30", "30 min"}, {"60", "1 hour"}, {"120", "2 hours"},
-        {"240", "4 hours"}, {"480", "8 hours"}},
-       ALL, WHOLE, " min", "Minutes of the followed plane's track, up to 1440; 0 for its whole flight"},
+      {.key = "follow_label", .name = "Its label", .kind = TEXT,
+       .choices = {{"auto", "As the others"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"},
+                   {"full", "Full"}, {"scope", "Scope"}},
+       .needs = {"follow"}},
+      {.key = "follow_track_min", .name = "Its track", .kind = NUMBER,
+       .choices = {{"0", "Whole flight"}, {"15", "15 min"}, {"30", "30 min"}, {"60", "1 hour"}, {"120", "2 hours"},
+                   {"240", "4 hours"}, {"480", "8 hours"}},
+       .pad = WHOLE, .unit = " min", .hint = "Minutes of the followed plane's track, up to 1440; 0 for its whole flight",
+       .needs = {"follow"}},
       {"map", "Map", TEXT,
        {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OSM"}, {"satellite", "Satellite"}, {"topo", "Topo"},
         {"sectional", "Sectional"}, {"ifr_low", "IFR low"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
@@ -176,14 +178,18 @@ inline size_t most_typed(const Row &row) {
   return row.pad == keyboard::CLOCK ? 5 : row.pad == keyboard::WORDS ? 60 : 12;
 }
 
-// Whether a row shows for `s`: it applies to the map, and the flags it needs are on.
+// Whether a row shows for `s`: it applies to the map, the flags it needs are on and the words it needs are set (the
+// followed plane's label and track only while a plane is followed).
 inline bool applies(const Row &row, const Settings &s) {
   if (!(row.maps & bit(s.map))) return false;
   if (row.needs.empty()) return true;
   JsonDocument doc;
   to_json(s, doc.to<JsonObject>());
-  for (const char *flag : row.needs)
-    if (!doc[flag].as<bool>()) return false;
+  for (const char *key : row.needs) {
+    JsonVariantConst v = doc[key];
+    const bool on = v.is<bool>() ? v.as<bool>() : v.is<const char *>() && *v.as<const char *>();
+    if (!on) return false;
+  }
   return true;
 }
 

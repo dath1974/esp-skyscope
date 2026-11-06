@@ -1607,6 +1607,11 @@ static void test_menu() {
   CHECK(menu::applies(row("bed_off"), st) && !menu::applies(row("bed_on"), st));
   st.bed_wake = true;
   CHECK(menu::applies(row("bed_on"), st));
+  // The followed plane's label and track show only while a plane is named to follow.
+  st.follow = "";
+  CHECK(!menu::applies(row("follow_label"), st) && !menu::applies(row("follow_track_min"), st));
+  st.follow = "BAW286";
+  CHECK(menu::applies(row("follow_label"), st) && menu::applies(row("follow_track_min"), st));
   // Every row is stepped, typed, or both; a row with nothing to step has no arrows to step it with.
   for (const auto &r : menu::rows()) {
     CHECK(menu::steps(r) || menu::typed(r));
