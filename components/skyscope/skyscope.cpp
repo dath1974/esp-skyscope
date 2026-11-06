@@ -549,7 +549,7 @@ void Skyscope::build_ui_() {
     native_width_ = turned ? h : w;
     native_height_ = turned ? w : h;
   }
-  if (lvgl_ && settings_.rotation >= 0) lvgl_->set_rotation(settings_.rotation);
+  if (lvgl_) lvgl_->set_rotation(settings_.rotation);
   width_ = lv_display_get_horizontal_resolution(display);
   height_ = lv_display_get_vertical_resolution(display);
   ui::shape = {width_, height_, round_};

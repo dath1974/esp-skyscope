@@ -211,9 +211,9 @@ with its manifest (`tools/release_site.py`). The tag's message is the summary th
 All settings are on that page and in the menu, and the screen keeps them across restarts and updates. Once it is set up and running,
 tapping the status bar at the top shows the screen's address for a moment.
 
-**Rotation** is set there too (the screen restarts to turn). 0° is the panel's own way up, every board's default and the
-least expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41 and the
-LCD 2.8B, 0° is portrait and 90° landscape).
+**Rotation** is set there too (the screen restarts to turn). 0° is the panel's own way up, the setting to begin with
+and the least expensive: every other angle turns each frame in software; 90° and 270° cost the most (on the AMOLED 2.41
+and the LCD 2.8B, 0° is portrait and 90° landscape; on the round 4C, 0° keeps the board's USB ports at the bottom).
 
 ## The menu
 

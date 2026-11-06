@@ -1650,7 +1650,7 @@ static void test_menu() {
   CHECK(!menu::typed_in(row("watch"), t, "N1 pink") && t.watch.size() == 2);
   CHECK(menu::typed_in(row("watch"), t, "") && t.watch.empty() && menu::shown(row("watch"), t) == "None");
   // Rotation steps through the ways up the settings take.
-  CHECK(menu::shown(row("rotation"), t) == "Default" && menu::stepped(row("rotation"), t, 1) && t.rotation == 0);
+  CHECK(menu::shown(row("rotation"), t) == "0\xC2\xB0" && menu::stepped(row("rotation"), t, 1) && t.rotation == 90);
   // Every hint of a typed row, and every typed row has one.
   for (const auto &r : menu::rows())
     if (menu::typed(r)) CHECK(*r.hint);

@@ -9,8 +9,6 @@
 substitutions:
   # 720 pixels across a 4-inch circle.
   DISPLAY_DPI: "180"
-  # The panel is square: LVGL's angle 0 keeps the board's USB ports at the bottom.
-  ROTATION: "0"
   # Map tiles at their own pixels: at 180 dpi a tile's words read well at 1:1.
   TILE_SCALE: "1"
   FONT_SMALL_PX: "16"
@@ -105,7 +103,6 @@ lvgl:
     - touchscreen_id: touch
   # All of the screen, in PSRAM, as on the other board: there is plenty of it here.
   buffer_size: 100%
-  rotation: ${ROTATION}
   log_level: WARN
   default_font: font_label
   # One empty page: the screen builds what it shows in C++ (components/skyscope).

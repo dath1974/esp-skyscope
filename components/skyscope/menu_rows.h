@@ -145,7 +145,7 @@ inline const std::vector<Row> &rows() {
        ALL, WORDS, "", "Another zone as a POSIX TZ string: CET-1CEST,M3.5.0,M10.5.0/3", {"bedtime"}},
       // Another way up restarts the screen when the menu is saved.
       {"rotation", "Rotation", NUMBER,
-       {{"-1", "Default"}, {"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
+       {{"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
       {.key = "weather_station", .name = "Station", .kind = TEXT, .pad = WORDS,
        .hint = "A METAR station (KJFK) for the weather page, or none for the nearest to the place", .most = 4},
       {"radar_overlay", "Radar", FLAG, {}},

@@ -1297,7 +1297,7 @@ def test_settings(origin: str) -> dict:
             "airspace": False, "tint": "green", "scope": True, "sweep": True,
             "feed": "receiver", "receiver_url": origin + "/data/aircraft.json", "fallback": False, "refresh_s": 5,
             "alt_min": 0, "alt_max": 60000, "ground": False, "most": 30, "marker": "type", "label": "auto",
-            "by_altitude": True, "glide": True, "track_s": 60, "watch": [], "rotation": -1, "metric": False,
+            "by_altitude": True, "glide": True, "track_s": 60, "watch": [], "rotation": 0, "metric": False,
             "brightness": 80, "sleep_min": 0, "bedtime": False, "bed_off": "22:00", "bed_on": "07:00",
             "bed_wake": True, "timezone": "UTC0", "weather_station": "", "radar_overlay": False,
             "radar_loop": False}

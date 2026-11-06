@@ -101,8 +101,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <input id="timezone" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
 <p class="hint">A tap wakes the screen at any time; the screen-off timer above works as well. The screen's clock now: <span id="clock">not set yet</span>. <span id="tzhint"></span></p>
 </div>
-<label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="-1">The board's default</option>
-<option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
+<label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
 </section>
 <section><h2>Weather</h2>
@@ -235,7 +234,7 @@ $('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};
 // Each rotation named portrait or landscape for this panel, from its own way up; 0 marked as the least expensive.
 let named=false;
 function name_rotations(native){if(named||!native)return;named=true;const [w,h]=native.split('x').map(Number);
- for(const o of $('rotation').options){const a=+o.value;if(a<0)continue;const wide=(a%180===0)?w>h:h>w;
+ for(const o of $('rotation').options){const a=+o.value;const wide=(a%180===0)?w>h:h>w;
   o.textContent=a+'\u00b0, '+(wide?'landscape':'portrait')+(a===0?' (least expensive)':a===180?' (cheap)':'')}}
 // The screen's own radio, from /api/status: what it is doing and, while it listens, what it hears.
 function radio_words(r){let t='Radio: '+r.state;if(!r.streaming)return t;

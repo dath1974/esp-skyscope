@@ -8,9 +8,6 @@
 substitutions:
   # 750 diagonal pixels over 2.41 inches.
   DISPLAY_DPI: "311.2"
-  # LVGL's angle: 0 is the panel's own way up, standing (450 x 600), and the cheapest, since every other angle
-  # turns each frame in software. 90 lies it down (600 x 450); the settings page turns it.
-  ROTATION: "0"
   # Map tiles at twice their pixels: at 311 dpi a tile's words are too small to read at 1:1.
   TILE_SCALE: "2"
   FONT_SMALL_PX: "20"
@@ -107,7 +104,6 @@ lvgl:
   # All of the screen, in PSRAM: the panel stands up and the screen lies down, so a strip of a smaller buffer would be a
   # column of the panel's memory, and a diagonal (the radar's beam) would show one step per strip.
   buffer_size: 100%
-  rotation: ${ROTATION}
   log_level: WARN
   default_font: font_label
   # One empty page: the screen builds what it shows in C++ (components/skyscope).

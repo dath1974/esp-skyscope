@@ -9,9 +9,6 @@
 substitutions:
   # 800 diagonal pixels over 2.8 inches.
   DISPLAY_DPI: "285.7"
-  # LVGL's angle: 0 is the panel's own way up, standing (480 x 640), and the cheapest, since every other angle
-  # turns each frame in software. 90 lies it down (640 x 480); the settings page turns it.
-  ROTATION: "0"
   # Map tiles at twice their pixels: at 286 dpi a tile's words are too small to read at 1:1.
   TILE_SCALE: "2"
   FONT_SMALL_PX: "18"
@@ -236,7 +233,6 @@ lvgl:
   buffer_size: 100%
   # Pixels in the chip's own byte order, as the panel's data lines take them (display: data_pins).
   byte_order: little_endian
-  rotation: ${ROTATION}
   log_level: WARN
   default_font: font_label
   # One empty page: the screen builds what it shows in C++ (components/skyscope).

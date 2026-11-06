@@ -113,7 +113,7 @@ struct Settings {
   // 0 while it has not: what the Own range key goes back to, and the range again once following stops.
   int own_range_nm = 0;
   // The screen.
-  int rotation = -1;  // degrees: 0, 90, 180 or 270, or -1 for the board's own (its YAML's lvgl: rotation)
+  int rotation = 0;  // degrees: 0, 90, 180 or 270; 0 is the panel's own way up and the cheapest, as nothing is turned
   bool metric = false;
   int brightness = 80;
   int sleep_min = 0;  // the screen goes dark after this many minutes without a touch; 0: never
@@ -342,7 +342,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!choice("follow_label", n.follow_label, LABELS)) return fail("follow_label");
   if (!number("follow_track_min", n.follow_track_min, 0, 1440)) return fail("follow_track_min");
   if (!number("own_range_nm", n.own_range_nm, 0, MAX_RANGE_NM)) return fail("own_range_nm");
-  if (!number("rotation", n.rotation, -1, 270) || (n.rotation >= 0 && n.rotation % 90)) return fail("rotation");
+  if (!number("rotation", n.rotation, 0, 270) || n.rotation % 90) return fail("rotation");
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");
   if (!number("sleep_min", n.sleep_min, 0, 1440)) return fail("sleep_min");
