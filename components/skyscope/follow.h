@@ -269,6 +269,48 @@ inline geo::Place centre_for(const geo::View &v, double lat, double lon, bool ha
   return c;
 }
 
+// ---- The next step, drawn ahead: a plane flying on as it is goes past KEEP at a place known in advance, and so the
+// view's next middle is too. The worker draws that frame while the plane flies there, and the step swaps it in at once
+// rather than drawing every tile again while the glass waits.
+
+// Where the plane at (lat, lon), flying on at `heading`, first goes past `keep` of `v` (off_centre); false if it never
+// does within a few glasses of it (it cannot: a straight line leaves any glass).
+inline bool crossing(const geo::View &v, double lat, double lon, float heading, geo::Place &out, double keep = KEEP) {
+  if (off_centre(v, lat, lon, keep)) {
+    out = {lat, lon};
+    return true;
+  }
+  double inside = 0, outside = 4 * std::hypot(v.width, v.height) * v.metres_per_px();
+  geo::Place far = geo::destination(lat, lon, heading, outside);
+  if (!off_centre(v, far.lat, far.lon, keep)) return false;
+  for (int i = 0; i < 30; ++i) {
+    const double mid = (inside + outside) / 2;
+    const geo::Place p = geo::destination(lat, lon, heading, mid);
+    (off_centre(v, p.lat, p.lon, keep) ? outside : inside) = mid;
+  }
+  out = geo::destination(lat, lon, heading, outside);
+  return true;
+}
+// The middle of the view after the next step, for a plane flying on as it is; false without a heading.
+inline bool next_centre(const geo::View &v, double lat, double lon, bool has_heading, float heading, geo::Place &out) {
+  if (!has_heading) return false;
+  geo::Place at;
+  if (!crossing(v, lat, lon, heading, at)) return false;
+  out = centre_for(v, at.lat, at.lon, true, heading);
+  return true;
+}
+// Whether a view drawn ahead suits the plane at (lat, lon) as the step comes: it is within SNAP (of half the glass's
+// shorter side) of where a step would put it. The step then takes that view as it is, so its frame is the one drawn;
+// a plane a little off that spot (a report late, a gentle turn) loses only a little of its way across before the next.
+constexpr double SNAP = 0.15;
+inline bool suits(const geo::View &ahead, double lat, double lon, float heading) {
+  const double half = std::min(ahead.width, ahead.height) / 2.0;
+  const double h = geo::radians(heading);
+  const double spot_x = ahead.width / 2.0 - LEAD * half * std::sin(h), spot_y = ahead.height / 2.0 + LEAD * half * std::cos(h);
+  const geo::Pixel p = ahead.point(lat, lon);
+  return std::hypot(p.x - spot_x, p.y - spot_y) <= SNAP * half;
+}
+
 // The FAA's charts and the USGS map cover the United States alone: the lower 48, Alaska, Hawaii and Puerto Rico.
 inline bool in_united_states(double lat, double lon) {
   struct Box { double south, north, west, east; };
@@ -496,7 +538,50 @@ inline geo::View view_for(double lat, double lon, int range_nm, int w, int h) {
   const double z = geo::zoom_for_radius(lat, range_nm * geo::NM, std::min(w, h));
   return geo::View(lat, lon, std::floor(z + 0.5), w, h);
 }
-constexpr int PLANE_RANGE_NM = 100;  // the Plane key's view round it
+constexpr int PLANE_RANGE_NM = 100;  // the Plane key's view round a plane whose speed is not known
+
+// How far a plane at `heading` crosses the glass between two steps of the view, as a share of half its shorter side:
+// from LEAD behind the middle (centre_for) to KEEP of the way out to the edge ahead (off_centre). Across a long glass it
+// has further to go than towards a short side; on round glass it is the same every way.
+inline double step_share(int w, int h, bool round, bool has_heading, float heading) {
+  if (round || !has_heading || w == h) return LEAD + KEEP;
+  const double half = std::min(w, h) / 2.0;
+  const double ux = std::fabs(std::sin(geo::radians(heading))), uy = std::fabs(std::cos(geo::radians(heading)));
+  const double out_x = ux > 1e-9 ? KEEP * w / 2.0 / ux : 1e9, out_y = uy > 1e-9 ? KEEP * h / 2.0 / uy : 1e9;
+  return LEAD + std::min(out_x, out_y) / half;
+}
+
+// The range a followed plane is shown at to begin with: the one at which it takes about STEP_S to fly from where one
+// step of the view puts it to where the next is taken, so the map moves about once a minute whether it is a light
+// plane or an airliner. A map's zoom is a whole one, each twice the last, so of the whole zooms it is the one whose
+// time is nearest STEP_S (between some 40 s and 85 s). A plane whose speed is not known is shown at PLANE_RANGE_NM; one
+// barely moving (on the ground) as close as the range goes.
+constexpr double STEP_S = 60;
+inline int plane_range_nm(const feed::Flight &f, double lat, int w, int h, bool round) {
+  if (!f.has_speed || w <= 0 || h <= 0) return PLANE_RANGE_NM;
+  const double metres_per_s = std::max(1.0f, f.speed) * geo::NM / 3600.0;
+  // The distance to fly, as a share of the range (half the shorter side).
+  const double share = step_share(w, h, round, f.has_heading, f.heading);
+  double best_nm = MIN_RANGE_NM, best_off = 1e9;
+  int best_z = 0;
+  for (int z = 0; z <= 20; ++z) {
+    const double range_m = geo::metres_per_pixel(lat, z) * std::min(w, h) / 2.0;
+    const double off = std::fabs(std::log2(share * range_m / metres_per_s / STEP_S));
+    if (off < best_off) {
+      best_off = off;
+      best_nm = range_m / geo::NM;
+      best_z = z;
+    }
+  }
+  // The range is whole miles: of those either side, one the map takes at that same zoom (a mile and a half rounded
+  // down to one would be a zoom closer, and half the time).
+  const auto clamp = [](long nm) { return (int) std::max<long>(MIN_RANGE_NM, std::min<long>(MAX_RANGE_NM, nm)); };
+  for (long nm : {std::lround(best_nm), (long) std::ceil(best_nm), (long) std::floor(best_nm)}) {
+    const int n = clamp(nm);
+    if (std::floor(geo::zoom_for_radius(lat, n * geo::NM, std::min(w, h)) + 0.5) == best_z) return n;
+  }
+  return clamp(std::lround(best_nm));
+}
 
 // How long, in words: "40 s", "12 min", "3 h 05 min".
 inline std::string age_text(uint32_t ms) {

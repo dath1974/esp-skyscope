@@ -83,11 +83,11 @@ colour comes out wrong. The frame reaches the panel through small buffers of int
 they found it, so the panel's constant reading of the PSRAM does not crowd out drawing; the board is best standing
 (0°), since every other angle turns each frame in software.
 
-A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache 3 MB)
-and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the `skyscope:`
-block's `dpi`, and the board in the build matrix of `.github/workflows/tests.yml` (a test checks it is there); a release
-builds and publishes every file in `boards/` by itself. Two boards may have the same chip. Any new board will require
-ample testing, noting the goal of this project is a physically small display size.
+A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, the tile cache up to
+3 MB) and an LVGL-capable display. Adding one is a new file in `boards/` with its display, touch, fonts and the
+`skyscope:` block's `dpi`, and the board in the build matrix of `.github/workflows/tests.yml` (a test checks it is
+there); a release builds and publishes every file in `boards/` by itself. Two boards may have the same chip. Any new
+board will require ample testing, noting the goal of this project is a physically small display size.
 
 ### The screen's own radio (ESP32-P4)
 
@@ -299,9 +299,21 @@ following carries on through a restart or the screen going to sleep.
   without a report the screen carries it on along the great circle it was flying, at its last speed, drawn faint and
   labelled `estimated` (the status line says `out of reach 42 min, estimated`), and asks for it by its address every
   30 s until it is heard again. A plane lost low and coming down is held where it was last seen instead.
-- Two keys down the left edge while a plane is followed: **Plane** puts it 100 NM round the plane, and **Route** (in a
-  build with routes, below) the whole route and the plane on it; the view then stays put until the plane would leave
-  it. Each keeps its range, as a pinch's **Save** does.
+- Its range: a plane is shown at its own range when following begins, chosen by its speed so the map moves on about
+  once a minute (a whole zoom of the map either side of it, so between some 40 and 85 seconds): 1 NM for a plane at
+  60 kt, 4 NM at 250 kt, 7 or 8 NM for an airliner at cruise. A plane whose speed is not known is shown 100 NM round
+  it. The range the screen had before is kept, and comes back when following stops.
+- Each step drawn ahead: a plane flying on as it is will cross into its next view at a place known in advance, so
+  while it flies there the screen draws that view's map behind the one shown, a tile at a time once the map shown is
+  whole. When the step comes, and the plane is about where it was expected (within some 15 % of half the glass), the
+  map moves to that view at once; a step that comes before it is finished shows what it has and draws the rest. A plane
+  that turns gets a new view planned within a second. Only that one view's tiles are fetched, a minute or so before
+  they are looked at.
+- Keys down the left edge while a plane is followed: **Plane** (a sight) puts the plane back at its own range for its
+  speed now, **Own range** (a magnifier with a roof in its glass, shown while the range is not already that) at the
+  range the screen had before following, still round the plane, and **Route** (in a build with routes, below) the
+  whole route and the plane on it; the view then stays put until the plane would leave it. Each keeps its range, as a
+  pinch's **Save** does.
 - Its route, in a build with routes (`make firmware ROUTES=true`, or `routes: true` in the `skyscope:` block; off in
   the published firmware): the airports it flies from and to, asked of [adsbdb](https://www.adsbdb.com) by its callsign,
   and the great circle between them drawn under everything in a neutral line (the ink at half strength: light on a
@@ -355,7 +367,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing. `{"follow": "BAW286"}` follows a plane, `{"follow": ""}` stops |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the plane followed (`follow`: what was asked, `state` one of looking, live, lost, landed or gave_up, the status line's words, and once found its hex, callsign, registration, where it is or is likely to be, whether that is `estimated`, and the seconds since it was last heard), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), how long the map takes (`tile_times`: for a tile's download (`fetch`), its read from the map card (`card`), its decoding (`png`, `jpeg`) and its laying into the frame (`lay`), and for maps drawn from their tiles (`frames`), each a `count`, `mean_ms` and `most_ms`; the last map's `last_frame_ms`, `last_frame_tiles` drawn and `last_frame_from`: `tiles`, `kept`, `ahead`, or `ahead, part`; and `frames_ahead` and `tiles_ahead`, a followed plane's steps drawn ahead), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error), the plane followed (`follow`: what was asked, `state` one of looking, live, lost, landed or gave_up, the status line's words, and once found its hex, callsign, registration, where it is or is likely to be, whether that is `estimated`, and the seconds since it was last heard), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, an install's progress, and the manifest it asks (`source`) |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -367,6 +379,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |
 | `POST /api/test` | for tests: `{"divert": "http://<host>:<port>"}` sends every HTTPS request the screen makes (every public service: feeds, tiles, airspace, weather, the update server) to that server as `/<server>/<path>`, a plain `http://` address (a receiver) as it is, from the restart it makes until power off or `{"divert": ""}` (another restart); the map card is left alone meanwhile, and `GET /api/status` says where (`divert`) |
+| `POST /api/bench` | for measuring: `{"runs": 3}` decodes and draws every tile of the map shown, each `runs` times after a first, once the old way (0.9.0) and once with each quickening added in turn (a filter table, PNGdec, opaque laying, lean decoding, JPEGs straight into the frame, the decoders in internal RAM when there is room); the glass keeps its last map meanwhile. `GET /api/bench` says whether it is `busy` and gives the `result`: the map, its tiles, whether JPEGs use the S3's vector instructions (`jpeg_simd`), and for each way the median `png_ms`, `jpeg_ms`, `lay_ms` and `map_ms` for the whole map |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
 
 ```sh
@@ -375,8 +388,8 @@ curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
 ```
 
 The page and the API are open to anyone on your network, as an ESPHome device's own web server is. The test endpoints
-(`/api/touch`, `/api/ui`, `/api/test`, and `{"source"}` and the network changes above) are left out of a build with
-`test_api: false` in the `skyscope:` block.
+(`/api/touch`, `/api/ui`, `/api/test`, `/api/bench`, and `{"source"}` and the network changes above) are left out of a
+build with `test_api: false` in the `skyscope:` block.
 
 ## Data sources
 
@@ -403,13 +416,14 @@ change them with its load, so the screen keeps to what each one announces: never
 header allows, and after a refusal not before the time it gives (`x-ratelimit-reset` or `Retry-After`), else twice as
 long each time it refuses again (2 minutes up to 30; other failures 15 seconds up to 15 minutes). Meanwhile it asks the
 other exchange, unless that is switched off, and goes back to the preferred one as soon as its wait is over. The status
-line and the page count down to the next try. Tiles are cached in memory for a day (3 MB, as they came from their
-server, the least recently drawn going first), and a tile is asked for only when a map needs one it does not hold. Each
-map is drawn from its tiles, one at a time, so a map from the cache still fills in over a second or two; the last map
-drawn whole is also kept as it was drawn, so going back to it (a swipe back, a preview cancelled) shows it whole at
-once. `/api/status` counts both (`tile_cache`), and the map card's own (`card`). With a [map card](#the-map-card), tiles
-are kept on it too, for as long as each map's terms allow. The airspace is asked once for each place and range while it
-is switched on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's
+line and the page count down to the next try. Tiles are cached in memory for a day (up to 3 MB, as they came from their
+server, the least recently drawn going first; fewer on a board short of PSRAM, the cache always leaving 1 MB free), and
+a tile is asked for only when a map needs one it does not hold. Each map is drawn from its tiles, one at a time, so a
+map from the cache still fills in over a second or two; the last map drawn whole is also kept as it was drawn, so going
+back to it (a swipe back, a preview cancelled) shows it whole at once. `/api/status` counts both (`tile_cache`), and the
+map card's own (`card`), and how long the map takes (`tile_times`, below). With a [map card](#the-map-card), tiles are
+kept on it too, for as long as each map's terms allow. The airspace is asked once for each place and range while it is
+switched on; a request that fails waits 30 seconds, then twice as long each time, up to 15 minutes, since the FAA's
 server is shared by everyone who uses it.
 
 **Not for navigation.** ADS-B exchanges and the screen's own radio show what receivers hear: planes without ADS-B, or out of a

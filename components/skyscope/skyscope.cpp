@@ -294,7 +294,7 @@ void Skyscope::restyle_() {
   for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
   lv_obj_set_style_text_color(card_after_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_line_color(card_arrow_, lv_color_hex(c.muted), 0);
-  for (lv_obj_t *key : {route_key_, plane_key_}) {
+  for (lv_obj_t *key : {route_key_, own_key_, plane_key_}) {
     if (!key) continue;
     lv_obj_set_style_bg_color(key, lv_color_hex(c.card), 0);
     // Its symbol's lines and rings in the ink, its dot filled with it.
@@ -338,11 +338,16 @@ void Skyscope::replan_() {
   replan_locked_();
 }
 
+tiles::Plan Skyscope::plan_for_(const Settings &shown) const {
+  const int scale = settings_.tile_scale ? settings_.tile_scale : tile_scale_;
+  tiles::Plan p = tiles::plan(shown, width_, height_, scale);
+  p.view.round = round_;
+  return p;
+}
+
 void Skyscope::replan_locked_() {
   if (width_ <= 0) return;
-  const int scale = settings_.tile_scale ? settings_.tile_scale : tile_scale_;
-  plan_ = tiles::plan(shown_(), width_, height_, scale);
-  plan_.view.round = round_;
+  plan_ = plan_for_(shown_());
   shared_.plan = plan_;
   plan_rev_ = ++shared_.plan_rev;
 }
@@ -702,7 +707,8 @@ void Skyscope::build_ui_() {
   lv_obj_add_flag(card_, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(card_, LV_OBJ_FLAG_CLICKABLE);
 
-  // While a plane is followed, down the left edge: the whole route in view, and back to the plane close up.
+  // While a plane is followed, down the left edge: the whole route in view, the range the screen had before, and back
+  // to the plane at its own range.
   follow_keys_ = widgets::plain(screen);
   lv_obj_set_size(follow_keys_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(follow_keys_, LV_FLEX_FLOW_COLUMN);
@@ -713,11 +719,19 @@ void Skyscope::build_ui_() {
   const int side = ui::mm(3.45f), across = side * 13 / 10;
   route_key_ = round_key_(follow_keys_, across);
   draw_route_symbol_(route_key_, side);
+  own_key_ = round_key_(follow_keys_, across);
+  draw_own_symbol_(own_key_, side);
   plane_key_ = round_key_(follow_keys_, across);
   draw_sight_symbol_(plane_key_, side);
   lv_obj_add_event_cb(route_key_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
     self->defer([self]() { self->show_route_(); });
+  }, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(own_key_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    self->defer([self]() {
+      if (self->following_() && self->settings_.own_range_nm) self->show_plane_(self->settings_.own_range_nm);
+    });
   }, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(plane_key_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
@@ -1370,8 +1384,13 @@ void Skyscope::follow_tick_(uint32_t now) {
     use_settings_(s);
   }
   if (!asked || !follower_.known()) {
-    if (centre_.on) set_centre_(follow::Centre{});
-    if (settings_.follow.empty() && trail_.size()) trail_.clear();
+    // Stopped: the view back to the place, at the range it had before following changed it.
+    if (centre_.on || (settings_.follow.empty() && settings_.own_range_nm)) set_centre_(follow::Centre{});
+    if (settings_.follow.empty()) {
+      if (trail_.size()) trail_.clear();
+      ranged_hex_.clear();
+    }
+    drop_ahead_();
     route_view_ = false;
     refresh_follow_keys_();
     return;
@@ -1379,13 +1398,30 @@ void Skyscope::follow_tick_(uint32_t now) {
   refresh_follow_keys_();
   // The view a preview's fingers chose stays while they choose it (preview.cpp).
   if (previewing_ || width_ <= 0) return;
+  // A plane followed from now (just found, another one, or again after a restart): at its own range, the map moving
+  // about once a minute with it. Back from offline it keeps the range it had.
+  if (ranged_hex_ != follower_.hex()) {
+    ranged_hex_ = follower_.hex();
+    show_plane_();
+    return;
+  }
   const geo::Place p = follower_.where(now);
   // With the whole route in view the view stays until the plane would leave it; else it steps with the plane.
   const double keep = route_view_ ? 0.95 : follow::KEEP;
-  if (centre_.on && centre_.hex == follower_.hex() && !follow::off_centre(plan_.view, p.lat, p.lon, keep)) return;
+  if (centre_.on && centre_.hex == follower_.hex() && !follow::off_centre(plan_.view, p.lat, p.lon, keep)) {
+    plan_ahead_(now, p);
+    return;
+  }
   route_view_ = false;
   const feed::Flight &f = follower_.last();
-  const geo::Place c = follow::centre_for(plan_.view, p.lat, p.lon, f.has_heading, f.heading);
+  geo::Place c = follow::centre_for(plan_.view, p.lat, p.lon, f.has_heading, f.heading);
+  // The view drawn ahead, where the plane is about where it would put it: taken as it is, so its frame is the one
+  // the worker has ready.
+  const bool took_ahead = ahead_.on && ahead_.hex == follower_.hex() && ahead_view_.zoom == plan_.view.zoom &&
+                          f.has_heading && follow::suits(ahead_view_, p.lat, p.lon, f.heading);
+  if (took_ahead) c = {ahead_.lat, ahead_.lon};
+  ESP_LOGD(TAG, "Following: a step, %s", took_ahead ? "to the view drawn ahead" : "drawn now");
+  ahead_at_ = 0;  // the step after it planned at once
   follow::Centre next;
   next.on = true;
   next.lat = c.lat;
@@ -1394,8 +1430,61 @@ void Skyscope::follow_tick_(uint32_t now) {
   set_centre_(next);
 }
 
+// The next step's view, for the worker to draw while the plane flies there: where the plane, flying on as it is, goes
+// past KEEP, and the middle a step would take there. Kept while it still suits that place (a plane that holds its way
+// keeps the same one), looked at again each second, and none where the next view would show another map (a chart of
+// the United States at its border) or the map is the radar.
+void Skyscope::plan_ahead_(uint32_t now, const geo::Place &plane) {
+  if (ahead_at_ && now - ahead_at_ < 1000) return;
+  ahead_at_ = now | 1;
+  const feed::Flight &f = follower_.last();
+  geo::Place at;
+  const bool can = following_() && !route_view_ && !offline_ && !plan_.keys.empty() && f.has_heading &&
+                   follow::crossing(plan_.view, plane.lat, plane.lon, f.heading, at);
+  if (!can) {
+    drop_ahead_();
+    return;
+  }
+  if (ahead_.on && ahead_.hex == centre_.hex && ahead_view_.zoom == plan_.view.zoom &&
+      follow::suits(ahead_view_, at.lat, at.lon, f.heading))
+    return;
+  const geo::Place mid = follow::centre_for(plan_.view, at.lat, at.lon, true, f.heading);
+  follow::Centre c = centre_;
+  c.lat = mid.lat;
+  c.lon = mid.lon;
+  const Settings shown = follow::shown(settings_, c);
+  if (shown.map != shown_().map) {
+    drop_ahead_();
+    return;
+  }
+  ahead_ = c;
+  const tiles::Plan p = plan_for_(shown);
+  ahead_view_ = p.view;
+  std::lock_guard<std::mutex> guard(lock_);
+  shared_.ahead = p;
+  shared_.ahead_rev++;
+}
+
+void Skyscope::drop_ahead_() {
+  if (!ahead_.on) return;
+  ahead_ = follow::Centre{};
+  std::lock_guard<std::mutex> guard(lock_);
+  shared_.ahead = tiles::Plan{};
+  shared_.ahead_rev++;
+}
+
 void Skyscope::set_centre_(const follow::Centre &c, int range_nm) {
-  const bool new_range = range_nm > 0 && range_nm != settings_.range_nm;
+  // The range following first changes is kept, to go back to (the Own range key, and once following stops).
+  Settings s = settings_;
+  if (range_nm > 0) {
+    if (c.on && !s.own_range_nm) s.own_range_nm = s.range_nm;
+    s.range_nm = range_nm;
+  }
+  if (!c.on && s.follow.empty() && s.own_range_nm) {
+    s.range_nm = s.own_range_nm;
+    s.own_range_nm = 0;
+  }
+  const bool new_range = s.range_nm != settings_.range_nm || s.own_range_nm != settings_.own_range_nm;
   if (c == centre_ && !new_range) return;
   // A step of the map along with its plane: the glass as it was, moved to the new view, stays until the new frame is
   // whole, so the map moves in one step instead of through the bare ground while its tiles come.
@@ -1405,8 +1494,6 @@ void Skyscope::set_centre_(const follow::Centre &c, int range_nm) {
   centre_ = c;
   if (new_range) {
     // The range is a setting (kept, as a pinch's Save keeps it): the frame is planned with the middle at once.
-    Settings s = settings_;
-    s.range_nm = range_nm;
     {
       std::lock_guard<std::mutex> guard(lock_);
       shared_.centre = centre_;
@@ -1513,12 +1600,33 @@ void Skyscope::draw_sight_symbol_(lv_obj_t *key, int side) {
   }
 }
 
+// The range of one's own: a magnifier (the zoom) with a roof in its glass (home).
+void Skyscope::draw_own_symbol_(lv_obj_t *key, int side) {
+  lv_obj_t *box = symbol_box(key, side);
+  const int stroke = symbol_stroke(side);
+  // The glass high on the left, its handle out to the bottom right corner, all of it inside the sight's circle.
+  const float r = side * 0.27f, cx = side * 0.42f, cy = side * 0.42f;
+  ring(box, cx, cy, r, stroke, false);
+  const float k = 0.7071f, from = r + stroke / 2.0f, to = side * 0.57f;
+  own_handle_[0] = {cx + k * from, cy + k * from};
+  own_handle_[1] = {cx + k * to, cy + k * to};
+  stroke_line(box, own_handle_, 2, stroke);
+  // The roof: a chevron in the glass, a little below its middle.
+  const float w = r * 0.55f, rise = r * 0.45f, base = cy + rise * 0.45f;
+  own_roof_[0] = {cx - w, base};
+  own_roof_[1] = {cx, base - rise};
+  own_roof_[2] = {cx + w, base};
+  stroke_line(box, own_roof_, 3, std::max(1, stroke * 3 / 4));
+}
+
 void Skyscope::refresh_follow_keys_() {
   if (!follow_keys_) return;
   // Not over a plane's card, which lies along the bottom too.
   const bool shown = following_() && !menu_ && !asleep_ && lv_obj_has_flag(card_, LV_OBJ_FLAG_HIDDEN);
   set_shown(follow_keys_, shown);
-  if (shown) set_shown(route_key_, route_.known);
+  if (!shown) return;
+  set_shown(route_key_, route_.known);
+  set_shown(own_key_, settings_.own_range_nm > 0 && settings_.own_range_nm != settings_.range_nm);
 }
 
 void Skyscope::show_route_() {
@@ -1535,19 +1643,24 @@ void Skyscope::show_route_() {
   set_centre_(c, f.range_nm);
 }
 
-void Skyscope::show_plane_() {
-  if (!following_() || width_ <= 0) return;
-  // PLANE_RANGE_NM round it, the plane a little behind the middle as the view steps with it.
+void Skyscope::show_plane_(int range_nm) {
+  if (!follower_.known() || width_ <= 0) return;
+  // Round it at its own range (follow.h plane_range_nm) or the one given, the plane a little behind the middle as the
+  // view steps with it.
   const geo::Place p = follower_.where(millis());
   const feed::Flight &f = follower_.last();
-  geo::View v = follow::view_for(p.lat, p.lon, follow::PLANE_RANGE_NM, width_, height_);
+  if (range_nm <= 0) range_nm = follow::plane_range_nm(f, p.lat, width_, height_, round_);
+  geo::View v = follow::view_for(p.lat, p.lon, range_nm, width_, height_);
   v.round = round_;
   const geo::Place at = follow::centre_for(v, p.lat, p.lon, f.has_heading, f.heading);
-  follow::Centre c = centre_;
+  follow::Centre c;
+  c.on = true;
   c.lat = at.lat;
   c.lon = at.lon;
+  c.hex = follower_.hex();
   route_view_ = false;
-  set_centre_(c, follow::PLANE_RANGE_NM);
+  ESP_LOGI(TAG, "Following: %d NM round the plane at %.0f kt", range_nm, f.has_speed ? f.speed : 0.0f);
+  set_centre_(c, range_nm);
 }
 
 void Skyscope::follow_picked_() {

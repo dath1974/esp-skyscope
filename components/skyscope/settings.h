@@ -109,6 +109,9 @@ struct Settings {
   LabelKind follow_label = LABEL_SCOPE;
   // Minutes of the followed plane's track, 0 for its whole flight since it was found.
   int follow_track_min = 0;
+  // The range the screen had before following a plane first changed it (to the plane's own, follow.h plane_range_nm),
+  // 0 while it has not: what the Own range key goes back to, and the range again once following stops.
+  int own_range_nm = 0;
   // The screen.
   int rotation = -1;  // degrees: 0, 90, 180 or 270, or -1 for the board's own (its YAML's lvgl: rotation)
   bool metric = false;
@@ -195,6 +198,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["follow_hex"] = s.follow_hex;
   o["follow_label"] = LABELS[s.follow_label];
   o["follow_track_min"] = s.follow_track_min;
+  o["own_range_nm"] = s.own_range_nm;
   o["rotation"] = s.rotation;
   o["metric"] = s.metric;
   o["brightness"] = s.brightness;
@@ -337,6 +341,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (n.follow.empty()) n.follow_hex.clear();
   if (!choice("follow_label", n.follow_label, LABELS)) return fail("follow_label");
   if (!number("follow_track_min", n.follow_track_min, 0, 1440)) return fail("follow_track_min");
+  if (!number("own_range_nm", n.own_range_nm, 0, MAX_RANGE_NM)) return fail("own_range_nm");
   if (!number("rotation", n.rotation, -1, 270) || (n.rotation >= 0 && n.rotation % 90)) return fail("rotation");
   if (!flag("metric", n.metric)) return fail("metric");
   if (!number("brightness", n.brightness, 0, 100)) return fail("brightness");

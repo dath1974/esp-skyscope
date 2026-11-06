@@ -27,6 +27,9 @@ namespace {
 // Tiles as they came (PNG or JPEG bytes), in PSRAM, the least recently drawn going first. A tile the server has none
 // of (a chart outside its country) is kept as empty, so it is not asked for again and again.
 constexpr size_t CACHE_BYTES = 3 * 1024 * 1024;
+// PSRAM the cache leaves free for the rest of the screen: the frames, the feed, the planes' trails. Something that finds
+// none aborts, so a board with little to spare (the LCD 2.8B, whose glass's frames take much of it) keeps fewer tiles.
+constexpr size_t PSRAM_SPARE = 1024 * 1024;
 constexpr uint32_t TILE_TTL_MS = 24 * 3600 * 1000;
 constexpr size_t MOST_TILE_BYTES = 512 * 1024, MOST_FEED_BYTES = 768 * 1024;
 // Of a report, the planes beyond the most shown that are kept (overlay.h keep_showable).
@@ -64,8 +67,21 @@ class Cache {
         return;
       }
   }
+  // Lets the least recently drawn tiles go while there are too many, or PSRAM is short of `size` and the spare.
+  void trim(size_t size = 0) {
+    while (!items_.empty() && (bytes_ + size > CACHE_BYTES ||
+                               heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < size + PSRAM_SPARE))
+      drop_(std::prev(items_.end()));
+  }
+  // `bytes` of PSRAM in one piece (a frame), letting tiles go until it is had; null with none left to let go.
+  void *room(size_t bytes) {
+    void *p;
+    while (!(p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) && !items_.empty())
+      drop_(std::prev(items_.end()));
+    return p;
+  }
   Cached *keep(const tiles::Key &k, const uint8_t *data, size_t size, uint32_t now) {
-    while (bytes_ + size > CACHE_BYTES && !items_.empty()) drop_(std::prev(items_.end()));
+    trim(size);
     Cached c{k, nullptr, size, now};
     if (size) {
       c.data = static_cast<uint8_t *>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -243,6 +259,21 @@ void Skyscope::worker_() {
   bool gave_up = false;
   uint32_t kept_at = 0, tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
   uint64_t tile_bytes_fetched = 0;
+  // How long tiles and frames take (/api/status), and when the frame being drawn was begun.
+  Shared::TileTimes times;
+  int64_t frame_began_us = 0;
+  int frame_drawn = 0;  // its tiles drawn since it was begun
+  // The frame of the next step while a plane is followed (follow.h next_centre), drawn ahead while the glass shows
+  // this one: its plan, what it shows, which of its tiles are in it and which were tried, and the next to try.
+  tiles::Plan ahead;
+  uint32_t ahead_rev = 0;
+  std::string ahead_key;
+  std::vector<uint8_t> ahead_done;  // per tile: 0 not yet, 1 drawn, 2 tried and not drawn (left to the frame itself)
+  size_t ahead_next = 0;
+  uint16_t *ahead_frame = nullptr;
+  bool ahead_fresh = false;  // a new plan ahead, its frame not cleared yet
+  uint32_t bench_rev = 0, bench_seen = 0;  // the test API's benchmark: asked, and done
+  int bench_runs = 3;
   // The radar (radar.h): the latest scan and when to ask again; what the map kept without it shows (frame_key);
   // whether the frame has a scan on it, which, which of the loop's, and when the next is due.
   uint32_t radar_latest = 0, radar_check_due = 0, radar_shown = 0, radar_step_due = 0;
@@ -364,6 +395,7 @@ void Skyscope::worker_() {
   if (card_fitted_) mount_card();
 
   while (true) {
+    cache.trim();  // PSRAM taken since by anything else comes out of the cache
     bool online, updating;
     std::string search;
     bool connected, wants_weather = false;
@@ -419,6 +451,9 @@ void Skyscope::worker_() {
         saved = radio_only ? offline::shown(shared_.settings, has_card) : shared_.settings;
         settings_rev = shared_.settings_rev;
         reshow = true;
+        // Painted with the settings before: begun again.
+        ahead_key.clear();
+        ahead_fresh = true;
       }
       if (shared_.centre_rev != centre_rev) {
         centre = shared_.centre;
@@ -429,6 +464,16 @@ void Skyscope::worker_() {
       if (shared_.plan_rev != plan_rev) {
         plan = shared_.plan;
         plan_rev = shared_.plan_rev;
+      }
+      if (shared_.bench_rev != bench_rev) {
+        bench_rev = shared_.bench_rev;
+        bench_runs = std::max(1, std::min(20, shared_.bench_runs));
+      }
+      if (shared_.ahead_rev != ahead_rev) {
+        ahead = shared_.ahead;
+        ahead_rev = shared_.ahead_rev;
+        ahead_key.clear();
+        ahead_fresh = true;
       }
     }
     // ---- A place to find, typed in the menu: before anything else, as someone is waiting for it, and with no place
@@ -887,6 +932,223 @@ void Skyscope::worker_() {
     // Connections idle for half a minute are closed: each holds its TLS session's memory.
     http::close_idle((uint32_t) (esp_timer_get_time() / 1000), 30000);
 
+    // A tile's bytes: from the cache, else the map card (one still good, or any it has while off a network), else its
+    // server (kept on the card too, for as long as the server lets it be), and the card's old one if that fails.
+    // `missing`: off a network and not on the card; `fetched_failed`: its server failed it.
+    struct Got {
+      Cached *tile = nullptr;
+      std::string error;
+      bool missing = false, fetched_failed = false;
+    };
+    auto obtain = [&](const tiles::Key &key) {
+      Got g;
+      g.tile = cache.find(key, millis());
+      if (g.tile) ++tiles_from_cache;
+      const uint32_t clock = unix_now();
+      const bool on_card = card::cacheable(key) && card_io::mounted();
+      bool stale = false;
+      auto from_card = [&](bool any_age) {
+        const int64_t from = esp_timer_get_time();
+        card::Header h;
+        if (!card_io::read(key, h, body)) return false;
+        times.card.add(esp_timer_get_time() - from);
+        if (any_age || card::fresh(h, clock)) {
+          g.tile = cache.keep(key, h.empty ? nullptr : body.data, h.empty ? 0 : body.size, millis());
+          if (g.tile) ++card_state.read;
+        } else {
+          stale = true;
+        }
+        body.clear();
+        return g.tile != nullptr;
+      };
+      if (!g.tile && on_card) from_card(!connected);
+      if (!g.tile && !connected) {
+        g.missing = true;
+      } else if (!g.tile) {
+        ui::worker_phase = ui::TILE_FETCH;
+        const int64_t from = esp_timer_get_time();
+        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
+        ui::worker_phase = ui::IDLE;
+        const bool empty = r.status == 404 || r.status == 204;
+        if (r.status == 200) {
+          times.fetch.add(esp_timer_get_time() - from);
+          ++tiles_fetched;
+          tile_bytes_fetched += body.size;
+          g.tile = cache.keep(key, body.data, body.size, millis());
+        }
+        // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
+        else if (empty) g.tile = cache.keep(key, nullptr, 0, millis());
+        else g.error = r.error;
+        const uint32_t lifetime = card::lifetime_s(key.style, r.max_age_s);
+        if (g.tile && on_card && card_room && lifetime) {
+          if (card_io::write(key, card::header_for(clock, lifetime, empty), empty ? nullptr : body.data,
+                             empty ? 0 : body.size)) {
+            ++card_state.written;
+            if (++card_writes % CARD_SPACE_EVERY == 0) card_space();
+          } else {
+            ++card_state.failed;
+          }
+        }
+        body.clear();
+        if (!g.tile && stale) from_card(true);
+        g.fetched_failed = !g.tile;
+      }
+      return g;
+    };
+    // A tile's bytes painted into `frame` where `p` puts it; false (with `error`) for bytes that cannot be read, which
+    // are not kept, so the next try fetches them again.
+    auto paint_tile = [&](Cached *tile, const tiles::Plan &p, const tiles::Key &key, uint16_t *frame, std::string &error) {
+      const geo::TileOrigin at = geo::tile_origin(p.view, key.z, key.x, key.y);
+      decode::Times t;
+      ui::worker_phase = ui::TILE_DECODE;
+      const bool drawn = decode::draw(tile->data, tile->size, frame, width, height, at, tiles::filter_of(settings), error, &t);
+      ui::worker_phase = ui::IDLE;
+      if (drawn) {
+        (t.png ? times.png : times.jpeg).add(t.decode_us);
+        if (!t.direct) times.lay.add(t.lay_us);
+      } else {
+        cache.forget(key);
+      }
+      return drawn;
+    };
+    auto ground = [&]() {
+      const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
+      return tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF);
+    };
+
+    // ---- The test API's benchmark of the tile decoder (POST /api/bench), once the map shown is whole: its tiles
+    // drawn again into a frame of its own, each way decode::Options has, from the old way up to all of them, each
+    // tile `bench_runs` times after one to warm up (a filter's table built, a decoder's state made), its median kept.
+    // The planes are not asked for meanwhile; between two tiles the other tasks run.
+    if (bench_rev != bench_seen && pending.empty() && painting_rev == plan_rev) {
+      bench_seen = bench_rev;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.bench_busy = true;
+      }
+      JsonDocument doc;
+      JsonObject out = doc.to<JsonObject>();
+      out["map"] = MAP_STYLES[settings.map];
+      out["theme"] = settings.theme == LIGHT ? "light" : "dark";
+      out["zoom"] = plan.view.zoom;
+      out["tile_zoom"] = plan.tile_z;
+      out["runs"] = bench_runs;
+#if defined(ARDUINO_ARCH_ESP32) && __has_include("dsps_fft2r_platform.h")
+      out["jpeg_simd"] = true;
+#else
+      out["jpeg_simd"] = false;
+#endif
+      // The tiles' bytes, copied to PSRAM so a cache dropping them meanwhile changes nothing; with no room for one, the
+      // benchmark is told so rather than the screen running out.
+      struct Sample {
+        tiles::Key key;
+        uint8_t *data;
+        size_t size;
+        bool png;
+      };
+      std::vector<Sample> samples;
+      bool short_of_room = false;
+      for (const tiles::Key &key : plan.keys) {
+        Got got = obtain(key);
+        if (!got.tile || !got.tile->size) continue;
+        const size_t size = got.tile->size;
+        const bool png = tiles::format_of(got.tile->data, size) == tiles::PNG;
+        auto *data = static_cast<uint8_t *>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!data) {
+          short_of_room = true;
+          break;
+        }
+        std::memcpy(data, got.tile->data, size);
+        samples.push_back({key, data, size, png});
+      }
+      int pngs = 0;
+      for (const auto &s : samples) pngs += s.png;
+      out["tiles"] = samples.size();
+      out["png_tiles"] = pngs;
+      out["jpeg_tiles"] = (int) samples.size() - pngs;
+      out["state_bytes_png"] = decode::state_bytes(true);
+      out["state_bytes_jpeg"] = decode::state_bytes(false);
+      const size_t bytes = (size_t) width * height * 2;
+      auto *frame = static_cast<uint16_t *>(cache.room(bytes));
+      if (!frame || short_of_room || samples.empty()) {
+        out["error"] = !frame ? "no memory for a frame" : short_of_room ? "no memory for the tiles" : "no tiles";
+      } else {
+        std::fill(frame, frame + width * height, ground());
+        struct Way {
+          const char *name;
+          decode::Options options;
+        };
+        const Way ways[] = {
+            {"before (0.9.0)", {false, false, false, false, false, false}},
+            {"+ filter table", {false, true, false, false, false, false}},
+            {"+ PNGdec", {true, true, false, false, false, false}},
+            {"+ opaque laying", {true, true, false, true, false, false}},
+            {"+ lean", {true, true, true, true, false, false}},
+            {"+ JPEG direct (now)", {true, true, true, true, true, false}},
+            {"+ state in internal RAM", {true, true, true, true, true, true}},
+        };
+        const tiles::Filter filter = tiles::filter_of(settings);
+        JsonArray rows = out["ways"].to<JsonArray>();
+        for (const Way &way : ways) {
+          if (way.options.internal) {
+            // Only with room to spare: internal RAM has run out before.
+            const size_t want = decode::state_bytes(true) + decode::state_bytes(false) + 48 * 1024;
+            if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < want) {
+              JsonObject row = rows.add<JsonObject>();
+              row["way"] = way.name;
+              row["skipped"] = "not enough internal RAM";
+              continue;
+            }
+          }
+          double png_ms = 0, jpeg_ms = 0, lay_ms = 0;
+          bool failed = false;
+          for (const Sample &s : samples) {
+            const geo::TileOrigin at = geo::tile_origin(plan.view, s.key.z, s.key.x, s.key.y);
+            std::vector<int64_t> decodes, lays;
+            for (int run = 0; run <= bench_runs; ++run) {
+              decode::Times t;
+              std::string error;
+              if (!decode::draw(s.data, s.size, frame, width, height, at, filter, error, &t, way.options)) {
+                failed = true;
+                break;
+              }
+              if (run) {
+                decodes.push_back(t.decode_us);
+                lays.push_back(t.lay_us);
+              }
+              vTaskDelay(1);
+            }
+            if (failed) break;
+            auto median = [](std::vector<int64_t> &v) {
+              std::sort(v.begin(), v.end());
+              return v.empty() ? 0.0 : v[v.size() / 2] / 1000.0;
+            };
+            (s.png ? png_ms : jpeg_ms) += median(decodes);
+            lay_ms += median(lays);
+          }
+          if (way.options.internal) decode::release_internal();
+          JsonObject row = rows.add<JsonObject>();
+          row["way"] = way.name;
+          if (failed) {
+            row["error"] = "a tile could not be drawn";
+            continue;
+          }
+          // The whole map's tiles, each counted once: decoding (PNG, JPEG), laying, and all of it.
+          row["png_ms"] = std::round(png_ms * 10) / 10;
+          row["jpeg_ms"] = std::round(jpeg_ms * 10) / 10;
+          row["lay_ms"] = std::round(lay_ms * 10) / 10;
+          row["map_ms"] = std::round((png_ms + jpeg_ms + lay_ms) * 10) / 10;
+        }
+      }
+      if (frame) heap_caps_free(frame);
+      for (const Sample &s : samples) heap_caps_free(s.data);
+      std::string text;
+      serializeJson(doc, text);
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.bench_busy = false;
+      shared_.bench_result = std::move(text);
+    }
+
     // ---- The map, one tile a turn, so the planes keep coming while it fills.
     if (painting_rev != plan_rev) {
       painting_rev = plan_rev;
@@ -898,17 +1160,27 @@ void Skyscope::worker_() {
       radar_drawn = false;
       radar_shown = 0;
       const uint32_t at = millis();
-      bool again = false;
+      bool again = false, from_ahead = false;
       {
         std::lock_guard<std::mutex> frame(frame_lock_);
         if (!kept_frame_ && whole)
-          kept_frame_ = static_cast<uint16_t *>(
-              heap_caps_malloc((size_t) width * height * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+          kept_frame_ = static_cast<uint16_t *>(cache.room((size_t) width * height * 2));
+        const bool ahead_ready = ahead_frame && !wanted.empty() && wanted == ahead_key &&
+                                 std::find(ahead_done.begin(), ahead_done.end(), 1) != ahead_done.end();
         if (kept_frame_ && !wanted.empty() && wanted == kept_key && at - kept_at < TILE_TTL_MS) {
           std::swap(base_frame_, kept_frame_);
           kept_key = whole ? painting_key : "";
           kept_at = at;
           again = true;
+        } else if (ahead_ready) {
+          // The step drawn ahead: in at once, the frame before it kept as ever, the frame ahead free for the next.
+          if (kept_frame_ && whole) {
+            std::swap(base_frame_, kept_frame_);
+            kept_key = painting_key;
+            kept_at = at;
+          }
+          std::swap(base_frame_, ahead_frame);
+          from_ahead = true;
         } else {
           if (kept_frame_ && whole) {
             std::swap(base_frame_, kept_frame_);
@@ -916,20 +1188,39 @@ void Skyscope::worker_() {
             kept_at = at;
           }
           // The ground where no tile is (yet): black in the dark appearance, a pale gray in the light one.
-          const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
-          std::fill(base_frame_, base_frame_ + width * height, tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF));
+          std::fill(base_frame_, base_frame_ + width * height, ground());
         }
       }
       painting_key = wanted;
       gave_up = false;
       pending.clear();
-      if (!again)
+      int ready = 0;
+      if (from_ahead) {
+        // Only the tiles the frame ahead did not get are left to draw.
+        for (size_t i = 0; i < plan.keys.size(); ++i) {
+          if (i < ahead_done.size() && ahead_done[i] == 1) ++ready;
+          else pending.push_back({i});
+        }
+        ++times.frames_ahead;
+        ahead_key.clear();
+        ahead_done.clear();
+      } else if (!again) {
         for (size_t i = 0; i < plan.keys.size(); ++i) pending.push_back({i});
-      else ++frames_again;
+      } else {
+        ++frames_again;
+      }
+      frame_began_us = esp_timer_get_time();
+      frame_drawn = 0;
+      times.frame_from = again ? "kept" : from_ahead ? (pending.empty() ? "ahead" : "ahead, part") : "tiles";
+      if (pending.empty()) {
+        times.frame_ms = 0;
+        times.frame_tiles = 0;
+      }
       std::lock_guard<std::mutex> guard(lock_);
       shared_.frame_rev++;
       shared_.frame_plan_rev = plan_rev;
-      shared_.tiles_done = again ? plan.keys.size() : 0;
+      shared_.tiles_done = again ? plan.keys.size() : ready;
+      shared_.tile_times = times;
       shared_.tiles_total = plan.keys.size();
       shared_.tile_error.clear();
       shared_.card.missing = 0;
@@ -940,73 +1231,19 @@ void Skyscope::worker_() {
     if (due != pending.end()) {
       Pending &job = *due;
       const tiles::Key key = plan.keys[job.index];
-      Cached *tile = cache.find(key, millis());
-      std::string error;
-      bool fetched_failed = false, missing = false;
-      if (tile) ++tiles_from_cache;
-      // The map card next: a tile still good, or any it has while off a network. One gone old is fetched again, and
-      // shown as it is if that fails.
-      const uint32_t clock = unix_now();
-      const bool on_card = card::cacheable(key) && card_io::mounted();
-      bool stale = false;
-      auto from_card = [&](bool any_age) {
-        card::Header h;
-        if (!card_io::read(key, h, body)) return false;
-        if (any_age || card::fresh(h, clock)) {
-          tile = cache.keep(key, h.empty ? nullptr : body.data, h.empty ? 0 : body.size, millis());
-          if (tile) ++card_state.read;
-        } else {
-          stale = true;
-        }
-        body.clear();
-        return tile != nullptr;
-      };
-      if (!tile && on_card) from_card(!connected);
-      if (!tile && !connected) {
-        // Off a network, not on the card: its square stays empty until the network is back.
-        missing = true;
-      } else if (!tile) {
-        ui::worker_phase = ui::TILE_FETCH;
-        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
-        ui::worker_phase = ui::IDLE;
-        const bool empty = r.status == 404 || r.status == 204;
-        if (r.status == 200) {
-          ++tiles_fetched;
-          tile_bytes_fetched += body.size;
-          tile = cache.keep(key, body.data, body.size, millis());
-        }
-        // No tile there (outside a chart's country): remembered as empty, drawn as the ground.
-        else if (empty) tile = cache.keep(key, nullptr, 0, millis());
-        else error = r.error;
-        // Kept on the card too, for as long as its server lets it be.
-        const uint32_t lifetime = card::lifetime_s(key.style, r.max_age_s);
-        if (tile && on_card && card_room && lifetime) {
-          if (card_io::write(key, card::header_for(clock, lifetime, empty), empty ? nullptr : body.data,
-                             empty ? 0 : body.size)) {
-            ++card_state.written;
-            if (++card_writes % CARD_SPACE_EVERY == 0) card_space();
-          } else {
-            ++card_state.failed;
-          }
-        }
-        body.clear();
-        // The network failed it: the card's old one rather than none.
-        if (!tile && stale) from_card(true);
-        fetched_failed = !tile;
-      }
+      Got got = obtain(key);
+      Cached *tile = got.tile;
+      std::string error = got.error;
+      const bool missing = got.missing, fetched_failed = got.fetched_failed;
       bool drawn = tile && !tile->size;  // an empty square is done
       if (tile && tile->size) {
-        const geo::TileOrigin at = geo::tile_origin(plan.view, key.z, key.x, key.y);
         std::lock_guard<std::mutex> frame(frame_lock_);
-        ui::worker_phase = ui::TILE_DECODE;
-        drawn = decode::draw(tile->data, tile->size, base_frame_, width, height, at, tiles::filter_of(settings), error);
-        ui::worker_phase = ui::IDLE;
-        // What could not be read is not kept: the next try fetches it again.
-        if (!drawn) cache.forget(key);
+        drawn = paint_tile(tile, plan, key, base_frame_, error);
       }
       bool given_up = false;
       if (drawn) {
         pending.erase(due);
+        ++frame_drawn;
       } else if (missing) {
         // Done as far as the card goes; the frame is not whole, so it is never kept as one.
         pending.erase(due);
@@ -1035,6 +1272,13 @@ void Skyscope::worker_() {
       shared_.card.failed = card_state.failed;
       shared_.card.free = card_state.free;
       shared_.card.mounted = card_io::mounted();
+      // The frame whole (or as whole as it gets): how long it took, from its plan to its last tile.
+      if (pending.empty()) {
+        times.frame_ms = (uint32_t) ((esp_timer_get_time() - frame_began_us) / 1000);
+        times.frame_tiles = frame_drawn;
+        if (std::strcmp(times.frame_from, "tiles") == 0) times.frames.add(esp_timer_get_time() - frame_began_us);
+      }
+      shared_.tile_times = times;
       if (shared_.frame_plan_rev == plan_rev) {
         if (missing) shared_.card.missing++;
         if (drawn || missing) shared_.tiles_done++;
@@ -1064,7 +1308,7 @@ void Skyscope::worker_() {
       const size_t bytes = (size_t) width * height * 2;
       if (clean_key != painting_key || !clean_frame_) {
         if (!clean_frame_)
-          clean_frame_ = static_cast<uint16_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+          clean_frame_ = static_cast<uint16_t *>(cache.room(bytes));
         if (clean_frame_) {
           std::lock_guard<std::mutex> frame(frame_lock_);
           std::memcpy(clean_frame_, base_frame_, bytes);
@@ -1178,6 +1422,42 @@ void Skyscope::worker_() {
       std::lock_guard<std::mutex> guard(lock_);
       shared_.frame_rev++;
       shared_.radar_scan = 0;
+    }
+
+    // ---- The next step's frame, drawn ahead (follow.h next_centre): once the map shown is whole, a tile a turn, on
+    // this core alone and with no lock on the glass's frame, so nothing the glass does waits for it. Only the one view
+    // the plane is flying into, a minute or so ahead, so no tile is fetched that would not soon be looked at.
+    if (pending.empty() && online && !ahead.keys.empty() && painting_rev == plan_rev) {
+      if (ahead_fresh) {
+        ahead_fresh = false;
+        ahead_key = tiles::frame_key(settings, ahead);
+        if (ahead_key == painting_key) ahead_key.clear();  // the frame shown already
+        if (!ahead_key.empty() && !ahead_frame)
+          ahead_frame = static_cast<uint16_t *>(cache.room((size_t) width * height * 2));
+        if (!ahead_frame) ahead_key.clear();
+        if (!ahead_key.empty()) {
+          std::fill(ahead_frame, ahead_frame + width * height, ground());
+          ahead_done.assign(ahead.keys.size(), 0);
+          ahead_next = 0;
+        }
+      }
+      if (!ahead_key.empty() && ahead_next < ahead.keys.size()) {
+        const size_t i = ahead_next++;
+        const tiles::Key key = ahead.keys[i];
+        Got got = obtain(key);
+        std::string error = got.error;
+        bool drawn = got.tile && !got.tile->size;
+        if (got.tile && got.tile->size) drawn = paint_tile(got.tile, ahead, key, ahead_frame, error);
+        ahead_done[i] = drawn ? 1 : 2;
+        if (drawn) ++times.tiles_ahead;
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.tile_times = times;
+        shared_.cached_tiles = cache.size();
+        shared_.cache_bytes = cache.bytes();
+        shared_.tiles_fetched = tiles_fetched;
+        shared_.tiles_from_cache = tiles_from_cache;
+        shared_.tile_bytes_fetched = tile_bytes_fetched;
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }

@@ -259,4 +259,35 @@ inline uint16_t paint(const Filter &f, int r, int g, int b) {
   if (f.keep < 256) c = {c.r * f.keep >> 8, c.g * f.keep >> 8, c.b * f.keep >> 8};
   return rgb565(c.r, c.g, c.b);
 }
+
+// The filter as a table: every RGB565 colour to what paint makes of it, built once for a filter rather than worked out
+// again for each pixel of each tile (the dark maps' rules take divisions a pixel). A PNG's own colours are taken to
+// RGB565 first, a hair coarser than painting them whole, and nothing the glass's own RGB565 can show.
+constexpr size_t PAINT_TABLE = 65536;
+inline int red_of(uint16_t c) { return (c >> 8 & 0xF8) | c >> 13; }
+inline int green_of(uint16_t c) { return (c >> 3 & 0xFC) | (c >> 9 & 0x3); }
+inline int blue_of(uint16_t c) { return (c << 3 & 0xF8) | (c >> 2 & 0x7); }
+inline bool plain(const Filter &f) { return f.night == NIGHT_NONE && f.keep >= 256; }
+inline bool operator==(const Filter &a, const Filter &b) {
+  return a.night == b.night && a.keep == b.keep && a.opacity == b.opacity;
+}
+inline void paint_table(const Filter &f, uint16_t *out) {
+  for (size_t c = 0; c < PAINT_TABLE; ++c) {
+    const uint16_t k = (uint16_t) c;
+    out[c] = paint(f, red_of(k), green_of(k), blue_of(k));
+  }
+}
+
+// Time spent on one kind of work, for /api/status: how many times, in all, and the longest.
+struct Spent {
+  uint32_t count = 0, most_us = 0;
+  uint64_t total_us = 0;
+  void add(int64_t us) {
+    const uint32_t u = (uint32_t) std::max<int64_t>(0, us);
+    ++count;
+    total_us += u;
+    most_us = std::max(most_us, u);
+  }
+  double mean_ms() const { return count ? total_us / 1000.0 / count : 0; }
+};
 }  // namespace sky::tiles

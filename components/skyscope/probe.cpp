@@ -114,6 +114,7 @@ void Skyscope::describe_ui_(JsonObject out) {
   if (follow_keys_ && shown(follow_keys_)) {
     JsonObject keys = out["follow_keys"].to<JsonObject>();
     if (shown(route_key_)) place(keys["route"].to<JsonObject>(), route_key_);
+    if (shown(own_key_)) place(keys["own"].to<JsonObject>(), own_key_);
     place(keys["plane"].to<JsonObject>(), plane_key_);
   }
   JsonArray planes = out["planes"].to<JsonArray>();

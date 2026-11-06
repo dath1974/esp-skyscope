@@ -259,7 +259,18 @@ async def to_code(config):
     esp32.include_builtin_idf_component("esp_http_client")
     esp32.include_builtin_idf_component("esp-tls")
     esp32.require_full_certificate_bundle()
-    # The decoders for map tiles: pngle (PNG) and JPEGDEC (JPEG, with esp-dsp for the S3's SIMD).
+    # The decoders for map tiles: PNGdec (PNG, a row at a time; decode.cpp), pngle (the PNGs PNGdec will not take:
+    # interlaced, or 16 bits a channel) and JPEGDEC (JPEG, with esp-dsp for the S3's SIMD).
+    cg.add_library("PNGdec", "1.1.7", "https://github.com/bitbank2/PNGdec#1.1.7")
+    # PNGdec takes Arduino.h on every platform but a few it names, ESP-IDF not among them (JPEGDEC names it): one of
+    # those it names gives it the plain C headers. Nothing else in the build asks for it but JPEGDEC, which then also
+    # compiles its reading from files, unused.
+    cg.add_build_flag("-D__MCUXPRESSO")
+    # JPEGDEC uses the S3's vector instructions (esp-dsp's, below) only where it sees Arduino's name for the ESP32;
+    # nothing else in the build looks for that name (ESP-IDF, ESPHome, LVGL, esp-dsp, pngle). With it a JPEG decodes
+    # 25 to 45% quicker: on the AMOLED, a sectional chart's map in 662 ms rather than 867, an IFR low one's in 260 rather
+    # than 440 (POST /api/bench). A PNG is no quicker.
+    cg.add_build_flag("-DARDUINO_ARCH_ESP32")
     cg.add_library("pngle", "1.1.0")
     cg.add_library("JPEGDEC", "1.8.4", "https://github.com/bitbank2/JPEGDEC#1.8.4")
     esp32.add_idf_component(name="espressif/esp-dsp", ref="1.8.2")

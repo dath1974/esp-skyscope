@@ -16,6 +16,7 @@ struct Tile {
   const uint16_t *colour;
   const uint8_t *alpha;
   int width, height, stride;
+  bool opaque = false;  // every pixel wholly opaque (most map tiles): laid without reading the alphas or the frame
 };
 
 // `colour` over `under` at an opacity of `alpha` (0 to 255).
@@ -119,7 +120,8 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       uint16_t *out = frame + y * width;
       const uint16_t *c = colours + (y - oy) * stride;
       const uint8_t *a = alphas + (y - oy) * stride;
-      for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
+      if (tile.opaque) std::copy(c + (x0 - ox), c + (x1 - ox), out + x0);
+      else for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
     }
     return;
   }
@@ -131,7 +133,7 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       uint16_t *out = frame + y * width;
       for (int x = x0; x < x1; ++x) {
         const int tx = std::min(tw - 1, (int) ((x - ox + 0.5) * step));
-        out[x] = blend(out[x], colours[ty * stride + tx], alphas[ty * stride + tx]);
+        out[x] = tile.opaque ? colours[ty * stride + tx] : blend(out[x], colours[ty * stride + tx], alphas[ty * stride + tx]);
       }
     }
     return;
@@ -150,6 +152,10 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       const uint32_t wa = (256 - fx) * (256 - fy) >> 8, wb = fx * (256 - fy) >> 8, wc = (256 - fx) * fy >> 8;
       const uint32_t wd = 256 - wa - wb - wc;
       const int ia = ya * stride + xa, ib = ya * stride + xb, ic = yb * stride + xa, id = yb * stride + xb;
+      if (tile.opaque) {
+        out[x] = mix4(colours[ia], colours[ib], colours[ic], colours[id], wa, wb, wc, wd);
+        continue;
+      }
       const uint32_t alpha =
           (alphas[ia] * wa + alphas[ib] * wb + alphas[ic] * wc + alphas[id] * wd) >> 8;
       if (!alpha) continue;

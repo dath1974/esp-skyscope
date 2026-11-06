@@ -152,6 +152,10 @@ class Skyscope : public Component,
     uint32_t settings_rev = 0;
     tiles::Plan plan;
     uint32_t plan_rev = 0;
+    // The plan of the next step while a plane is followed, for the worker to draw ahead (follow.h next_centre); no
+    // tiles for none.
+    tiles::Plan ahead;
+    uint32_t ahead_rev = 0;
     bool online = false;
     bool offline = false;  // the screen runs on its radio alone, off a network (offline.h)
     bool asleep = false;  // the screen is off: no planes or tiles are asked for
@@ -173,6 +177,21 @@ class Skyscope : public Component,
     // bytes now, and frames shown whole again from the one kept (worker.cpp) with no tile drawn.
     uint32_t tiles_fetched = 0, tiles_from_cache = 0, frames_again = 0;
     uint64_t tile_bytes_fetched = 0;
+    // How long the map takes, on the worker: a tile's download, its read from the card, its decoding (PNG or JPEG) and
+    // its laying into the frame; frames drawn from their tiles, from the plan to the last; the last frame, where it
+    // came from ("tiles", "kept", "ahead", or "ahead, part" with the rest drawn after) and the tiles it drew; and the
+    // frames and tiles drawn ahead for a plane followed.
+    struct TileTimes {
+      tiles::Spent fetch, card, png, jpeg, lay, frames;
+      uint32_t frame_ms = 0, frame_tiles = 0, frames_ahead = 0, tiles_ahead = 0;
+      const char *frame_from = "";
+    } tile_times;
+    // The test API's benchmark of the tile decoder (worker.cpp bench): asked (bench_rev, for bench_runs runs of each),
+    // running, and its answer as JSON.
+    uint32_t bench_rev = 0;
+    int bench_runs = 3;
+    bool bench_busy = false;
+    std::string bench_result;
     size_t cache_bytes = 0;
     uint32_t radar_scan = 0;  // the radar scan drawn over the map, minutes since 1970; 0 for none
     // The airspace and runways of the last place and range asked (airspace.h), which may be an earlier frame's while a
@@ -394,24 +413,36 @@ class Skyscope : public Component,
   // to (asleep, nothing is asked, and the plane only looks lost).
   uint32_t follow_asking_since_{0};
   follow::Trail trail_;  // its way so far, for its track (follow.h)
+  std::string ranged_hex_;  // the plane last put at its own range on being followed (follow_tick_)
+  // The view of the next step, as given to the worker to draw ahead (follow.h next_centre), and when it was last
+  // looked at; ahead_.on false for none.
+  follow::Centre ahead_;
+  geo::View ahead_view_;
+  uint32_t ahead_at_{0};
+  void plan_ahead_(uint32_t now, const geo::Place &plane);
+  void drop_ahead_();
+  tiles::Plan plan_for_(const Settings &shown) const;
   bool following_() const { return centre_.on; }
   void follow_tick_(uint32_t now);  // the follower from the worker, the view moved with the plane, a landing's stop
   // The view's middle there (and the range `range_nm`, where it is one), its frame planned, the glass as it was moved
   // to it meanwhile.
   void set_centre_(const follow::Centre &c, int range_nm = 0);
-  // The keys down the left edge while a plane is followed: the whole route in view, or the plane at PLANE_RANGE_NM.
+  // The keys down the left edge while a plane is followed: the whole route in view, the range the screen had before
+  // following changed it, or the plane at its own range (follow.h plane_range_nm). show_plane_ also begins following,
+  // at that range; `range_nm` 0 is the plane's own.
   void show_route_();
-  void show_plane_();
+  void show_plane_(int range_nm = 0);
   void refresh_follow_keys_();
   follow::Route route_;
   bool route_view_{false};  // the whole route is in view: the view moves only once the plane would leave it
-  lv_obj_t *follow_keys_{nullptr}, *route_key_{nullptr}, *plane_key_{nullptr};
+  lv_obj_t *follow_keys_{nullptr}, *route_key_{nullptr}, *own_key_{nullptr}, *plane_key_{nullptr};
   // Their symbols, drawn (the fonts have none): the route's leg and the sight's four ticks, their points kept here as
   // LVGL keeps only a pointer to them.
-  lv_point_precise_t route_leg_[3]{}, sight_ticks_[4][2]{};
+  lv_point_precise_t route_leg_[3]{}, sight_ticks_[4][2]{}, own_handle_[2]{}, own_roof_[3]{};
   lv_obj_t *round_key_(lv_obj_t *parent, int across);
   void draw_route_symbol_(lv_obj_t *key, int side);
   void draw_sight_symbol_(lv_obj_t *key, int side);
+  void draw_own_symbol_(lv_obj_t *key, int side);
   // The card's line of altitude, the arrow of a climb or descent (drawn: the fonts have none) and the rest after it.
   lv_obj_t *card_motion_{nullptr}, *card_arrow_{nullptr}, *card_after_{nullptr};
   lv_point_precise_t card_arrow_points_[5]{};

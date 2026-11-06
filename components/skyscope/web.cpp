@@ -281,6 +281,28 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     cache["fetched_kb"] = (uint32_t) (shared_.tile_bytes_fetched / 1024);
     cache["from_cache"] = shared_.tiles_from_cache;
     cache["frames_again"] = shared_.frames_again;
+    // How long the map takes (skyscope.h TileTimes): each kind of work's count, mean and longest, in milliseconds.
+    {
+      const Shared::TileTimes &t = shared_.tile_times;
+      JsonObject times = out["tile_times"].to<JsonObject>();
+      auto spent = [&](const char *name, const tiles::Spent &x) {
+        JsonObject o = times[name].to<JsonObject>();
+        o["count"] = x.count;
+        o["mean_ms"] = std::round(x.mean_ms() * 10) / 10;
+        o["most_ms"] = std::round(x.most_us / 100.0) / 10;
+      };
+      spent("fetch", t.fetch);
+      spent("card", t.card);
+      spent("png", t.png);
+      spent("jpeg", t.jpeg);
+      spent("lay", t.lay);
+      spent("frames", t.frames);
+      times["last_frame_ms"] = t.frame_ms;
+      times["last_frame_tiles"] = t.frame_tiles;
+      times["last_frame_from"] = t.frame_from;
+      times["frames_ahead"] = t.frames_ahead;
+      times["tiles_ahead"] = t.tiles_ahead;
+    }
     // The weather radar's scan drawn over the map (radar.h), as IEM names it; "" for none.
     out["radar_scan"] = shared_.radar_scan ? radar::stamp(shared_.radar_scan) : std::string();
     // The airspace shown (airspace.h): its areas and runways, its replies' bytes, and why the last request failed.
@@ -505,6 +527,32 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     keep_divert_(origin);
     request->send(200, "application/json", "{\"restarting\":true}");
     this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });
+    return;
+  }
+  if (url == "/api/bench") {
+    // The tile decoder's benchmark (worker.cpp): POST {"runs": 3} begins it on the map shown, GET answers with it.
+    if (post) {
+      JsonDocument in;
+      const std::string text = std::move(body_);
+      body_.clear();
+      const int runs = deserializeJson(in, text) ? 3 : (in["runs"] | 3);
+      std::lock_guard<std::mutex> guard(lock_);
+      shared_.bench_runs = runs;
+      shared_.bench_rev++;
+      shared_.bench_busy = true;
+      shared_.bench_result.clear();
+      request->send(200, "application/json", "{\"started\":true}");
+      return;
+    }
+    std::string answer;
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+      answer = std::string("{\"busy\":") + (shared_.bench_busy ? "true" : "false") + ",\"result\":" +
+               (shared_.bench_result.empty() ? "null" : shared_.bench_result) + "}";
+    }
+    auto *response = request->beginResponse(200, "application/json", answer);
+    response->addHeader("Cache-Control", "no-store");
+    request->send(response);
     return;
   }
   if ((url == "/api/touch" && post) || url == "/api/ui") {

@@ -38,6 +38,7 @@
 #include "../components/skyscope/touch.h"
 #include "../components/skyscope/weather.h"
 #include "../components/skyscope/wifi_list.h"
+#include "../components/skyscope/pngrow.h"
 
 using namespace sky;
 
@@ -671,6 +672,38 @@ static void test_tiles() {
     n.theme = LIGHT;
     CHECK(tiles::filter_of(n).night == tiles::NIGHT_NONE);
   }
+  // The filter as a table: every RGB565 colour what paint makes of it, for each rule; a plain filter needs none.
+  std::vector<uint16_t> table(tiles::PAINT_TABLE);
+  for (const tiles::Filter f : {invert, colours, tiles::Filter{tiles::NIGHT_DIM, 200}, tiles::Filter{tiles::NIGHT_NONE, 128}}) {
+    tiles::paint_table(f, table.data());
+    size_t wrong = 0;
+    for (size_t c = 0; c < tiles::PAINT_TABLE; ++c) {
+      const uint16_t k = (uint16_t) c;
+      if (table[c] != tiles::paint(f, tiles::red_of(k), tiles::green_of(k), tiles::blue_of(k))) ++wrong;
+    }
+    CHECK(wrong == 0 && !tiles::plain(f));
+  }
+  CHECK(tiles::plain(tiles::Filter{}) && tiles::red_of(0xF800) == 255 && tiles::green_of(0x07E0) == 255 &&
+        tiles::blue_of(0x001F) == 255 && tiles::red_of(0x07FF) == 0);
+  // A PNG's colours through the table are within a step of RGB565 of painting them whole.
+  tiles::paint_table(invert, table.data());
+  int worst = 0;
+  for (int r = 0; r < 256; r += 17)
+    for (int g = 0; g < 256; g += 15)
+      for (int b = 0; b < 256; b += 13) {
+        const uint16_t whole = tiles::paint(invert, r, g, b), quick = table[tiles::rgb565(r, g, b)];
+        worst = std::max({worst, std::abs(tiles::red_of(whole) - tiles::red_of(quick)),
+                          std::abs(tiles::green_of(whole) - tiles::green_of(quick)),
+                          std::abs(tiles::blue_of(whole) - tiles::blue_of(quick))});
+      }
+  CHECK(worst <= 16);
+  // Time spent: counted, in all, the longest.
+  tiles::Spent spent;
+  CHECK(spent.mean_ms() == 0);
+  spent.add(2000);
+  spent.add(4000);
+  spent.add(-5);
+  CHECK(spent.count == 3 && spent.total_us == 6000 && spent.most_us == 4000 && near(spent.mean_ms(), 2.0, 1e-9));
 }
 
 static void test_frame_key() {
@@ -1154,6 +1187,83 @@ static void test_follow() {
   const geo::Place corner = v.place(480 * 0.8, 640 * 0.8);
   CHECK(off_centre(round, corner.lat, corner.lon));
 
+  // Its own range: from where a step puts it, the plane flies about a minute (a whole zoom either way of it: 40 to 85 s)
+  // before the next step, slow or fast, any way it heads, on a long glass or a round one.
+  struct Glass { int w, h; bool round; };
+  for (const Glass g : {Glass{480, 640, false}, Glass{640, 480, false}, Glass{466, 466, true}}) {
+    for (const float kt : {60.0f, 140.0f, 250.0f, 480.0f, 560.0f}) {
+      for (const float heading : {0.0f, 45.0f, 90.0f, 200.0f, 300.0f}) {
+        feed::Flight f;
+        f.has_speed = f.has_heading = true;
+        f.speed = kt;
+        f.heading = heading;
+        const int nm = plane_range_nm(f, 51.5, g.w, g.h, g.round);
+        geo::View view = view_for(51.5, -0.1, nm, g.w, g.h);
+        view.round = g.round;
+        const geo::Place mid = centre_for(view, 51.5, -0.1, true, heading);
+        geo::View stepped(mid.lat, mid.lon, view.zoom, g.w, g.h);
+        stepped.round = g.round;
+        int s = 0;
+        geo::Place p{51.5, -0.1};
+        while (s < 600 && !off_centre(stepped, p.lat, p.lon)) {
+          p = geo::destination(51.5, -0.1, heading, kt * geo::NM * ++s / 3600.0);
+        }
+        CHECK(s >= 40 && s <= 85);
+        if (s < 40 || s > 85) std::printf("  %d x %d, %.0f kt heading %.0f: %d NM, %d s\n", g.w, g.h, kt, heading, nm, s);
+      }
+    }
+  }
+  // The next step, drawn ahead: a plane flying straight, reported every few seconds, steps each time into the view
+  // planned for it a step before, and is where a step would put it there.
+  for (const Glass g : {Glass{480, 640, false}, Glass{466, 466, true}}) {
+    for (const float heading : {10.0f, 75.0f, 135.0f, 260.0f}) {
+      const float kt = 450, report_s = 5;
+      geo::View shown(52.0, 4.0, 11, g.w, g.h);
+      shown.round = g.round;
+      geo::Place plane{52.0, 4.0};
+      int steps = 0, taken = 0;
+      for (int t = 0; t < 600 && steps < 6; t += (int) report_s) {
+        geo::Place ahead;
+        CHECK(next_centre(shown, plane.lat, plane.lon, true, heading, ahead));
+        geo::View planned(ahead.lat, ahead.lon, shown.zoom, g.w, g.h);
+        planned.round = g.round;
+        plane = geo::destination(plane.lat, plane.lon, heading, kt * geo::NM * report_s / 3600.0);
+        if (!off_centre(shown, plane.lat, plane.lon)) continue;
+        ++steps;
+        if (suits(planned, plane.lat, plane.lon, heading)) {
+          ++taken;
+          shown = planned;
+        } else {
+          const geo::Place c = centre_for(shown, plane.lat, plane.lon, true, heading);
+          shown = geo::View(c.lat, c.lon, shown.zoom, g.w, g.h);
+          shown.round = g.round;
+        }
+        CHECK(!off_centre(shown, plane.lat, plane.lon));
+      }
+      CHECK(steps >= 3 && taken == steps);
+    }
+  }
+  {
+    // A plane turned round is nowhere near the spot of the view planned for it, and none is planned without a heading.
+    const geo::View shown(52.0, 4.0, 11, 480, 640);
+    geo::Place ahead, at;
+    CHECK(next_centre(shown, 52.0, 4.0, true, 90, ahead) && !next_centre(shown, 52.0, 4.0, false, 90, ahead));
+    const geo::View planned(ahead.lat, ahead.lon, 11, 480, 640);
+    CHECK(crossing(shown, 52.0, 4.0, 90, at) && suits(planned, at.lat, at.lon, 90) && !suits(planned, at.lat, at.lon, 270));
+    CHECK(!suits(planned, 52.0, 4.0, 90));
+  }
+  feed::Flight unheard;
+  CHECK(plane_range_nm(unheard, 51.5, 480, 640, false) == PLANE_RANGE_NM);
+  feed::Flight parked;
+  parked.has_speed = true;
+  CHECK(plane_range_nm(parked, 51.5, 480, 640, false) == MIN_RANGE_NM);
+  feed::Flight jet;
+  jet.has_speed = true;
+  jet.speed = 480;
+  // An airliner's minute is 8 NM: on a 480 pixel side, a range of some 5 to 11 NM (a whole zoom).
+  const int jet_nm = plane_range_nm(jet, 51.5, 480, 640, false);
+  CHECK(jet_nm >= 5 && jet_nm <= 11);
+
   // Shown while following: the middle, a world map outside the United States, no rings, the plane watched.
   Settings home;
   home.map = SECTIONAL;
@@ -1230,6 +1340,13 @@ static void test_follow() {
   minutes["follow_track_min"] = 2000;
   CHECK(!apply(minutes.as<JsonObjectConst>(), labels, error) && error == "follow_track_min");
   CHECK(Settings{}.follow_track_min == 0);
+  // The range following changed from: none until it has, at most the farthest range.
+  CHECK(Settings{}.own_range_nm == 0);
+  JsonDocument own;
+  own["own_range_nm"] = 40;
+  CHECK(apply(own.as<JsonObjectConst>(), labels, error) && labels.own_range_nm == 40);
+  own["own_range_nm"] = MAX_RANGE_NM + 1;
+  CHECK(!apply(own.as<JsonObjectConst>(), labels, error) && error == "own_range_nm");
   // The route: adsbdb's answer read, its great circle, the line on the frame, and a view that holds it all.
   JsonDocument doc;
   Route route;
@@ -2209,6 +2326,78 @@ static void test_pixels() {
   fresh(frame, 64);
   lay(frame, 8, 8, 1, 1, 3.0, Tile{one, solid, 2, 2, 2});
   CHECK(frame[0] == BLUE && std::all_of(frame + 9, frame + 15, [](uint16_t p) { return p == RED; }));
+  // A tile known to be opaque is laid just as one whose alphas say so, at its own size, smaller and larger.
+  uint16_t varied[5 * 5];
+  uint8_t full[5 * 5];
+  for (int i = 0; i < 25; ++i) {
+    varied[i] = (uint16_t) (i * 2741 + 77);
+    full[i] = 255;
+  }
+  for (const double scale : {1.0, 0.5, 0.7, 1.6, 2.0, 3.3}) {
+    for (const int at : {-3, 0, 2}) {
+      uint16_t slow[16 * 16], quick[16 * 16];
+      fresh(slow, 256);
+      fresh(quick, 256);
+      lay(slow, 16, 16, at, at + 1, scale, Tile{varied, full, 5, 5, 5, false});
+      lay(quick, 16, 16, at, at + 1, scale, Tile{varied, full, 5, 5, 5, true});
+      CHECK(std::equal(slow, slow + 256, quick));
+    }
+  }
+}
+
+static void test_pngrow() {
+  using namespace pngrow;
+  const tiles::Filter plain{};
+  uint16_t colour[8];
+  uint8_t alpha[8];
+  // A palette of four, the last see-through; rows packed 1, 2, 4 and 8 bits to a pixel.
+  uint8_t palette[1024] = {};
+  const uint8_t entries[4][3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 255, 255}};
+  for (int i = 0; i < 4; ++i)
+    for (int c = 0; c < 3; ++c) palette[3 * i + c] = entries[i][c];
+  for (int i = 0; i < 256; ++i) palette[768 + i] = i == 3 ? 0 : 255;
+  Palette painted;
+  paint_palette(palette, true, plain, painted);
+  CHECK(painted.colour[0] == 0xF800 && painted.colour[2] == 0x001F && painted.alpha[3] == 0 && painted.alpha[1] == 255);
+  const uint8_t one_bit[] = {0b10100000};
+  convert({one_bit, 4, INDEXED, 1, true, 0}, plain, nullptr, &painted, colour, alpha);
+  CHECK(colour[0] == 0x07E0 && colour[1] == 0xF800 && colour[2] == 0x07E0 && colour[3] == 0xF800);
+  const uint8_t two_bits[] = {0b00011011};
+  convert({two_bits, 4, INDEXED, 2, true, 0}, plain, nullptr, &painted, colour, alpha);
+  CHECK(colour[0] == 0xF800 && colour[1] == 0x07E0 && colour[2] == 0x001F && alpha[3] == 0 && alpha[2] == 255);
+  const uint8_t four_bits[] = {0x21, 0x30};
+  convert({four_bits, 3, INDEXED, 4, true, 0}, plain, nullptr, &painted, colour, alpha);
+  CHECK(colour[0] == 0x001F && colour[1] == 0x07E0 && alpha[2] == 0);
+  const uint8_t eight_bits[] = {2, 0, 3};
+  convert({eight_bits, 3, INDEXED, 8, true, 0}, plain, nullptr, &painted, colour, alpha);
+  CHECK(colour[0] == 0x001F && colour[1] == 0xF800 && alpha[2] == 0 && alpha[1] == 255);
+  // Without a tRNS chunk every entry is whole.
+  paint_palette(palette, false, plain, painted);
+  CHECK(painted.alpha[3] == 255);
+  // Grey, packed and whole, its tRNS grey see-through.
+  const uint8_t grey2[] = {0b11000100};
+  convert({grey2, 3, GRAY, 2, true, 1}, plain, nullptr, nullptr, colour, alpha);
+  CHECK(colour[0] == 0xFFFF && colour[1] == 0 && alpha[2] == 0 && alpha[0] == 255);
+  const uint8_t grey_alpha[] = {255, 128, 0, 255};
+  convert({grey_alpha, 2, GRAY_ALPHA, 8, false, 0}, plain, nullptr, nullptr, colour, alpha);
+  CHECK(colour[0] == 0xFFFF && alpha[0] == 128 && colour[1] == 0 && alpha[1] == 255);
+  // Colour, with its tRNS colour see-through, and with alpha (a place name's edge).
+  const uint8_t rgb[] = {255, 0, 0, 1, 2, 3, 0, 0, 255};
+  convert({rgb, 3, RGB, 8, true, 0x010203}, plain, nullptr, nullptr, colour, alpha);
+  CHECK(colour[0] == 0xF800 && alpha[0] == 255 && alpha[1] == 0 && colour[2] == 0x001F);
+  const uint8_t rgba[] = {0, 255, 0, 200, 9, 9, 9, 0};
+  convert({rgba, 2, RGBA, 8, false, 0}, plain, nullptr, nullptr, colour, alpha);
+  CHECK(colour[0] == 0x07E0 && alpha[0] == 200 && alpha[1] == 0);
+  // Through a filter: the palette painted by it, the colours by its table just as by painting them, and the radar's
+  // opacity on every alpha.
+  const tiles::Filter turned{tiles::NIGHT_INVERT, 256, 128};
+  paint_palette(palette, true, turned, painted);
+  CHECK(painted.colour[3] == tiles::paint(turned, 255, 255, 255) && painted.alpha[0] == 128 && painted.alpha[3] == 0);
+  std::vector<uint16_t> table(tiles::PAINT_TABLE);
+  tiles::paint_table(turned, table.data());
+  const uint8_t white[] = {255, 255, 255, 0, 0, 0};
+  convert({white, 2, RGB, 8, false, 0}, turned, table.data(), nullptr, colour, alpha);
+  CHECK(colour[0] == tiles::paint(turned, 255, 255, 255) && colour[1] == tiles::paint(turned, 0, 0, 0) && alpha[0] == 128);
 }
 
 static void test_touch() {
@@ -2405,6 +2594,7 @@ int main(int argc, char **argv) {
   test_firmware();
   test_touch();
   test_pixels();
+  test_pngrow();
   test_mock_answers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
