@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Guidance for coding agents working in esp-skyscope: an ESP32-S3 touch screen that fetches ADS-B traffic and map tiles
-from public services and draws them itself. The firmware is an ESPHome external component. `README.md` is the user
-guide; read it for what the screen does and how it is set up.
+from public services and draws them itself. The firmware is an ESPHome external component. `README.md` and `docs/`
+are the user guide; read them for what the screen does and how it is set up.
 
 ## Layout
 
@@ -59,8 +59,12 @@ guide; read it for what the screen does and how it is set up.
 - **Round glass.** On a board with `round: true` the corners are not there. Place anything new on the glass through
   `glass.h` and `ui.h` (`ui::pad_page` for a page, `ui::hug_edge` for a box along the top or bottom edge), never by
   the display's width and height alone.
-- **README.** Features, settings, the API table and the `make` targets are documented there. Update it in the same
-  change.
+- **Docs.** `README.md` is the front page: what the screen does in a line each, install, first start, updates and the
+  data sources. The detail lives in `docs/`: `using.md` (the glass, the menu, every feature), `hardware.md` (boards,
+  the radio, the card's slot), `api.md` (every request) and `development.md` (`make` targets, tests, releases). Update
+  the right one in the same change, and keep the README short: what a user needs, not how the code does it.
+- **Spelling.** American English everywhere: code, comments, the page and the docs ("color", "center", "meter",
+  "gray", "around" not "round"). The watched planes' `colour` key is still read for settings stored by older firmware.
 
 ## Style
 
