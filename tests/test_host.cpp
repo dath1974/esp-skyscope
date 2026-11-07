@@ -541,6 +541,16 @@ static void test_feed() {
   CHECK(feed::parse(fi.c_str(), fi.size(), doc, two, error, 2) && two.size() == 2 && two.capacity() == 2);
   CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error, 0) && flights.empty());
   CHECK(!feed::parse("{\"msg\":\"bad\"}", 13, doc, flights, error) && error == "bad");
+  // A reply that calls its planes made up is credited as such; any other is not.
+  bool simulated = true;
+  CHECK(feed::parse(fi.c_str(), fi.size(), doc, flights, error, SIZE_MAX, &simulated) && !simulated);
+  std::string made_up = fi;
+  made_up.insert(1, "\"simulated\": true, ");
+  CHECK(feed::parse(made_up.c_str(), made_up.size(), doc, flights, error, SIZE_MAX, &simulated) && simulated);
+  made_up.replace(made_up.find("true"), 4, "false");
+  CHECK(feed::parse(made_up.c_str(), made_up.size(), doc, flights, error, SIZE_MAX, &simulated) && !simulated);
+  CHECK(std::string(feed::credit(RECEIVER, true)) == "simulated" && std::string(feed::credit(RECEIVER)) == "receiver");
+  CHECK(std::string(feed::credit(ADSB_FI, true)) == "adsb.fi");
   CHECK(!feed::parse("<html>", 6, doc, flights, error));
   // Read plane by plane: what is no plane in the list is passed over, and brackets and quotes inside strings are words.
   const std::string odd = R"({"now":1,"note":"a } and a ] and \" in words","aircraft":[7,"plane",null,[],true,

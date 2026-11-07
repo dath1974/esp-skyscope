@@ -1234,6 +1234,7 @@ void Skyscope::update_status_(uint32_t now) {
   std::string status, tile_error, airspace_error;
   providers::Providers sources;
   Feed source = ADSB_FI;
+  bool simulated = false;
   uint32_t feed_at;
   int done, total;
   uint32_t radar_scan = 0, airspace_retry_at = 0;
@@ -1248,6 +1249,7 @@ void Skyscope::update_status_(uint32_t now) {
     download_total = shared_.card.total_tiles;
     sources = shared_.providers;
     source = shared_.feed_source;
+    simulated = shared_.feed_simulated;
     tile_error = shared_.tile_error;
     airspace_error = shared_.airspace_error;
     airspace_retry_at = shared_.airspace_retry_at;
@@ -1271,7 +1273,7 @@ void Skyscope::update_status_(uint32_t now) {
   std::string credit = tiles::credit(shown);
   if (shown.airspace && credit.find("FAA") == std::string::npos)
     credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "FAA";
-  if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source);
+  if (feed_at) credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + feed::credit(source, simulated);
   // The radar's scan, at its time (a loop's goes by), and its source as IEM asks.
   if (shown.radar_overlay && radar_scan)
     credit += std::string(credit.empty() ? "" : " \xC2\xB7 ") + "Radar " + radar::clock(radar_scan) + " NEXRAD/IEM";

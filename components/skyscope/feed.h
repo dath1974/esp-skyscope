@@ -67,10 +67,12 @@ inline std::string url(Feed feed, double lat, double lon, int radius_nm, const s
   }
   return out;
 }
-inline const char *credit(Feed feed) {
+// A receiver that says its planes are made up (`"simulated": true` in its reply, as the tests' mock and the
+// screenshots' sky do) is credited as such, so a picture of the glass never passes them off as real.
+inline const char *credit(Feed feed, bool simulated = false) {
   switch (feed) {
     case ADSB_FI: return "adsb.fi";
-    case RECEIVER: return "receiver";
+    case RECEIVER: return simulated ? "simulated" : "receiver";
     case RADIO: return "radio";
     default: return "adsb.lol";
   }
@@ -217,10 +219,11 @@ inline bool flight_of(JsonObjectConst p, Flight &f) {
 // seconds (4500 took over a minute, and then ran out of the slots a document has on a 32-bit chip). At most `most`
 // planes are kept, the first in the list: room for them all is taken at once, counted first, as a list grown a plane
 // at a time asked for twice its size in one piece (some 2 MB for 4500) with the old one still held, and a screen with
-// no piece that large stopped.
+// no piece that large stopped. `simulated`, if given, says whether the reply calls its planes made up
+// (`"simulated": true`).
 template<typename Doc>
 bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, std::string &error,
-           size_t most = SIZE_MAX) {
+           size_t most = SIZE_MAX, bool *simulated = nullptr) {
   static const JsonDocument keep = plane_filter();
   const char *end = text + length, *p = scan::space(text, end);
   const char *list = nullptr, *list_end = nullptr;
@@ -228,6 +231,7 @@ bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, 
     error = at ? "JSON: InvalidInput" : "JSON: IncompleteInput";
     return false;
   };
+  if (simulated) *simulated = false;
   if (p >= end) return broken(nullptr);
   if (*p != '{') return broken(p);
   // The reply's members: the list (`ac`, or `aircraft` as readsb names it) found, the rest stepped over.
@@ -247,6 +251,7 @@ bool parse(const char *text, size_t length, Doc &doc, std::vector<Flight> &out, 
       list = p;
       list_end = value_end;
     }
+    if (simulated && name == "simulated" && value_end - p == 4 && std::strncmp(p, "true", 4) == 0) *simulated = true;
     p = scan::space(value_end, end);
     if (p < end && *p == ',') p = scan::space(p + 1, end);
     else if (p < end && *p != '}') return broken(p);

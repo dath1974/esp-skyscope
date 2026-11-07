@@ -860,6 +860,7 @@ void Skyscope::worker_() {
           shared_.feed_at = done;
           shared_.feed_every_ms = every;
           shared_.feed_source = RADIO;
+          shared_.feed_simulated = false;
         } else {
           // No stick, or one not yet listening: the next source at once, and the radio again in a few seconds.
           answer.retry_after_s = RADIO_RETRY_S;
@@ -886,12 +887,12 @@ void Skyscope::worker_() {
         ui::worker_phase = ui::FEED_PARSE;
         std::vector<feed::Flight> flights;
         std::string error = r.error;
-        bool ok = r.status == 200;
+        bool ok = r.status == 200, simulated = false;
         if (ok) {
           JsonDocument doc;  // one plane at a time (feed.h): a kilobyte or two
           // As many planes as the largest piece of PSRAM holds, with as much again to spare for their words.
           const size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / sizeof(feed::Flight) / 2;
-          ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room);
+          ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room, &simulated);
           if (ok && flights.size() == room) ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
           if (ok) see_followed(flights);
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
@@ -908,6 +909,7 @@ void Skyscope::worker_() {
           shared_.feed_at = done;
           shared_.feed_every_ms = every;
           shared_.feed_source = source;
+          shared_.feed_simulated = simulated && source == RECEIVER;
         } else {
           const uint32_t left = providers.failed(source, done, answer);
           ESP_LOGW(TAG, "%s: %s (HTTP %d), left alone for %u s%s", feed::credit(source), providers.state(source).error.c_str(),

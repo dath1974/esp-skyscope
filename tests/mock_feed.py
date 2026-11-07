@@ -4,7 +4,8 @@ aircraft that are known, where they are known to be, a release to offer, and the
 
     tests/mock_feed.py [--port 8095] [--lat 40.6413 --lon -73.7781] [--scenario fixed]
 
-Point the screen at it (settings: feed "receiver", receiver_url http://<this machine>:8095/data/aircraft.json).
+Point the screen at it (settings: feed "receiver", receiver_url http://<this machine>:8095/data/aircraft.json). Its
+replies say `"simulated": true`, and the screen credits their planes as "simulated", not "receiver".
 tests/device_test.py --mock starts one of its own, in the same process. By hand, it takes:
 
     GET  /data/aircraft.json      the aircraft (any path ending in aircraft.json, and /v2/<lat>/<lon>/<dist>)
@@ -339,7 +340,8 @@ def handler_for(feed: Feed, firmware: Firmware):
                 self.answer(404, b'{"msg":"not here"}', what="404")
                 return
             fault = feed.take_fault()
-            reply = {"now": time.time(), "messages": 1000, "aircraft": feed.aircraft()}
+            # Made-up planes, said so: the screen credits them as "simulated", never as a real receiver's.
+            reply = {"now": time.time(), "messages": 1000, "simulated": True, "aircraft": feed.aircraft()}
             body = json.dumps(reply).encode()
             if fault == "429":
                 self.answer(429, b'{"msg":"slow down"}', {"Retry-After": "30"}, "429")

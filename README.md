@@ -28,7 +28,9 @@ More of what the screen shows, each map and page with a word on it: [docs/screen
   the maps real ATC scopes use: the FAA does not publish those.
 - **Aircraft**: from adsb.fi or adsb.lol, a receiver of your own (readsb, tar1090, dump1090-fa: its
   `aircraft.json`), or on the P4 board the screen's own radio (an RTL-SDR stick on its USB port, below), every polling
-  interval, switching to another if one is unavailable. Each
+  interval, switching to another if one is unavailable. The credit at the bottom of the glass names the source; a
+  receiver whose reply says `"simulated": true` (the tests' mock, the pictures' made-up sky) is credited as
+  **simulated**, so made-up planes are never taken for real ones. Each
   aircraft drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light aircraft,
   helicopter, fast jet, glider, balloon, airship, drone, ground vehicle: from its type, else the class its transponder
   sends, else its description; `make test-markers` draws them all on a sheet), or as one plane, an arrow or a dot,
@@ -377,7 +379,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 |---|---|
 | `GET /api/settings` | every setting |
 | `POST /api/settings` | changes the settings in a JSON object (only the keys given); a wrong value answers 400 with `{"error": "<key>"}` and changes nothing. `{"follow": "BAW286"}` follows a plane, `{"follow": ""}` stops |
-| `GET /api/status` | Wi-Fi, free memory, aircraft, the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), how long the map takes (`tile_times`: for a tile's download (`fetch`), its read from the map card (`card`), its decoding (`png`, `jpeg`) and its laying into the frame (`lay`), and for maps drawn from their tiles (`frames`), each a `count`, `mean_ms` and `most_ms`; the last map's `last_frame_ms`, `last_frame_tiles` drawn and `last_frame_from`: `tiles`, `kept`, `ahead`, or `ahead, part`; and `frames_ahead` and `tiles_ahead`, a followed plane's steps drawn ahead), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error, and `airspace_kept`: whether it is the one kept in flash from before the restart), the plane followed (`follow`: what was asked, `state` one of looking, live, lost, landed or gave_up, the status line's words, and once found its hex, callsign, registration, where it is or is likely to be, whether that is `estimated`, and the seconds since it was last heard), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
+| `GET /api/status` | Wi-Fi, free memory, aircraft, where they came from (`feed_source`, and `feed_simulated` for a receiver's made-up planes), the feed's last error, map progress, the tile cache (`tile_cache`: tiles and KB held, tiles fetched and their KB, tiles from the cache, maps shown whole again), how long the map takes (`tile_times`: for a tile's download (`fetch`), its read from the map card (`card`), its decoding (`png`, `jpeg`) and its laying into the frame (`lay`), and for maps drawn from their tiles (`frames`), each a `count`, `mean_ms` and `most_ms`; the last map's `last_frame_ms`, `last_frame_tiles` drawn and `last_frame_from`: `tiles`, `kept`, `ahead`, or `ahead, part`; and `frames_ahead` and `tiles_ahead`, a followed plane's steps drawn ahead), the weather radar's scan shown (`radar_scan`), the airspace shown (areas, runways, bytes, last error, and `airspace_kept`: whether it is the one kept in flash from before the restart), the plane followed (`follow`: what was asked, `state` one of looking, live, lost, landed or gave_up, the status line's words, and once found its hex, callsign, registration, where it is or is likely to be, whether that is `estimated`, and the seconds since it was last heard), the screen's own radio (`radio`: what it is doing, messages a second and in all, one-bit errors mended, checksums failed, planes heard and placed, positions thrown away, samples dropped, its gain and noise floor), the map card (`card`, as `GET /api/card`), rotation, and timing: frames (drawing, waiting for the panel, sending), the LCD 2.8B's panel refills (`refills`: in all, late in all and in the last five seconds, the longest copy and span against its budget, in µs; a late one is a mark on the glass), slow frames by what the worker was doing, a report on the loop and on the worker |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/firmware` | the version running, the newest release, an install's progress, and the manifest it asks (`source`) |
 | `POST /api/firmware` | `{"check": true}` asks for the newest release again; `{"install": true}` installs it |
@@ -503,12 +505,12 @@ receiver's range, are missing, and positions may be late.
   repeatable (the sky and the services change), and needs no test API but for the weather page.
 - `make screenshots DEVICE=<address>` (`tools/screenshots.py`; `ONLY=streets-dark,radar` for some): the pictures in
   [docs/screens.md](docs/screens.md), taken from the screen's own glass (`GET /api/screenshot`) at public airports,
-  never the screen's own place. The maps, the FAA's airspace and the weather are the real ones; the planes are made
-  up and served from this machine as a receiver (airliners on the runway's final approach and climbing out, jets
-  passing over, light aircraft, helicopters), so no real flight is shown. Each scene is a place, a map and its
-  settings, and sometimes a touch (a plane's card, the menu, the weather page); the weather radar's goes where a
-  METAR reports rain now. It writes `docs/screens.md` from the pictures, and puts every setting back. It needs the
-  test API, and the screen must reach this machine, as the tests against the mock do.
+  never the screen's own place. The maps, the FAA's airspace and the weather are the real ones; the planes are made up
+  and served from this machine as a receiver, credited on the glass as **simulated** (airliners on the runway's final
+  approach and climbing out, jets passing over, light aircraft, helicopters), so no real flight is shown. Each scene is
+  a place, a map and its settings, and sometimes a touch (a plane's card, the menu, the weather page); the weather
+  radar's goes where a METAR reports rain now. It writes `docs/screens.md` from the pictures, and puts every setting
+  back. It needs the test API, and the screen must reach this machine, as the tests against the mock do.
 
 ### A screen reaching a test server under WSL
 

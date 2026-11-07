@@ -230,6 +230,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
     // Each exchange in the order it is tried: waiting or not, for how long, and why.
     out["feed_source"] = FEEDS[shared_.feed_source];
+    out["feed_simulated"] = shared_.feed_simulated;  // a receiver's made-up planes (feed.h credit)
     JsonArray sources = out["feeds"].to<JsonArray>();
     const uint32_t now_ms = millis();
     for (const Feed f : shared_.providers.order()) {

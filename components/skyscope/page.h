@@ -248,7 +248,7 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
  $('following').textContent=s.follow?'Now: '+s.follow.status+(s.follow.hex?' ('+s.follow.hex+')':'')+'.':'';
  $('every').textContent=s.feed_every_s?'Now asked every '+s.feed_every_s+' s.':'';
  const NAMES={adsb_fi:'adsb.fi',adsb_lol:'adsb.lol',receiver:'receiver',radio:'radio'};
- let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+NAMES[s.feed_source]:'');
+ let t=s.name+' · '+s.aircraft+' aircraft'+(s.feed_source?' from '+(s.feed_simulated?'a simulation':NAMES[s.feed_source]):'');
  const waits=(s.feeds||[]).filter(f=>f.waiting).map(f=>NAMES[f.feed]+': '+f.error+', again in '+wait(f.retry_in_s));
  if(waits.length)t+=' · '+waits.join(' · ');
  $('sources').textContent=(s.feeds||[]).map(f=>NAMES[f.feed]+': '+(f.waiting?f.error+' ('+f.failures+(f.failures>1?' times':' time')+' in a row), again in '+wait(f.retry_in_s):'available')+(f.paced_s?', asked at most every '+f.paced_s+' s':'')).join(' · ')

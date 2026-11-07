@@ -166,6 +166,7 @@ class Skyscope : public Component,
     uint32_t feed_at = 0;  // millis() of the last good answer
     providers::Providers providers;  // each exchange's record: waiting, failures, pace (providers.h)
     Feed feed_source = ADSB_FI;      // the exchange the last good report came from
+    bool feed_simulated = false;     // and it was a receiver whose planes are made up (feed.h credit)
     uint32_t frame_rev = 0, frame_plan_rev = 0;  // the base frame changed, for that plan
     int tiles_done = 0, tiles_total = 0;
     std::string tile_error;
