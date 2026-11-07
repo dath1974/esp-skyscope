@@ -18,7 +18,7 @@
 #include "wake.h"
 
 namespace sky::overlay {
-// Altitude bands a marker is coloured by (tar1090's rainbow): on the ground, below 5,000 ft, below 15,000, below
+// Altitude bands a marker is colored by (tar1090's rainbow): on the ground, below 5,000 ft, below 15,000, below
 // 30,000, and above.
 inline constexpr int BANDS[] = {5000, 15000, 30000};
 // A plane climbing or descending at least this many feet a minute is said to: its label's arrow, its card's words.
@@ -72,13 +72,13 @@ class Tracks {
   std::map<std::string, std::vector<Place, InPsram<Place>>> seen_;
 };
 
-// The colour of a plane someone watches (1 to plan::WATCH_COLOURS), by its registration, callsign or address; 0 for none.
-inline int watch_colour(const feed::Flight &f, const std::vector<Watch> &watch) {
+// The color of a plane someone watches (1 to plan::WATCH_COLORS), by its registration, callsign or address; 0 for none.
+inline int watch_color(const feed::Flight &f, const std::vector<Watch> &watch) {
   if (watch.empty()) return 0;
   const std::string keys[] = {upper_id(f.registration.c_str()), upper_id(f.callsign.c_str()), upper_id(f.hex.c_str())};
   for (const auto &w : watch)
     for (const auto &k : keys)
-      if (!k.empty() && k == w.id) return w.colour + 1;
+      if (!k.empty() && k == w.id) return w.color + 1;
   return 0;
 }
 
@@ -92,7 +92,7 @@ inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &
   auto inside = [&](const geo::Pixel &p) { return glass::holds(frame, p.x, p.y, MARGIN); };
   for (const auto &f : flights) {
     const geo::Pixel p = view.point(f.lat, f.lon);
-    if (watch_colour(f, s.watch)) {
+    if (watch_color(f, s.watch)) {
       if (inside(p)) watched.push_back(&f);
       continue;
     }
@@ -127,7 +127,7 @@ inline void keep_showable(std::vector<feed::Flight> &flights, const Settings &s,
   flights = std::move(kept);
 }
 
-// What a label says: the choice, or for `auto` what the frame has room for, `px_per_mm` pixels to the millimetre.
+// What a label says: the choice, or for `auto` what the frame has room for, `px_per_mm` pixels to the millimeter.
 inline LabelKind label_kind(const Settings &s, const geo::View &view, float px_per_mm) {
   if (s.label != LABEL_AUTO) return s.label;
   const float small_mm = std::min(view.width, view.height) / std::max(1.0f, px_per_mm);
@@ -143,7 +143,7 @@ inline std::string altitude_text(const feed::Flight &f, bool metric) {
   return out;
 }
 // The altitude in a label, as a controller's scope writes it: three digits of hundreds of feet ("025", "350"),
-// and below the sea a minus and three digits more ("-001"), as at an airfield below sea level. Metric stays in metres.
+// and below the sea a minus and three digits more ("-001"), as at an airfield below sea level. Metric stays in meters.
 inline std::string block_altitude(const feed::Flight &f, bool metric) {
   if (f.on_ground || !f.has_altitude) return "";
   if (metric) return altitude_text(f, true);
@@ -235,7 +235,7 @@ inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) 
 // Where a plane goes in a minute on the frame, in pixels: its heading and ground speed at the view's zoom.
 inline std::pair<int, int> velocity(const feed::Flight &f, const geo::View &view) {
   if (f.on_ground || !f.has_speed || !f.has_heading) return {0, 0};
-  const double per_minute = f.speed * 0.514444 * 60 / geo::metres_per_pixel(f.lat, view.zoom);
+  const double per_minute = f.speed * 0.514444 * 60 / geo::meters_per_pixel(f.lat, view.zoom);
   const double a = geo::radians(f.heading);
   return {(int) std::lround(std::sin(a) * per_minute), (int) std::lround(-std::cos(a) * per_minute)};
 }
@@ -270,7 +270,7 @@ inline plan::Overlay build(const std::vector<feed::Flight> &flights, const Setti
     p.band = band(*f);
     // A scope's planes carry their motion whether they glide or not: its vector is where a plane is a minute on.
     if (s.glide || radar) std::tie(p.vx, p.vy) = velocity(*f, view);
-    p.watch = watch_colour(*f, s.watch);
+    p.watch = watch_color(*f, s.watch);
     const LabelKind own = !s.follow_hex.empty() && f->hex == s.follow_hex ? followed_kind : kind;
     p.label = label_of(*f, p.watch && own == LABEL_NONE ? LABEL_CALLSIGN : own, s.metric);
     p.id = f->hex;

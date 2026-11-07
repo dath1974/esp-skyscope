@@ -42,7 +42,7 @@ def png_pixels(data):
 
 
 class Picture(unittest.TestCase):
-    def test_colours_and_rows(self):
+    def test_colors_and_rows(self):
         # Odd width (rows padded), the top row first: red, green, blue, white, black, and a middle gray.
         pixels = [0xF800, 0x07E0, 0x001F, 0xFFFF, 0x0000, 0x8410]
         width, height, rows = png_pixels(screenshots.bmp_to_png(bmp(3, 2, pixels)))
@@ -75,7 +75,7 @@ class MadeUpSky(unittest.TestCase):
                 self.assertEqual(len(p["flight"]), 8)
 
     def test_arrivals_on_the_runway_line(self):
-        # The final approach: every arrival on the line out from the threshold, descending towards it.
+        # The final approach: every arrival on the line out from the threshold, descending toward it.
         runway = (40.62, -73.76, 300.0)
         sky = self.sky(runway=runway)
         finals = [h for h, path, _ in sky.planes if path[0] == "final"]

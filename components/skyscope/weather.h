@@ -51,9 +51,9 @@ inline std::string bbox(double lat, double lon, double half) {
   std::snprintf(text, sizeof(text), "%.2f,%.2f,%.2f,%.2f", lat - half, lon - across, lat + half, lon + across);
   return text;
 }
-// The METARs near a place, to find the nearest station that reports: half a degree round it.
+// The METARs near a place, to find the nearest station that reports: half a degree around it.
 inline std::string nearby_url(double lat, double lon) { return std::string(AWC) + "metar?format=json&bbox=" + bbox(lat, lon, 0.5); }
-// Pilot reports over the map: as far as `range_nm` round the place, at least 50 NM.
+// Pilot reports over the map: as far as `range_nm` around the place, at least 50 NM.
 inline std::string pirep_url(double lat, double lon, int range_nm) {
   return std::string(AWC) + "pirep?format=json&age=2&bbox=" + bbox(lat, lon, std::max(50, range_nm) / 60.0);
 }
@@ -133,7 +133,7 @@ inline int nearest(const std::vector<Metar> &metars, double lat, double lon) {
   int best = -1;
   double closest = 1e18;
   for (size_t i = 0; i < metars.size(); ++i) {
-    const double d = geo::metres_between(lat, lon, metars[i].lat, metars[i].lon);
+    const double d = geo::meters_between(lat, lon, metars[i].lat, metars[i].lon);
     if (d < closest) {
       closest = d;
       best = (int) i;
@@ -351,7 +351,7 @@ inline bool near(const std::vector<geo::Place> &area, double lat, double lon, do
   }
   if (inside) return true;
   for (const geo::Place &p : area)
-    if (geo::metres_between(lat, lon, p.lat, p.lon) <= nm * geo::NM) return true;
+    if (geo::meters_between(lat, lon, p.lat, p.lon) <= nm * geo::NM) return true;
   return false;
 }
 

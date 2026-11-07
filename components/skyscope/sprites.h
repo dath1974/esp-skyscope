@@ -1,8 +1,8 @@
 #pragma once
 // Plane symbols drawn once and stamped many times. A plane was a dozen triangles, and LVGL drew each one (with its halo,
 // twenty-four) through a mask every time a plane was drawn: some 25 ms of a radar frame. Here a kind's outline
-// (shapes.h) is rasterised once per kind, size and heading step into an alpha mask (anti-aliased, 4 x 4 samples a
-// pixel), and view.cpp draws the mask in the plane's colour, which LVGL blends in one pass over its few hundred pixels.
+// (shapes.h) is rasterized once per kind, size and heading step into an alpha mask (anti-aliased, 4 x 4 samples a
+// pixel), and view.cpp draws the mask in the plane's color, which LVGL blends in one pass over its few hundred pixels.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>

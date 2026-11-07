@@ -156,7 +156,7 @@ class Demodulator {
   static constexpr uint32_t PULSE_OVER_NOISE = 8, MIN_PULSE = 40;
 
  private:
-  // The preamble at s[0]: its four pulses all above `floor`, each above the samples round it, and the quiet samples
+  // The preamble at s[0]: its four pulses all above `floor`, each above the samples around it, and the quiet samples
   // (between the pulse pairs and before the first bit) well below the weakest pulse. Sample 1, 3, 6, 8 and 10 may hold
   // some of a pulse when the reply does not start on a sample, so they are only compared, never required to be quiet.
   static bool preamble(const uint16_t *s, uint32_t floor, uint16_t &signal) {

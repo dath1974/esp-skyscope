@@ -8,7 +8,7 @@
 // dropped).
 #include "skyscope.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "firmware.h"
 #include "menu_rows.h"
 #include "ui.h"
@@ -47,10 +47,10 @@ void Skyscope::open_menu_() {
 }
 
 void Skyscope::build_menu_() {
-  // In the colours of what is being chosen: another appearance or phosphor shows on the menu at once, and on the map
+  // In the colors of what is being chosen: another appearance or phosphor shows on the menu at once, and on the map
   // only with Save.
   const Chrome c = chrome_for_(menu_settings_);
-  const uint32_t surface = colours::mix(c.ink, c.card, 20);  // the groups' cards, a shade off the ground
+  const uint32_t surface = colors::mix(c.ink, c.card, 20);  // the groups' cards, a shade off the ground
   const int tall = ui::mm(8);
   make_arrows(ui::mm(2.6f), std::max(2, ui::mm(0.55f)));
   menu_ = plain(lv_screen_active());
@@ -218,7 +218,7 @@ void Skyscope::build_menu_() {
 
 lv_obj_t *Skyscope::button_(lv_obj_t *parent, const char *label, int width, int height, int arrow_of, bool primary) {
   const Chrome c = chrome_for_(menu_settings_);
-  // A primary key filled with the accent, its face in the ground's colour; the others a quiet tint of the ink.
+  // A primary key filled with the accent, its face in the ground's color; the others a quiet tint of the ink.
   const uint32_t face = primary ? c.card : c.ink;
   lv_obj_t *b = plain(parent);
   lv_obj_set_size(b, width, height);
@@ -260,7 +260,7 @@ void Skyscope::menu_step_(int index, int step) {
     refresh_menu_();
     return;
   }
-  // Other colours (the appearance, the phosphor, or the radar against a map): the menu built again in them, where it
+  // Other colors (the appearance, the phosphor, or the radar against a map): the menu built again in them, where it
   // was scrolled to. After this event, as the key pressed is part of what goes. Nothing else changes until Save.
   const int32_t scrolled = lv_obj_get_scroll_y(menu_list_);
   this->defer([this, scrolled]() {
@@ -345,7 +345,7 @@ void Skyscope::refresh_menu_() {
     const std::string value = menu::shown(rows[i], menu_settings_);
     set_label(menu_values_[i], value);
     // Changed in the menu, not yet applied: in the accent until Save.
-    set_colour(menu_values_[i], value != menu::shown(rows[i], settings_) ? c.accent : c.ink);
+    set_color(menu_values_[i], value != menu::shown(rows[i], settings_) ? c.accent : c.ink);
   }
   for (lv_obj_t *g : menu_groups_)
     set_hidden(g, std::find(shown_groups.begin(), shown_groups.end(), g) == shown_groups.end());
@@ -379,7 +379,7 @@ void Skyscope::refresh_menu_firmware_() {
   if (!checking) menu_checking_until_ = 0;
   const firmware::Line line = firmware::menu_line(checking, f.known, f.available, f.installing, f.latest, f.error);
   set_label(menu_fw_line_, line.text);
-  set_colour(menu_fw_line_, line.tone == firmware::BAD_NEWS ? colours::ERROR
+  set_color(menu_fw_line_, line.tone == firmware::BAD_NEWS ? colors::ERROR
                             : line.tone == firmware::GOOD_NEWS ? c.accent : c.muted);
   const bool armed = menu_install_armed_until_ && (int32_t) (now - menu_install_armed_until_) < 0;
   if (!armed) menu_install_armed_until_ = 0;

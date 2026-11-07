@@ -66,8 +66,8 @@ static void test_geo() {
   // A radius fills the short side.
   const double z = geo::zoom_for_radius(40.64, 20 * geo::NM, 450);
   const geo::View r(40.64, -73.78, z, 600, 450);
-  CHECK(near(20 * geo::NM / r.metres_per_px(), 225, 0.5));
-  CHECK(near(geo::metres_between(51.47, -0.4543, 40.64, -73.78) / 1000, 5540, 15));
+  CHECK(near(20 * geo::NM / r.meters_per_px(), 225, 0.5));
+  CHECK(near(geo::meters_between(51.47, -0.4543, 40.64, -73.78) / 1000, 5540, 15));
   // place() is point() the other way.
   const geo::Place back = r.place(17, 431);
   const geo::Pixel there = r.point(back.lat, back.lon);
@@ -76,7 +76,7 @@ static void test_geo() {
 }
 
 static void test_scope() {
-  // The radar's scope is on unless switched off, and its beam turns only round it, on the radar. A screen starts on
+  // The radar's scope is on unless switched off, and its beam turns only around it, on the radar. A screen starts on
   // the light street map, not the radar.
   Settings s;
   CHECK(s.map == STREETS && s.theme == LIGHT && !scope_shown(s) && !sweeps(s));
@@ -154,12 +154,12 @@ static void test_airspace() {
   CHECK(map.runways.size() == 2);
   const airspace::Runway &r = map.runways[0];
   CHECK(r.towered && r.length_ft == 10083 && airspace::lengthened(r));
-  CHECK(near(geo::metres_between(r.a.lat, r.a.lon, r.b.lat, r.b.lon) / 0.3048, 10083, 60));
+  CHECK(near(geo::meters_between(r.a.lat, r.a.lon, r.b.lat, r.b.lon) / 0.3048, 10083, 60));
   const double mid_lat = (r.a.lat + r.b.lat) / 2, mid_lon = (r.a.lon + r.b.lon) / 2;
   CHECK(near(mid_lat, 42.364465, 1e-4) && near(mid_lon, -71.00474, 1e-4));
   CHECK(std::min(r.a.lat, r.b.lat) < 42.3548 && std::max(r.a.lat, r.b.lat) > 42.3741);
   CHECK(!map.runways[1].towered && !airspace::lengthened(map.runways[1]));
-  CHECK(near(geo::metres_between(map.runways[1].a.lat, map.runways[1].a.lon, map.runways[1].b.lat, map.runways[1].b.lon),
+  CHECK(near(geo::meters_between(map.runways[1].a.lat, map.runways[1].a.lon, map.runways[1].b.lat, map.runways[1].b.lon),
              1112, 5));
 
   // The server's own word for a bad query; a reply that is no JSON, or cut short.
@@ -248,7 +248,7 @@ static void test_airspace() {
       airspace::detail::dashes({0, 0}, {900 + i * 0.37, 20 + i * 0.11}, 9, 6, p, [](geo::Pixel, geo::Pixel) {});
     }
   }
-  // The map drawn: the Class B's edge in its colour, the D's in dashes, the long towered runway and its centerline
+  // The map drawn: the Class B's edge in its color, the D's in dashes, the long towered runway and its centerline
   // out past its end; nothing in the middle of an area.
   {
     Settings at;
@@ -267,7 +267,7 @@ static void test_airspace() {
     CHECK(at_place(42.45, -70.95) == 0);     // inside it, between its edge and its hole
     CHECK(at_place(42.364465, -71.00474) == 0xFFFF);  // the runway's middle
     const geo::Pixel a = v.point(r.a.lat, r.a.lon), b = v.point(r.b.lat, r.b.lon);
-    const double len = std::hypot(b.x - a.x, b.y - a.y), nm = geo::NM / v.metres_per_px();
+    const double len = std::hypot(b.x - a.x, b.y - a.y), nm = geo::NM / v.meters_per_px();
     int lit = 0;
     for (double d = 1; d < 9 * nm; d += 1) {
       const int x = (int) std::lround(b.x + (b.x - a.x) / len * d), y = (int) std::lround(b.y + (b.y - a.y) / len * d);
@@ -280,11 +280,17 @@ static void test_airspace() {
 static void test_settings() {
   Settings s;
   JsonDocument in;
-  deserializeJson(in, R"({"lat":51.47,"lon":-0.45,"range_nm":30,"map":"sectional","watch":[{"id":"g-ezab","colour":"blue"},{"id":"GEZAB"}]})");
+  deserializeJson(in, R"({"lat":51.47,"lon":-0.45,"range_nm":30,"map":"sectional","watch":[{"id":"g-ezab","color":"blue"},{"id":"GEZAB"}]})");
   std::string error;
   CHECK(apply(in.as<JsonObjectConst>(), s, error));
   CHECK(s.located && s.range_nm == 30 && s.map == SECTIONAL);
-  CHECK(s.watch.size() == 1 && s.watch[0].id == "GEZAB" && s.watch[0].colour == 4);
+  CHECK(s.watch.size() == 1 && s.watch[0].id == "GEZAB" && s.watch[0].color == 4);
+  // The British key that older firmware stored is still read.
+  JsonDocument old;
+  deserializeJson(old, R"({"watch":[{"id":"N12345","colour":"blue"}]})");
+  CHECK(apply(old.as<JsonObjectConst>(), s, error) && s.watch.size() == 1 && s.watch[0].color == 4);
+  deserializeJson(in, R"({"watch":[{"id":"g-ezab","color":"blue"}]})");
+  CHECK(apply(in.as<JsonObjectConst>(), s, error));
   // A wrong key changes nothing and is named.
   JsonDocument bad;
   deserializeJson(bad, R"({"range_nm":10,"map":"nowhere"})");
@@ -352,7 +358,7 @@ static void test_offline() {
     CHECK(!t.update(false, false, 0) && !t.update(false, false, 10 * AFTER_MS) && !t.offline());
   }
   {
-    // millis() wrapping round counts as time going on.
+    // millis() wrapping around counts as time going on.
     offline::Tracker t;
     CHECK(!t.update(true, false, UINT32_MAX - 100));
     CHECK(t.update(true, false, AFTER_MS));
@@ -692,7 +698,7 @@ static void test_tiles() {
   s.map = RADAR;
   s.range_nm = 20;
   p = tiles::plan(s, 600, 450, 2);
-  CHECK(p.keys.empty() && near(20 * geo::NM / p.view.metres_per_px(), 225, 0.5));
+  CHECK(p.keys.empty() && near(20 * geo::NM / p.view.meters_per_px(), 225, 0.5));
   s.map = CUSTOM;
   s.custom_url = "https://t.example/{z}/{x}/{y}.png";
   CHECK(tiles::url(s, {tiles::SRC_CUSTOM, 3, 1, 2}) == "https://t.example/3/1/2.png");
@@ -704,17 +710,17 @@ static void test_tiles() {
   CHECK(tiles::paint(invert, 255, 255, 255) == tiles::rgb565(tiles::NIGHT_LOW, tiles::NIGHT_LOW, tiles::NIGHT_LOW));
   CHECK(tiles::paint(invert, 0, 0, 0) == tiles::rgb565(tiles::NIGHT_HIGH, tiles::NIGHT_HIGH, tiles::NIGHT_HIGH));
   // Paper and ink only: white paper dark as above, a chart's blue keeps its hue and stays bright.
-  const tiles::Filter colours{tiles::NIGHT_COLOURS, 256};
-  CHECK(tiles::paint(colours, 255, 255, 255) == tiles::rgb565(tiles::NIGHT_LOW, tiles::NIGHT_LOW, tiles::NIGHT_LOW));
-  const tiles::Rgb blue = tiles::night_colours(0, 60, 160);
-  CHECK(blue.b > blue.g && blue.g > blue.r && blue.b >= tiles::COLOUR_VALUE);
+  const tiles::Filter colors{tiles::NIGHT_COLORS, 256};
+  CHECK(tiles::paint(colors, 255, 255, 255) == tiles::rgb565(tiles::NIGHT_LOW, tiles::NIGHT_LOW, tiles::NIGHT_LOW));
+  const tiles::Rgb blue = tiles::night_colors(0, 60, 160);
+  CHECK(blue.b > blue.g && blue.g > blue.r && blue.b >= tiles::COLOR_VALUE);
   // Dimmed to 60 %, and the map brightness after any rule.
   CHECK(tiles::paint({tiles::NIGHT_DIM, 256}, 200, 200, 200) == tiles::rgb565(120, 120, 120));
   CHECK(tiles::paint({tiles::NIGHT_NONE, 128}, 200, 100, 50) == tiles::rgb565(100, 50, 25));
   // Which rule each map takes in the dark, and none in the light or on a server of one's own.
   Settings n;
-  for (const auto &[map, rule] : {std::pair{SECTIONAL, tiles::NIGHT_DIM}, {IFR_LOW, tiles::NIGHT_COLOURS},
-                                  {IFR_HIGH, tiles::NIGHT_COLOURS}, {TOPO, tiles::NIGHT_INVERT}, {OSM, tiles::NIGHT_INVERT},
+  for (const auto &[map, rule] : {std::pair{SECTIONAL, tiles::NIGHT_DIM}, {IFR_LOW, tiles::NIGHT_COLORS},
+                                  {IFR_HIGH, tiles::NIGHT_COLORS}, {TOPO, tiles::NIGHT_INVERT}, {OSM, tiles::NIGHT_INVERT},
                                   {SATELLITE, tiles::NIGHT_NONE}, {STREETS, tiles::NIGHT_NONE}, {CUSTOM, tiles::NIGHT_NONE}}) {
     n.map = map;
     n.theme = DARK;
@@ -722,9 +728,9 @@ static void test_tiles() {
     n.theme = LIGHT;
     CHECK(tiles::filter_of(n).night == tiles::NIGHT_NONE);
   }
-  // The filter as a table: every RGB565 colour what paint makes of it, for each rule; a plain filter needs none.
+  // The filter as a table: every RGB565 color what paint makes of it, for each rule; a plain filter needs none.
   std::vector<uint16_t> table(tiles::PAINT_TABLE);
-  for (const tiles::Filter f : {invert, colours, tiles::Filter{tiles::NIGHT_DIM, 200}, tiles::Filter{tiles::NIGHT_NONE, 128}}) {
+  for (const tiles::Filter f : {invert, colors, tiles::Filter{tiles::NIGHT_DIM, 200}, tiles::Filter{tiles::NIGHT_NONE, 128}}) {
     tiles::paint_table(f, table.data());
     size_t wrong = 0;
     for (size_t c = 0; c < tiles::PAINT_TABLE; ++c) {
@@ -735,7 +741,7 @@ static void test_tiles() {
   }
   CHECK(tiles::plain(tiles::Filter{}) && tiles::red_of(0xF800) == 255 && tiles::green_of(0x07E0) == 255 &&
         tiles::blue_of(0x001F) == 255 && tiles::red_of(0x07FF) == 0);
-  // A PNG's colours through the table are within a step of RGB565 of painting them whole.
+  // A PNG's colors through the table are within a step of RGB565 of painting them whole.
   tiles::paint_table(invert, table.data());
   int worst = 0;
   for (int r = 0; r < 256; r += 17)
@@ -1082,7 +1088,7 @@ static void test_shapes() {
 }
 
 static void test_beam() {
-  // A 101 x 101 scope round its middle, a grey ground; the beam at 90 degrees (east), having come from 85.
+  // A 101 x 101 scope around its middle, a gray ground; the beam at 90 degrees (east), having come from 85.
   const int n = 101;
   std::vector<uint16_t> canvas(n * n, 0x1234), ground(n * n, 0x1234);
   beam::Painter p;
@@ -1092,7 +1098,7 @@ static void test_beam() {
   p.cx = p.cy = n / 2.0f;
   p.reach = 48;
   p.beam_width = 3;
-  p.set_tint(colours::tint(0));
+  p.set_tint(colors::tint(0));
   // Something left behind the trail's end: cleaned within the band this step swept (to 18 degrees back), left beyond.
   auto at = [&](float bearing, float r) {
     const float a = bearing * 3.14159265f / 180.0f;
@@ -1190,7 +1196,7 @@ static void test_follow() {
   const uint32_t hour = 3600u * 1000;
   CHECK(fl.phase(1000 + hour) == LOST && fl.estimating(1000 + hour));
   const geo::Place p = fl.where(1000 + hour);
-  CHECK(near(geo::metres_between(f.lat, f.lon, p.lat, p.lon), 480 * geo::NM, 100) && p.lat > f.lat && p.lon > f.lon);
+  CHECK(near(geo::meters_between(f.lat, f.lon, p.lat, p.lon), 480 * geo::NM, 100) && p.lat > f.lat && p.lon > f.lon);
   CHECK(status(fl, "N7209W", 1000 + 42 * 60000 + LOST_MS) == "AMF1985 out of reach 43 min, estimated");
   CHECK(fl.shown(1000 + hour).lat == p.lat);
   // An estimate goes no further than MOST_ESTIMATE_MS, and half a day lost gives up.
@@ -1225,17 +1231,17 @@ static void test_follow() {
 
   // The view: kept while the plane is well inside, moved once it is out past KEEP, with the plane behind the middle.
   const geo::View v(45.0, -122.0, 7, 480, 640);
-  CHECK(!off_centre(v, 45.0, -122.0));
+  CHECK(!off_center(v, 45.0, -122.0));
   const geo::Place edge = v.place(480 * 0.95, 320);
-  CHECK(off_centre(v, edge.lat, edge.lon));
-  const geo::Place c = centre_for(v, edge.lat, edge.lon, true, 90);
+  CHECK(off_center(v, edge.lat, edge.lon));
+  const geo::Place c = center_for(v, edge.lat, edge.lon, true, 90);
   const geo::View next(c.lat, c.lon, v.zoom, v.width, v.height);
   const geo::Pixel at = next.point(edge.lat, edge.lon);
-  CHECK(near(at.x, 240 - LEAD * 240, 3) && near(at.y, 320, 3) && !off_centre(next, edge.lat, edge.lon));
+  CHECK(near(at.x, 240 - LEAD * 240, 3) && near(at.y, 320, 3) && !off_center(next, edge.lat, edge.lon));
   geo::View round = v;
   round.round = true;
   const geo::Place corner = v.place(480 * 0.8, 640 * 0.8);
-  CHECK(off_centre(round, corner.lat, corner.lon));
+  CHECK(off_center(round, corner.lat, corner.lon));
 
   // Its own range: from where a step puts it, the plane flies about a minute (a whole zoom either way of it: 40 to 85 s)
   // before the next step, slow or fast, any way it heads, on a long glass or a round one.
@@ -1250,12 +1256,12 @@ static void test_follow() {
         const int nm = plane_range_nm(f, 51.5, g.w, g.h, g.round);
         geo::View view = view_for(51.5, -0.1, nm, g.w, g.h);
         view.round = g.round;
-        const geo::Place mid = centre_for(view, 51.5, -0.1, true, heading);
+        const geo::Place mid = center_for(view, 51.5, -0.1, true, heading);
         geo::View stepped(mid.lat, mid.lon, view.zoom, g.w, g.h);
         stepped.round = g.round;
         int s = 0;
         geo::Place p{51.5, -0.1};
-        while (s < 600 && !off_centre(stepped, p.lat, p.lon)) {
+        while (s < 600 && !off_center(stepped, p.lat, p.lon)) {
           p = geo::destination(51.5, -0.1, heading, kt * geo::NM * ++s / 3600.0);
         }
         CHECK(s >= 40 && s <= 85);
@@ -1274,30 +1280,30 @@ static void test_follow() {
       int steps = 0, taken = 0;
       for (int t = 0; t < 600 && steps < 6; t += (int) report_s) {
         geo::Place ahead;
-        CHECK(next_centre(shown, plane.lat, plane.lon, true, heading, ahead));
+        CHECK(next_center(shown, plane.lat, plane.lon, true, heading, ahead));
         geo::View planned(ahead.lat, ahead.lon, shown.zoom, g.w, g.h);
         planned.round = g.round;
         plane = geo::destination(plane.lat, plane.lon, heading, kt * geo::NM * report_s / 3600.0);
-        if (!off_centre(shown, plane.lat, plane.lon)) continue;
+        if (!off_center(shown, plane.lat, plane.lon)) continue;
         ++steps;
         if (suits(planned, plane.lat, plane.lon, heading)) {
           ++taken;
           shown = planned;
         } else {
-          const geo::Place c = centre_for(shown, plane.lat, plane.lon, true, heading);
+          const geo::Place c = center_for(shown, plane.lat, plane.lon, true, heading);
           shown = geo::View(c.lat, c.lon, shown.zoom, g.w, g.h);
           shown.round = g.round;
         }
-        CHECK(!off_centre(shown, plane.lat, plane.lon));
+        CHECK(!off_center(shown, plane.lat, plane.lon));
       }
       CHECK(steps >= 3 && taken == steps);
     }
   }
   {
-    // A plane turned round is nowhere near the spot of the view planned for it, and none is planned without a heading.
+    // A plane turned around is nowhere near the spot of the view planned for it, and none is planned without a heading.
     const geo::View shown(52.0, 4.0, 11, 480, 640);
     geo::Place ahead, at;
-    CHECK(next_centre(shown, 52.0, 4.0, true, 90, ahead) && !next_centre(shown, 52.0, 4.0, false, 90, ahead));
+    CHECK(next_center(shown, 52.0, 4.0, true, 90, ahead) && !next_center(shown, 52.0, 4.0, false, 90, ahead));
     const geo::View planned(ahead.lat, ahead.lon, 11, 480, 640);
     CHECK(crossing(shown, 52.0, 4.0, 90, at) && suits(planned, at.lat, at.lon, 90) && !suits(planned, at.lat, at.lon, 270));
     CHECK(!suits(planned, 52.0, 4.0, 90));
@@ -1319,16 +1325,16 @@ static void test_follow() {
   home.map = SECTIONAL;
   home.lat = 40.6;
   home.lon = -73.8;
-  Centre over{true, 51.5, -0.4, "a9a734"};
+  Center over{true, 51.5, -0.4, "a9a734"};
   Settings shown_s = shown(home, over);
   CHECK(shown_s.lat == 51.5 && shown_s.map == STREETS && !shown_s.rings && shown_s.located);
   CHECK(shown_s.watch.size() == 1 && shown_s.watch[0].id == "A9A734");
   over.lat = 45.6;
   over.lon = -122.6;
   CHECK(shown(home, over).map == SECTIONAL);
-  CHECK(shown(home, Centre{}).lat == 40.6 && shown(home, Centre{}).rings);
+  CHECK(shown(home, Center{}).lat == 40.6 && shown(home, Center{}).rings);
   CHECK(in_united_states(61.2, -149.9) && in_united_states(21.3, -157.9) && !in_united_states(51.5, -0.4));
-  // The planes round it: out to the view's far corner from it, at most the exchanges' reach.
+  // The planes around it: out to the view's far corner from it, at most the exchanges' reach.
   CHECK(reach_nm(v, 45.0, -122.0) < FEED_REACH_NM);
   const geo::View wide(45.0, -122.0, 2, 480, 640);
   CHECK(reach_nm(wide, 45.0, -122.0) == FEED_REACH_NM);
@@ -1336,7 +1342,7 @@ static void test_follow() {
   const geo::Place west = geo::destination(51.5, -0.4, 270, 1000 * 1000);
   CHECK(west.lon < -10 && west.lat < 51.5 && west.lat > 50);  // due west at first, a great circle bends south
   CHECK(geo::destination(0, 179.5, 90, 200 * 1000).lon < -178);
-  // The followed plane's own label: a data block among planes labelled by callsign, and back to theirs with `auto`.
+  // The followed plane's own label: a data block among planes labeled by callsign, and back to theirs with `auto`.
   Settings labels;
   labels.label = LABEL_CALLSIGN;
   labels.lat = f.lat;
@@ -1351,14 +1357,14 @@ static void test_follow() {
   const std::vector<feed::Flight> two{f, other};
   const geo::View here(f.lat, f.lon, 9, 480, 640);
   overlay::Tracks none;
-  plan::Overlay o = overlay::build(two, shown(labels, Centre{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
+  plan::Overlay o = overlay::build(two, shown(labels, Center{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
   auto label_for = [&](const char *id) {
     for (const auto &p : o.planes) if (p.id == id) return p.label;
     return std::string("?");
   };
   CHECK(label_for("a9a734") == "AMF1985\n350 48" && label_for("bbbbbb") == "OTHER1");
   labels.follow_label = LABEL_AUTO;
-  o = overlay::build(two, shown(labels, Centre{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
+  o = overlay::build(two, shown(labels, Center{true, f.lat, f.lon, f.hex}), here, none, 0, 8, false);
   CHECK(label_for("a9a734") == "AMF1985");
   JsonDocument pick_label;
   pick_label["follow_label"] = "full";
@@ -1415,7 +1421,7 @@ static void test_follow() {
   CHECK(std::any_of(circle.begin(), circle.end(), [](const geo::Place &p) { return p.lat > 60; }));
   const Fit all_of_it = fit(circle, 480, 640, false);
   CHECK(all_of_it.range_nm > 1000 && all_of_it.range_nm < MAX_RANGE_NM);
-  const geo::View fitted = view_for(all_of_it.centre.lat, all_of_it.centre.lon, all_of_it.range_nm, 480, 640);
+  const geo::View fitted = view_for(all_of_it.center.lat, all_of_it.center.lon, all_of_it.range_nm, 480, 640);
   CHECK(std::all_of(circle.begin(), circle.end(), [&](const geo::Place &p) {
     const geo::Pixel q = fitted.point(p.lat, p.lon);
     return q.x >= 0 && q.x < 480 && q.y >= 0 && q.y < 640;
@@ -1425,10 +1431,10 @@ static void test_follow() {
   // Close in at Portland: the far end leaves the frame by far and is cut off, with no break left dangling.
   const auto close = route_on(route, view_for(45.5887, -122.5975, 20, 480, 640));
   CHECK(close.size() >= 4 && close.size() < 128 && close.back() != ROUTE_BREAK && near(close[0], 240, 2));
-  // Over the date line: Tokyo to San Francisco is one piece on a view that holds it, the fit the short way round.
+  // Over the date line: Tokyo to San Francisco is one piece on a view that holds it, the fit the short way around.
   Route pacific{true, "JAL2", "RJTT", "KSFO", 35.55, 139.78, 37.62, -122.38};
   const Fit ocean = fit(route_places(pacific, 24), 480, 640, false);
-  CHECK(ocean.centre.lon > 150 || ocean.centre.lon < -150);
+  CHECK(ocean.center.lon > 150 || ocean.center.lon < -150);
   CHECK(fit({{45, -122}, {45.1, -122.1}}, 480, 640, false).range_nm < 20);
   CHECK(fit({{45, -122}}, 480, 640, true).range_nm == MIN_RANGE_NM);
   const geo::Place mid = geo::between(0, 0, 0, 90, 0.5);
@@ -1622,7 +1628,7 @@ static void test_menu() {
   CHECK(menu::stepped(row("range_nm"), st, -1) && st.range_nm == 5);
   st.range_nm = 5000;
   CHECK(!menu::stepped(row("range_nm"), st, 1) && st.range_nm == 5000);
-  // Words go round; the map skips the custom server when none is set.
+  // Words go around; the map skips the custom server when none is set.
   st.map = IFR_HIGH;
   CHECK(menu::stepped(row("map"), st, 1) && st.map == RADAR);
   st.custom_url = "https://t.example/{z}/{x}/{y}.png";
@@ -1693,9 +1699,9 @@ static void test_menu() {
   CHECK(menu::typed_in(row("timezone"), t, "WET0WEST,M3.5.0/1,M10.5.0") && menu::shown(row("timezone"), t) == "WET0WEST,M3.5.0/1,M10.5.0");
   CHECK(menu::stepped(row("timezone"), t, 1) && t.timezone == "UTC0");
   CHECK(menu::typed_in(row("timezone"), t, "CET-1CEST,M3.5.0,M10.5.0/3") && menu::shown(row("timezone"), t) == "Central Europe");
-  // The watched aircraft, with a comma between, red where no colour is given; written back the same way.
+  // The watched aircraft, with a comma between, red where no color is given; written back the same way.
   CHECK(menu::typed_in(row("watch"), t, "n12345 Blue, BAW123,") && t.watch.size() == 2 && t.watch[0].id == "N12345" &&
-        t.watch[0].colour == 4 && t.watch[1].colour == 0);
+        t.watch[0].color == 4 && t.watch[1].color == 0);
   CHECK(menu::text_of(row("watch"), t) == "N12345 blue, BAW123 red" && menu::shown(row("watch"), t) == "2 aircraft");
   CHECK(!menu::typed_in(row("watch"), t, "N1 pink") && t.watch.size() == 2);
   CHECK(menu::typed_in(row("watch"), t, "") && t.watch.empty() && menu::shown(row("watch"), t) == "None");
@@ -2006,7 +2012,7 @@ static void test_weather() {
   low.cig = 8;
   low.vis = 4;
   CHECK(category_of(low) == IFR);
-  // Advisories over the place only: a SIGMET round it, another far away; G-AIRMETs of the hour valid now, each
+  // Advisories over the place only: a SIGMET around it, another far away; G-AIRMETs of the hour valid now, each
   // hazard once.
   const std::string sigmets = R"([{"airSigmetType": "SIGMET", "hazard": "CONVECTIVE", "altitudeHi1": 40000,
     "altitudeLow1": null, "validTimeTo": 1793354100, "rawAirSigmet": "CONVECTIVE SIGMET 25E", "coords": [{"lat": 41.5,
@@ -2228,7 +2234,7 @@ static void test_adsb() {
   CHECK(adsb::altitude12(adsb::me(hex_bytes("8D40621D58C382D690C8AC2863A7").data(), 9, 12), feet) && feet == 38000);
   const int n = (38000 + 1000) / 25;
   CHECK(adsb::altitude13(((n & 0x7E0) << 2) | ((n & 0x10) << 1) | (n & 0xF) | 0x10, feet) && feet == 38000);
-  CHECK(!adsb::altitude13(0x0040 | 0x10, feet));  // metres
+  CHECK(!adsb::altitude13(0x0040 | 0x10, feet));  // meters
   CHECK(adsb::squawk13((1 << 11) | (1 << 9) | (1 << 7) | (1 << 5) | (1 << 3) | (1 << 1)) == "7700");
   CHECK(adsb::squawk13(1 << 0) == "0004" && adsb::squawk13(1 << 12) == "0010" && adsb::squawk13(1 << 5) == "0100");
   CHECK(adsb::movement(1) == 0 && adsb::movement(13) == 2 && adsb::movement(39) == 15 && adsb::movement(0) < 0);
@@ -2333,20 +2339,20 @@ static void test_pixels() {
   static constexpr uint16_t WHITE = 0xFFFF, BLACK = 0, RED = 0xF800, BLUE = 0x001F;
   // Opaque replaces, clear keeps, half and half is half.
   CHECK(blend(BLACK, RED, 255) == RED && blend(BLUE, RED, 0) == BLUE);
-  const uint16_t grey = blend(BLACK, WHITE, 128);
-  CHECK((grey >> 11) >= 15 && (grey >> 11) <= 16 && (grey >> 5 & 0x3F) >= 31 && (grey >> 5 & 0x3F) <= 32);
+  const uint16_t gray = blend(BLACK, WHITE, 128);
+  CHECK((gray >> 11) >= 15 && (gray >> 11) <= 16 && (gray >> 5 & 0x3F) >= 31 && (gray >> 5 & 0x3F) <= 32);
   CHECK(mix4(RED, BLUE, BLUE, BLUE, 256, 0, 0, 0) == RED);
   const uint16_t mixed = mix4(WHITE, BLACK, WHITE, BLACK, 64, 64, 64, 64);
   CHECK((mixed >> 11) == 15 && (mixed & 0x1F) == 15);
 
   // A 4 x 4 tile (in a row of 6) of red, its last column clear.
-  uint16_t colour[6 * 4];
+  uint16_t color[6 * 4];
   uint8_t alpha[6 * 4];
   for (int i = 0; i < 6 * 4; ++i) {
-    colour[i] = RED;
+    color[i] = RED;
     alpha[i] = (i % 6) == 3 ? 0 : 255;
   }
-  const Tile tile{colour, alpha, 4, 4, 6};
+  const Tile tile{color, alpha, 4, 4, 6};
   auto fresh = [](uint16_t *f, int n) { std::fill(f, f + n, BLUE); };
   // At its own pixels at (2, 2) on an 8 x 8 frame: the tile where it lies, its clear column and the rest untouched.
   uint16_t frame[8 * 8];
@@ -2367,7 +2373,7 @@ static void test_pixels() {
   fresh(frame, 64);
   lay(frame, 8, 8, 0, 0, 0.5, tile);
   CHECK(frame[0] == RED && frame[8] == RED && frame[1] == BLUE && frame[2] == BLUE);
-  // Twice the size: a 2 x 2 tile, left red and right white, in 4 x 4. The outer columns are their own colour, the
+  // Twice the size: a 2 x 2 tile, left red and right white, in 4 x 4. The outer columns are their own color, the
   // inner ones between the two, nearer their own side's.
   uint16_t two[4] = {RED, WHITE, RED, WHITE};
   uint8_t solid[4] = {255, 255, 255, 255};
@@ -2376,7 +2382,7 @@ static void test_pixels() {
   CHECK(frame[0] == RED && frame[3] == WHITE);
   CHECK(frame[1] != RED && frame[1] != WHITE && (frame[1] & 0x1F) < (frame[2] & 0x1F));
   CHECK(frame[8 * 3 + 0] == RED && frame[4] == BLUE);  // its fourth row, and nothing past its width
-  // A colour enlarged is the same colour.
+  // A color enlarged is the same color.
   uint16_t one[4] = {RED, RED, RED, RED};
   fresh(frame, 64);
   lay(frame, 8, 8, 1, 1, 3.0, Tile{one, solid, 2, 2, 2});
@@ -2403,7 +2409,7 @@ static void test_pixels() {
 static void test_pngrow() {
   using namespace pngrow;
   const tiles::Filter plain{};
-  uint16_t colour[8];
+  uint16_t color[8];
   uint8_t alpha[8];
   // A palette of four, the last see-through; rows packed 1, 2, 4 and 8 bits to a pixel.
   uint8_t palette[1024] = {};
@@ -2413,46 +2419,46 @@ static void test_pngrow() {
   for (int i = 0; i < 256; ++i) palette[768 + i] = i == 3 ? 0 : 255;
   Palette painted;
   paint_palette(palette, true, plain, painted);
-  CHECK(painted.colour[0] == 0xF800 && painted.colour[2] == 0x001F && painted.alpha[3] == 0 && painted.alpha[1] == 255);
+  CHECK(painted.color[0] == 0xF800 && painted.color[2] == 0x001F && painted.alpha[3] == 0 && painted.alpha[1] == 255);
   const uint8_t one_bit[] = {0b10100000};
-  convert({one_bit, 4, INDEXED, 1, true, 0}, plain, nullptr, &painted, colour, alpha);
-  CHECK(colour[0] == 0x07E0 && colour[1] == 0xF800 && colour[2] == 0x07E0 && colour[3] == 0xF800);
+  convert({one_bit, 4, INDEXED, 1, true, 0}, plain, nullptr, &painted, color, alpha);
+  CHECK(color[0] == 0x07E0 && color[1] == 0xF800 && color[2] == 0x07E0 && color[3] == 0xF800);
   const uint8_t two_bits[] = {0b00011011};
-  convert({two_bits, 4, INDEXED, 2, true, 0}, plain, nullptr, &painted, colour, alpha);
-  CHECK(colour[0] == 0xF800 && colour[1] == 0x07E0 && colour[2] == 0x001F && alpha[3] == 0 && alpha[2] == 255);
+  convert({two_bits, 4, INDEXED, 2, true, 0}, plain, nullptr, &painted, color, alpha);
+  CHECK(color[0] == 0xF800 && color[1] == 0x07E0 && color[2] == 0x001F && alpha[3] == 0 && alpha[2] == 255);
   const uint8_t four_bits[] = {0x21, 0x30};
-  convert({four_bits, 3, INDEXED, 4, true, 0}, plain, nullptr, &painted, colour, alpha);
-  CHECK(colour[0] == 0x001F && colour[1] == 0x07E0 && alpha[2] == 0);
+  convert({four_bits, 3, INDEXED, 4, true, 0}, plain, nullptr, &painted, color, alpha);
+  CHECK(color[0] == 0x001F && color[1] == 0x07E0 && alpha[2] == 0);
   const uint8_t eight_bits[] = {2, 0, 3};
-  convert({eight_bits, 3, INDEXED, 8, true, 0}, plain, nullptr, &painted, colour, alpha);
-  CHECK(colour[0] == 0x001F && colour[1] == 0xF800 && alpha[2] == 0 && alpha[1] == 255);
+  convert({eight_bits, 3, INDEXED, 8, true, 0}, plain, nullptr, &painted, color, alpha);
+  CHECK(color[0] == 0x001F && color[1] == 0xF800 && alpha[2] == 0 && alpha[1] == 255);
   // Without a tRNS chunk every entry is whole.
   paint_palette(palette, false, plain, painted);
   CHECK(painted.alpha[3] == 255);
-  // Grey, packed and whole, its tRNS grey see-through.
-  const uint8_t grey2[] = {0b11000100};
-  convert({grey2, 3, GRAY, 2, true, 1}, plain, nullptr, nullptr, colour, alpha);
-  CHECK(colour[0] == 0xFFFF && colour[1] == 0 && alpha[2] == 0 && alpha[0] == 255);
-  const uint8_t grey_alpha[] = {255, 128, 0, 255};
-  convert({grey_alpha, 2, GRAY_ALPHA, 8, false, 0}, plain, nullptr, nullptr, colour, alpha);
-  CHECK(colour[0] == 0xFFFF && alpha[0] == 128 && colour[1] == 0 && alpha[1] == 255);
-  // Colour, with its tRNS colour see-through, and with alpha (a place name's edge).
+  // Gray, packed and whole, its tRNS gray see-through.
+  const uint8_t gray2[] = {0b11000100};
+  convert({gray2, 3, GRAY, 2, true, 1}, plain, nullptr, nullptr, color, alpha);
+  CHECK(color[0] == 0xFFFF && color[1] == 0 && alpha[2] == 0 && alpha[0] == 255);
+  const uint8_t gray_alpha[] = {255, 128, 0, 255};
+  convert({gray_alpha, 2, GRAY_ALPHA, 8, false, 0}, plain, nullptr, nullptr, color, alpha);
+  CHECK(color[0] == 0xFFFF && alpha[0] == 128 && color[1] == 0 && alpha[1] == 255);
+  // Color, with its tRNS color see-through, and with alpha (a place name's edge).
   const uint8_t rgb[] = {255, 0, 0, 1, 2, 3, 0, 0, 255};
-  convert({rgb, 3, RGB, 8, true, 0x010203}, plain, nullptr, nullptr, colour, alpha);
-  CHECK(colour[0] == 0xF800 && alpha[0] == 255 && alpha[1] == 0 && colour[2] == 0x001F);
+  convert({rgb, 3, RGB, 8, true, 0x010203}, plain, nullptr, nullptr, color, alpha);
+  CHECK(color[0] == 0xF800 && alpha[0] == 255 && alpha[1] == 0 && color[2] == 0x001F);
   const uint8_t rgba[] = {0, 255, 0, 200, 9, 9, 9, 0};
-  convert({rgba, 2, RGBA, 8, false, 0}, plain, nullptr, nullptr, colour, alpha);
-  CHECK(colour[0] == 0x07E0 && alpha[0] == 200 && alpha[1] == 0);
-  // Through a filter: the palette painted by it, the colours by its table just as by painting them, and the radar's
+  convert({rgba, 2, RGBA, 8, false, 0}, plain, nullptr, nullptr, color, alpha);
+  CHECK(color[0] == 0x07E0 && alpha[0] == 200 && alpha[1] == 0);
+  // Through a filter: the palette painted by it, the colors by its table just as by painting them, and the radar's
   // opacity on every alpha.
   const tiles::Filter turned{tiles::NIGHT_INVERT, 256, 128};
   paint_palette(palette, true, turned, painted);
-  CHECK(painted.colour[3] == tiles::paint(turned, 255, 255, 255) && painted.alpha[0] == 128 && painted.alpha[3] == 0);
+  CHECK(painted.color[3] == tiles::paint(turned, 255, 255, 255) && painted.alpha[0] == 128 && painted.alpha[3] == 0);
   std::vector<uint16_t> table(tiles::PAINT_TABLE);
   tiles::paint_table(turned, table.data());
   const uint8_t white[] = {255, 255, 255, 0, 0, 0};
-  convert({white, 2, RGB, 8, false, 0}, turned, table.data(), nullptr, colour, alpha);
-  CHECK(colour[0] == tiles::paint(turned, 255, 255, 255) && colour[1] == tiles::paint(turned, 0, 0, 0) && alpha[0] == 128);
+  convert({white, 2, RGB, 8, false, 0}, turned, table.data(), nullptr, color, alpha);
+  CHECK(color[0] == tiles::paint(turned, 255, 255, 255) && color[1] == tiles::paint(turned, 0, 0, 0) && alpha[0] == 128);
 }
 
 static void test_touch() {

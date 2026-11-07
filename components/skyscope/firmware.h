@@ -12,7 +12,7 @@ enum State { UNKNOWN, NO_UPDATE, AVAILABLE, INSTALLING };
 constexpr const char *INSTALL_FAILED = "The install failed; the screen keeps the firmware it has.";
 constexpr const char *SERVER_FAILED = "The update server could not be read.";
 
-// The firmware line of the screen's own menu, and how it is coloured.
+// The firmware line of the screen's own menu, and how it is colored.
 enum Tone { QUIET, GOOD_NEWS, BAD_NEWS };
 struct Line {
   std::string text;

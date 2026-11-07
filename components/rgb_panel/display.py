@@ -1,7 +1,7 @@
 """An RGB panel (an ST7701 and the like) whose picture the ESP32-S3 sends it all the time from a frame in PSRAM.
 
 The panel is set up once over 3-wire SPI (9-bit words: a command, then its data) with the board's own sequence and
-nothing added to it, so a panel left in its own pixel format stays in it; the SPI lines are let go afterwards (a card
+nothing added to it, so a panel left in its own pixel format stays in it; the SPI lines are let go afterward (a card
 may share them). Its picture then comes over 16 data lines from a frame in PSRAM: read there by the panel's DMA (the
 default, `bounce_rows: 0`), or copied a few rows at a time into two buffers of internal RAM by an interrupt
 (`bounce_rows`), which keeps up better but sends the wrong rows when a copy comes late. With bounce rows the driver

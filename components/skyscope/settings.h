@@ -49,18 +49,18 @@ enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE, MARKER_TYPE 
 inline constexpr Names<4> MARKERS{{"dot", "arrow", "plane", "type"}};
 enum LabelKind : uint8_t { LABEL_AUTO, LABEL_NONE, LABEL_CALLSIGN, LABEL_ALTITUDE, LABEL_FULL, LABEL_SCOPE };
 inline constexpr Names<6> LABELS{{"auto", "none", "callsign", "altitude", "full", "scope"}};
-inline constexpr Names<6> WATCH_COLOURS{{"red", "orange", "amber", "green", "blue", "purple"}};
+inline constexpr Names<6> WATCH_COLORS{{"red", "orange", "amber", "green", "blue", "purple"}};
 
 inline constexpr int RANGES_NM[] = {2, 3, 5, 8, 10, 15, 20, 30, 40, 60, 80, 120, 160, 250};
 // The range goes out to a good part of the world, for following a plane across an ocean (follow.h); the exchanges answer
-// for 250 NM round a point at most, so planes come from that far round the place, or round the plane followed.
+// for 250 NM around a point at most, so planes come from that far around the place, or around the plane followed.
 constexpr int MIN_RANGE_NM = 1, MAX_RANGE_NM = 5000, FEED_REACH_NM = 250;
 constexpr int ALTITUDE_CEILING = 60000;
 constexpr size_t MOST_WATCHED = 12;
 
 struct Watch {
   std::string id;  // a registration, callsign or ICAO hex, upper case
-  int colour = 0;  // index into WATCH_COLOURS
+  int color = 0;  // index into WATCH_COLORS
 };
 
 struct Settings {
@@ -72,7 +72,7 @@ struct Settings {
   std::string place;       // what the place was found as, an airport's code in capitals ("KJFK"), else a short name
   MapStyle map = STREETS;  // a plain light map to start with: Esri's light gray canvas, by `theme`
   std::string custom_url;  // {z} {x} {y} template, PNG or JPEG
-  Theme theme = LIGHT;     // the map's variant or night rendering, and the screen's own colours
+  Theme theme = LIGHT;     // the map's variant or night rendering, and the screen's own colors
   int map_brightness = 100;  // percent of a map's light kept, in either appearance
   int tile_scale = 0;      // 1 or 2 screen pixels per tile pixel; 0 the board's default
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`
@@ -82,7 +82,7 @@ struct Settings {
   // The radar's scope: its glow, bearing lines, range rings and rose. Off, the radar is the planes and the airspace
   // alone on the dark ground, in its phosphor, as a controller's bare map.
   bool scope = true;
-  bool sweep = true;       // the radar's beam turns, round the scope's rose
+  bool sweep = true;       // the radar's beam turns, around the scope's rose
   // The aircraft.
   // adsb.fi first: adsb.lol's limits change with its load and went as low as 500 requests a day per address (one every
   // three minutes); providers.h keeps to whatever each one announces.
@@ -129,7 +129,7 @@ struct Settings {
   bool radar_loop = false;
 };
 
-// Whether the radar's scope is drawn, and whether its beam turns: the beam goes round the scope's rose, so not without
+// Whether the radar's scope is drawn, and whether its beam turns: the beam goes around the scope's rose, so not without
 // it.
 inline bool scope_shown(const Settings &s) { return s.map == RADAR && s.scope; }
 inline bool sweeps(const Settings &s) { return scope_shown(s) && s.sweep; }
@@ -192,7 +192,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   for (const auto &item : s.watch) {
     JsonObject e = w.add<JsonObject>();
     e["id"] = item.id;
-    e["colour"] = WATCH_COLOURS[item.colour];
+    e["color"] = WATCH_COLORS[item.color];
   }
   o["follow"] = s.follow;
   o["follow_hex"] = s.follow_hex;
@@ -313,10 +313,11 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
     n.watch.clear();
     for (JsonObjectConst item : list) {
       const std::string id = upper_id(item["id"].as<const char *>());
-      const int colour = WATCH_COLOURS.find(item["colour"] | "red");
-      if (id.size() < 2 || id.size() > 10 || colour < 0) return fail("watch");
+      // Settings stored by older firmware, and older scripts, spell the key "colour".
+      const int color = WATCH_COLORS.find(item["color"] | (item["colour"] | "red"));
+      if (id.size() < 2 || id.size() > 10 || color < 0) return fail("watch");
       if (std::none_of(n.watch.begin(), n.watch.end(), [&](const Watch &w) { return w.id == id; }))
-        n.watch.push_back({id, colour});
+        n.watch.push_back({id, color});
     }
   }
   // A new plane to follow is found again; one given with its address (a plane's card) is that plane.

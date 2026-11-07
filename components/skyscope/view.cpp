@@ -1,7 +1,7 @@
 // Planes over the map on the glass: plan.h's planes painted in one object over the map, in its draw event, so thirty
 // planes with their tracks and labels cost one object and one redraw.
 #include "view.h"
-#include "colours.h"
+#include "colors.h"
 #include "sprites.h"
 #include "ui.h"
 
@@ -19,7 +19,7 @@
 
 namespace sky::view {
 namespace ap = plan;
-namespace cl = colours;
+namespace cl = colors;
 
 struct View {
   lv_obj_t *layer = nullptr;
@@ -68,7 +68,7 @@ struct View {
 static bool latches(const ap::Overlay &o) { return o.radar.on && o.radar.sweep; }
 static const ap::Overlay &shown(const View *view) { return latches(view->overlay) ? view->painted : view->overlay; }
 
-// ---- A radar scope: one phosphor (colours.h TINTS) from its ground to its hottest light.
+// ---- A radar scope: one phosphor (colors.h TINTS) from its ground to its hottest light.
 static const cl::Tint &tint_of(const ap::Overlay &o) { return cl::tint(o.radar.tint); }
 // `light` 0 is the ground, 1 the glow, 2 the hottest light (ap::BAND_LIGHT).
 lv_color_t ground(const ap::Overlay &o) { return lv_color_hex(tint_of(o).ground); }
@@ -79,10 +79,10 @@ lv_color_t phosphor(const ap::Overlay &o, float light) {
   return lv_color_hex(cl::mix(t.hot, t.glow, (uint8_t) std::lround((light - 1) * 255)));
 }
 
-// A plane's colour: an emergency's red, a watched plane's own, else its band of altitude in the flight map's rainbow, or
+// A plane's color: an emergency's red, a watched plane's own, else its band of altitude in the flight map's rainbow, or
 // the accent.
-static lv_color_t colour_of(const ap::Overlay &o, const ap::Plane &p) {
-  if (p.watch > 0 && p.watch <= ap::WATCH_COLOURS) return lv_color_hex(cl::WATCH[p.watch - 1]);
+static lv_color_t color_of(const ap::Overlay &o, const ap::Plane &p) {
+  if (p.watch > 0 && p.watch <= ap::WATCH_COLORS) return lv_color_hex(cl::WATCH[p.watch - 1]);
   // On a scope: its phosphor, dim low down and bright up high, or the glow alone.
   if (o.radar.on) return phosphor(o, o.by_altitude ? ap::band_light(p.band) : 1.0f);
   if (!o.by_altitude) return lv_color_hex(cl::ACCENT);
@@ -104,20 +104,20 @@ static lv_point_precise_t precise(ap::Point p) {
   return {static_cast<lv_value_precise_t>(std::lround(p.x)), static_cast<lv_value_precise_t>(std::lround(p.y))};
 }
 // Rounded ends only where a line ends: segments of one track that overlap there would show darker dots at their joints.
-static void line(lv_layer_t *layer, ap::Point a, ap::Point b, lv_color_t colour, int width, lv_opa_t opa, bool round_start = true,
+static void line(lv_layer_t *layer, ap::Point a, ap::Point b, lv_color_t color, int width, lv_opa_t opa, bool round_start = true,
                  bool round_end = true) {
   lv_draw_line_dsc_t dsc;
   lv_draw_line_dsc_init(&dsc);
-  dsc.color = colour; dsc.width = width; dsc.opa = opa; dsc.round_start = round_start; dsc.round_end = round_end;
+  dsc.color = color; dsc.width = width; dsc.opa = opa; dsc.round_start = round_start; dsc.round_end = round_end;
   dsc.p1 = precise(a); dsc.p2 = precise(b);
   lv_draw_line(layer, &dsc);
 }
 // A circle's outline alone: the ring around a watched plane.
-static void ring(lv_layer_t *layer, ap::Point c, int d, int width, lv_color_t colour) {
+static void ring(lv_layer_t *layer, ap::Point c, int d, int width, lv_color_t color) {
   lv_draw_rect_dsc_t dsc;
   lv_draw_rect_dsc_init(&dsc);
   dsc.radius = LV_RADIUS_CIRCLE; dsc.bg_opa = LV_OPA_TRANSP;
-  dsc.border_width = width; dsc.border_color = colour; dsc.border_opa = LV_OPA_COVER;
+  dsc.border_width = width; dsc.border_color = color; dsc.border_opa = LV_OPA_COVER;
   const int x = (int) std::lround(c.x) - d / 2, y = (int) std::lround(c.y) - d / 2;
   lv_area_t box{x, y, x + d - 1, y + d - 1};
   lv_draw_rect(layer, &dsc, &box);
@@ -131,7 +131,7 @@ static void dot(lv_layer_t *layer, ap::Point c, int d, lv_color_t fill, int bord
   lv_area_t box{x, y, x + d - 1, y + d - 1};
   lv_draw_rect(layer, &dsc, &box);
 }
-// A plane symbol, stamped from its mask (sprites.h) in `colour`: the mask in PSRAM, drawn by LVGL as an A8 image, one
+// A plane symbol, stamped from its mask (sprites.h) in `color`: the mask in PSRAM, drawn by LVGL as an A8 image, one
 // blend over its pixels.
 struct Image {
   uint8_t *data = nullptr;
@@ -150,7 +150,7 @@ struct Image {
 // Up to a megabyte of symbols in PSRAM: a frame of the most planes the glass shows, each with its halo, needs half
 // that at the largest; past it the symbols drawn longest ago go (sprites.h).
 static sprites::Cache<Image> symbols(1024 * 1024);
-static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, shapes::Kind kind, lv_color_t colour,
+static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, shapes::Kind kind, lv_color_t color,
                   lv_opa_t opa) {
   // At most two masks made a frame (sprites.h): a plane that turned onto a new step takes the nearest one meanwhile.
   auto *found = symbols.get((int) std::lround(size), heading, ui::frame, 2, kind);
@@ -178,7 +178,7 @@ static void shape(lv_layer_t *layer, ap::Point c, float size, int heading, shape
   lv_draw_image_dsc_t d;
   lv_draw_image_dsc_init(&d);
   d.src = &image.dsc;
-  d.recolor = colour;
+  d.recolor = color;
   d.recolor_opa = LV_OPA_COVER;
   d.opa = opa;
   lv_area_t area{x, y, x + n - 1, y + n - 1};
@@ -226,7 +226,7 @@ static int glow_step(const View *view, ap::Point c, ap::Point plane, float beam)
 // text or style changes, and never while LVGL draws the glass (show and the sweep call render_labels).
 static std::string style_of(const ap::Overlay &o, const ap::Plane &p) {
   const bool radar = o.radar.on;
-  const lv_color_t first = radar ? colour_of(o, p) : lv_color_hex(cl::palette(o.light).ink);
+  const lv_color_t first = radar ? color_of(o, p) : lv_color_hex(cl::palette(o.light).ink);
   const lv_color_t rest = radar ? phosphor(o, 0.65f) : lv_color_hex(cl::palette(o.light).muted);
   const lv_color_t ground = radar ? lv_color_hex(tint_of(o).ground) : lv_color_hex(cl::palette(o.light).card);
   char out[48];
@@ -290,12 +290,12 @@ static void render_labels(View *view) {
     bg.radius = radar ? 0 : s.radius;
     bg.bg_color = radar ? lv_color_hex(tint_of(style).ground) : lv_color_hex(cl::palette(style.light).card);
     bg.bg_opa = radar ? LV_OPA_60 : LV_OPA_80;
-    // A watched plane's label is edged in its colour.
-    if (p.watch) { bg.border_width = s.line; bg.border_color = colour_of(style, p); bg.border_opa = LV_OPA_COVER; }
+    // A watched plane's label is edged in its color.
+    if (p.watch) { bg.border_width = s.line; bg.border_color = color_of(style, p); bg.border_opa = LV_OPA_COVER; }
     lv_area_t all{0, 0, w - 1, h - 1};
     lv_draw_rect(&layer, &bg, &all);
     for (size_t n = 0; n < cut.size(); ++n) {
-      const lv_color_t colour = radar ? (n ? phosphor(style, 0.65f) : colour_of(style, p))
+      const lv_color_t color = radar ? (n ? phosphor(style, 0.65f) : color_of(style, p))
                                       : lv_color_hex(n ? cl::palette(style.light).muted : cl::palette(style.light).ink);
       const int y = s.pad / 2 + (int) n * line_h;
       int x = s.pad;
@@ -305,7 +305,7 @@ static void render_labels(View *view) {
           lv_draw_label_dsc_init(&dsc);
           dsc.font = font;
           dsc.text = piece.text.c_str();
-          dsc.color = colour;
+          dsc.color = color;
           dsc.text_local = 1;
           lv_area_t text{x, y, w - 1, y + line_h - 1};
           lv_draw_label(&layer, &dsc, &text);
@@ -318,9 +318,9 @@ static void render_labels(View *view) {
         const bool up = piece.arrow > 0;
         const float tip = y + (up ? digit_top : digit_bottom), tail = y + (up ? digit_bottom : digit_top);
         const float back = tip + (up ? half : -half);
-        line(&layer, {mid, tip}, {mid, tail}, colour, s.line, LV_OPA_COVER);
-        line(&layer, {mid - half, back}, {mid, tip}, colour, s.line, LV_OPA_COVER);
-        line(&layer, {mid + half, back}, {mid, tip}, colour, s.line, LV_OPA_COVER);
+        line(&layer, {mid, tip}, {mid, tail}, color, s.line, LV_OPA_COVER);
+        line(&layer, {mid - half, back}, {mid, tip}, color, s.line, LV_OPA_COVER);
+        line(&layer, {mid + half, back}, {mid, tip}, color, s.line, LV_OPA_COVER);
         x += arrow_w;
       }
     }
@@ -383,7 +383,7 @@ static void draw(lv_event_t *e) {
     mark = now_us;
   };
   // The followed plane's route under everything, a neutral line (the ink, or the phosphor, most of its strength) on a
-  // soft halo of the card's colour, so it reads on imagery and streets alike; its own track in its colour lies over it.
+  // soft halo of the card's color, so it reads on imagery and streets alike; its own track in its color lies over it.
   if (o.route.size() >= 4) {
     const lv_color_t ink = radar ? phosphor(o, 0.6f) : lv_color_hex(cl::palette(o.light).ink);
     const int width = std::max(2, s.line + 1);
@@ -400,7 +400,7 @@ static void draw(lv_event_t *e) {
   for (size_t i = 0; i < o.planes.size(); ++i) {
     const auto &track = o.planes[i].track;
     if (track.size() < 4 || !reaches[i]) continue;
-    const lv_color_t colour = colour_of(o, o.planes[i]);
+    const lv_color_t color = color_of(o, o.planes[i]);
     const size_t points = track.size() / 2;
     if (radar) {
       // Small squares: at a few pixels across they look the same as circles, and cost no circle's mask.
@@ -409,7 +409,7 @@ static void draw(lv_event_t *e) {
         const ap::Point p = on_glass(track[2 * n], track[2 * n + 1]);
         lv_draw_rect_dsc_t dsc;
         lv_draw_rect_dsc_init(&dsc);
-        dsc.bg_color = colour;
+        dsc.bg_color = color;
         dsc.bg_opa = (lv_opa_t) (60 + 140 * (n + 1) / points);
         const int x = (int) std::lround(p.x) - d / 2, y = (int) std::lround(p.y) - d / 2;
         lv_area_t box{x, y, x + d - 1, y + d - 1};
@@ -420,7 +420,7 @@ static void draw(lv_event_t *e) {
     for (size_t n = 0; n + 1 < points; ++n) {
       const ap::Point from = on_glass(track[2 * n], track[2 * n + 1]);
       const ap::Point to = n + 2 == points ? places[i] : on_glass(track[2 * n + 2], track[2 * n + 3]);
-      line(layer, from, to, colour, s.line, LV_OPA_70, n == 0, n + 2 == points);
+      line(layer, from, to, color, s.line, LV_OPA_70, n == 0, n + 2 == points);
     }
   }
   lap(ui::TRACKS);
@@ -428,7 +428,7 @@ static void draw(lv_event_t *e) {
   for (size_t i = 0; i < o.planes.size(); ++i) {
     if (!reaches[i]) continue;
     const auto &p = o.planes[i];
-    lv_color_t colour = colour_of(o, p);
+    lv_color_t color = color_of(o, p);
     const ap::Point c = places[i];
     const float grow = p.watch ? ap::WATCH_SCALE : 1.0f;
     const int d = (int) std::lround(s.dot * grow), size = (int) std::lround(s.plane * grow * shapes::SCALE[p.kind]);
@@ -436,41 +436,41 @@ static void draw(lv_event_t *e) {
       // A return: at full light as the beam passes, dimming over the turn to under half of its own until the next pass.
       const float lit = (float) glow_step(view, middle, c, beam) / GLOW_STEPS;
       const float own = ap::band_light(o.by_altitude ? p.band : 2), dim = own * 0.45f;
-      colour = phosphor(o, dim + (1.9f - dim) * lit);
+      color = phosphor(o, dim + (1.9f - dim) * lit);
     }
     if (!view->picked.empty() && p.id == view->picked) {
-      // The plane picked: a wide ring in the ink round a halo, outside a watched plane's own.
+      // The plane picked: a wide ring in the ink around a halo, outside a watched plane's own.
       const int across = (outlined(o, p) ? size : d) + 8 * s.halo + 4 * s.line;
       ring(layer, c, across + 2 * s.halo, 2 * s.line + 2 * s.halo, halo);
       ring(layer, c, across, 2 * s.line, radar ? phosphor(o, 1.0f) : lv_color_hex(cl::palette(o.light).ink));
     }
     if (p.watch) {
-      // A ring in its colour round a halo of the card's, a little beyond the marker.
+      // A ring in its color around a halo of the card's, a little beyond the marker.
       const int across = (outlined(o, p) ? size : d) + 4 * s.halo + 2 * s.line;
       ring(layer, c, across + 2 * s.halo, s.line + 2 * s.halo, halo);
-      ring(layer, c, across, s.line, colour);
+      ring(layer, c, across, s.line, color);
     }
     if (outlined(o, p)) {
-      // A halo in the card's colour, so the plane reads on streets and on water alike.
+      // A halo in the card's color, so the plane reads on streets and on water alike.
       const auto kind = (shapes::Kind) p.kind;
       // A plane followed but out of reach, where it is likely to be: faint, as it is a guess.
       shape(layer, c, size + 2 * s.halo, p.heading, kind, halo, p.estimated ? LV_OPA_30 : LV_OPA_80);
-      shape(layer, c, size, p.heading, kind, colour, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
+      shape(layer, c, size, p.heading, kind, color, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
       continue;
     }
     if (radar && o.marker == ap::ARROW && (p.vx || p.vy)) {
       // A scope's vector: where the plane will be in a minute, as a controller's scope draws it.
       const ap::Point ahead{c.x + p.vx * view->sx, c.y + p.vy * view->sy};
-      line(layer, c, ahead, colour, s.line, LV_OPA_80);
+      line(layer, c, ahead, color, s.line, LV_OPA_80);
     } else if (o.marker == ap::ARROW && p.heading != ap::NO_HEADING) {
       const auto tick = ap::heading_tick(c, d / 2.0f, s.tick * grow, p.heading);
       line(layer, tick[0], tick[1], halo, s.line + 2 * s.halo, LV_OPA_80);
-      line(layer, tick[0], tick[1], colour, s.line, LV_OPA_COVER);
+      line(layer, tick[0], tick[1], color, s.line, LV_OPA_COVER);
     }
-    dot(layer, c, d, colour, radar ? 0 : s.halo, halo, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
+    dot(layer, c, d, color, radar ? 0 : s.halo, halo, p.estimated ? LV_OPA_50 : LV_OPA_COVER);
   }
   lap(ui::MARKERS);
-  // The labels last, over everything: a soft pill of the card's colour with the plane's lines in ink, kept apart from each
+  // The labels last, over everything: a soft pill of the card's color with the plane's lines in ink, kept apart from each
   // other and from the markers, with a leader line to a label moved off its plane (aircraft_plan.h place_labels).
   const lv_font_t *font = label_font();
   if (!font) return;
@@ -541,13 +541,13 @@ static void draw(lv_event_t *e) {
       if (ap::holds(clip_box, view->boxes[i])) was = view->boxes[i];
     }
   }
-  // The leaders under every label: a halo of the card's colour, then the plane's own.
+  // The leaders under every label: a halo of the card's color, then the plane's own.
   for (size_t i = 0; i < placed.size(); ++i) {
     if (!placed[i].shown || !placed[i].leader || !ap::overlaps(view->boxes[i], clip_box)) continue;
     const auto ends = ap::leader(labels[i], placed[i].box);
     const ap::Point from{a.x1 + ends[0].x, a.y1 + ends[0].y}, to{a.x1 + ends[1].x, a.y1 + ends[1].y};
     line(layer, from, to, halo, s.line + 2 * s.halo, LV_OPA_80);
-    line(layer, from, to, colour_of(o, o.planes[i]), std::max(1, s.line / 2), LV_OPA_COVER);
+    line(layer, from, to, color_of(o, o.planes[i]), std::max(1, s.line / 2), LV_OPA_COVER);
   }
   for (size_t i = 0; i < placed.size(); ++i) {
     if (!placed[i].shown) continue;
@@ -566,7 +566,7 @@ static void draw(lv_event_t *e) {
 
 // A scope's beam turning: what it swept since the last frame is drawn again, each plane it crossed is painted where it
 // is now with its new label (or goes, when the reports dropped it), drawn again whole where it was and where it is, and
-// the planes whose light changed a step are drawn again round their marker, the same pixels everywhere else.
+// the planes whose light changed a step are drawn again around their marker, the same pixels everywhere else.
 static ap::Box guess_box(const View *view, const ap::Plane &p, ap::Point c) {
   const int r = sizes(view->overlay).plane * 2;
   return ap::join(plane_box(view, p, c), {(int) c.x - 3 * r, (int) c.y - r, 6 * r, 2 * r});
@@ -650,7 +650,7 @@ static void sweep(lv_timer_t *timer) {
     invalidate({(int) at.x - reach, (int) at.y - reach, 2 * reach + 1, 2 * reach + 1});
   }
 }
-// A scope whose beam turns draws itself again as the beam goes round, as a radar does: a new report, or a plane that
+// A scope whose beam turns draws itself again as the beam goes around, as a radar does: a new report, or a plane that
 // glides, shows where the beam passes it, and the whole layer is never drawn again at once (a full screen of it is a
 // seventh of a second on the AMOLED 2.41, a stall in the beam).
 static bool sweeps(const View *view) { return view->overlay.radar.on && view->overlay.radar.sweep && view->sweeping; }
@@ -681,7 +681,7 @@ void show(View *&view, lv_obj_t *parent, const ap::Overlay &o) {
     lv_obj_update_layout(view->layer);
   }
   // A scope that sweeps paints the planes as they are when it opens, or when the frame under them changes (another
-  // range, another middle); afterwards each plane changes as the beam crosses it (sweep).
+  // range, another middle); afterward each plane changes as the beam crosses it (sweep).
   const bool fresh = !view->latched || view->painted.width != o.width || view->painted.height != o.height ||
                      view->painted.radar.x != o.radar.x || view->painted.radar.y != o.radar.y ||
                      view->painted.radar.rose != o.radar.rose || view->frame != view->painted_frame;

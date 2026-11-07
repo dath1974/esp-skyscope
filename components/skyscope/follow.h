@@ -3,7 +3,7 @@
 // (BAW286), the flight number on a ticket (BA286, turned into its callsign by the airline's ICAO code below) or its
 // transponder's ICAO hex; a tap on a plane's card names it by its own. The worker asks an exchange for it by each of
 // these in turn (adsb.lol and adsb.fi both look a plane up worldwide by callsign, registration and hex), and once it is
-// found, follows its hex: the planes are asked for round it instead of round the place, the map moves with it, and the
+// found, follows its hex: the planes are asked for around it instead of around the place, the map moves with it, and the
 // saved place is left as it was.
 //
 // The exchanges hear only what their volunteers' receivers on the ground hear, so a plane crossing an ocean is out of
@@ -179,7 +179,7 @@ constexpr uint32_t MOST_ESTIMATE_MS = 10u * 3600 * 1000;  // carried on at most 
 constexpr int LOW_FT = 3000;     // lost below this, coming down or slow: landing, not flying on
 constexpr float SLOW_KT = 80;    // too slow to be carried on
 // How often the plane is asked for by itself: while it is still to be found (each ask in turn, then a pause), and by
-// its hex while it is out of reach of the reports round it.
+// its hex while it is out of reach of the reports around it.
 constexpr uint32_t LOOK_EVERY_MS = 2 * 60 * 1000;
 constexpr uint32_t HEX_EVERY_MS = 30 * 1000;
 constexpr uint32_t ASK_GAP_MS = 1100;  // between two requests to an exchange: adsb.fi asks for one a second at most
@@ -253,16 +253,16 @@ class Follower {
 constexpr double KEEP = 0.6, LEAD = 0.4;
 
 // Whether the plane at (lat, lon) is out past `keep` of the way to the edge of `v` (on round glass, of its radius).
-inline bool off_centre(const geo::View &v, double lat, double lon, double keep = KEEP) {
+inline bool off_center(const geo::View &v, double lat, double lon, double keep = KEEP) {
   const geo::Pixel p = v.point(lat, lon);
   const double nx = (p.x - v.width / 2.0) / (v.width / 2.0), ny = (p.y - v.height / 2.0) / (v.height / 2.0);
   return v.round ? std::hypot(nx, ny) > keep : std::max(std::fabs(nx), std::fabs(ny)) > keep;
 }
-// The middle of the next view: the plane LEAD of the way back from it, towards where it came from. `v` gives the scale.
-inline geo::Place centre_for(const geo::View &v, double lat, double lon, bool has_heading, float heading) {
+// The middle of the next view: the plane LEAD of the way back from it, toward where it came from. `v` gives the scale.
+inline geo::Place center_for(const geo::View &v, double lat, double lon, bool has_heading, float heading) {
   geo::Place c{lat, lon};
   if (has_heading) {
-    const double half = std::min(v.width, v.height) / 2.0 * geo::metres_per_pixel(lat, v.zoom);
+    const double half = std::min(v.width, v.height) / 2.0 * geo::meters_per_pixel(lat, v.zoom);
     c = geo::destination(lat, lon, heading, LEAD * half);
   }
   c.lat = std::max(-80.0, std::min(80.0, c.lat));
@@ -273,30 +273,30 @@ inline geo::Place centre_for(const geo::View &v, double lat, double lon, bool ha
 // view's next middle is too. The worker draws that frame while the plane flies there, and the step swaps it in at once
 // rather than drawing every tile again while the glass waits.
 
-// Where the plane at (lat, lon), flying on at `heading`, first goes past `keep` of `v` (off_centre); false if it never
+// Where the plane at (lat, lon), flying on at `heading`, first goes past `keep` of `v` (off_center); false if it never
 // does within a few glasses of it (it cannot: a straight line leaves any glass).
 inline bool crossing(const geo::View &v, double lat, double lon, float heading, geo::Place &out, double keep = KEEP) {
-  if (off_centre(v, lat, lon, keep)) {
+  if (off_center(v, lat, lon, keep)) {
     out = {lat, lon};
     return true;
   }
-  double inside = 0, outside = 4 * std::hypot(v.width, v.height) * v.metres_per_px();
+  double inside = 0, outside = 4 * std::hypot(v.width, v.height) * v.meters_per_px();
   geo::Place far = geo::destination(lat, lon, heading, outside);
-  if (!off_centre(v, far.lat, far.lon, keep)) return false;
+  if (!off_center(v, far.lat, far.lon, keep)) return false;
   for (int i = 0; i < 30; ++i) {
     const double mid = (inside + outside) / 2;
     const geo::Place p = geo::destination(lat, lon, heading, mid);
-    (off_centre(v, p.lat, p.lon, keep) ? outside : inside) = mid;
+    (off_center(v, p.lat, p.lon, keep) ? outside : inside) = mid;
   }
   out = geo::destination(lat, lon, heading, outside);
   return true;
 }
 // The middle of the view after the next step, for a plane flying on as it is; false without a heading.
-inline bool next_centre(const geo::View &v, double lat, double lon, bool has_heading, float heading, geo::Place &out) {
+inline bool next_center(const geo::View &v, double lat, double lon, bool has_heading, float heading, geo::Place &out) {
   if (!has_heading) return false;
   geo::Place at;
   if (!crossing(v, lat, lon, heading, at)) return false;
-  out = centre_for(v, at.lat, at.lon, true, heading);
+  out = center_for(v, at.lat, at.lon, true, heading);
   return true;
 }
 // Whether a view drawn ahead suits the plane at (lat, lon) as the step comes: it is within SNAP (of half the glass's
@@ -322,18 +322,18 @@ inline bool in_united_states(double lat, double lon) {
 inline bool united_states_only(MapStyle m) { return m == TOPO || m == SECTIONAL || m == IFR_LOW || m == IFR_HIGH; }
 
 // The middle of the view while a plane is followed, and that plane's hex.
-struct Centre {
+struct Center {
   bool on = false;
   double lat = 0, lon = 0;
   std::string hex;
-  bool operator==(const Centre &o) const { return on == o.on && lat == o.lat && lon == o.lon && hex == o.hex; }
-  bool operator!=(const Centre &o) const { return !(*this == o); }
+  bool operator==(const Center &o) const { return on == o.on && lat == o.lat && lon == o.lon && hex == o.hex; }
+  bool operator!=(const Center &o) const { return !(*this == o); }
 };
 
 // The settings as the glass shows them while a plane is followed: its view's middle for the place, a map of the whole
 // world where a chart of the United States would show nothing, no range rings (they measure from the place, and the
-// middle now moves), and the plane watched, so it always shows, ringed and labelled.
-inline Settings shown(const Settings &s, const Centre &c) {
+// middle now moves), and the plane watched, so it always shows, ringed and labeled.
+inline Settings shown(const Settings &s, const Center &c) {
   if (!c.on) return s;
   Settings out = s;
   out.located = true;
@@ -349,11 +349,11 @@ inline Settings shown(const Settings &s, const Centre &c) {
   return out;
 }
 
-// Where the planes round a followed plane are asked for: round it, out to the view's farthest corner from it, at most
+// Where the planes around a followed plane are asked for: around it, out to the view's farthest corner from it, at most
 // the exchanges' reach. (lat, lon) is the plane; the view's middle and reach come from `v`.
 inline int reach_nm(const geo::View &v, double lat, double lon) {
-  const double off = geo::metres_between(lat, lon, v.lat, v.lon);
-  return std::max(1, std::min(FEED_REACH_NM, (int) std::ceil((v.reach_metres() + off) / geo::NM * 1.05)));
+  const double off = geo::meters_between(lat, lon, v.lat, v.lon);
+  return std::max(1, std::min(FEED_REACH_NM, (int) std::ceil((v.reach_meters() + off) / geo::NM * 1.05)));
 }
 
 // The followed plane's way so far, for its track: the whole flight by default (settings.h follow_track_min), far longer
@@ -376,7 +376,7 @@ class Trail {
   size_t size() const { return points_.size(); }
   void add(double lat, double lon, uint32_t at) {
     if (!points_.empty() &&
-        geo::metres_between(points_.back().lat, points_.back().lon, lat, lon) < MIN_STEP_M) return;
+        geo::meters_between(points_.back().lat, points_.back().lon, lat, lon) < MIN_STEP_M) return;
     if (points_.size() >= MOST_POINTS) {
       // The older half thinned to every other place: the start of the flight stays, in less detail.
       const size_t half = points_.size() / 2;
@@ -474,7 +474,7 @@ inline std::vector<geo::Place> route_places(const Route &r, int count = 64) {
   return out;
 }
 // The route on `v` as lines: x, y, x, y ..., with ROUTE_BREAK, ROUTE_BREAK between two pieces where it leaves the
-// frame by far or wraps round the date line.
+// frame by far or wraps around the date line.
 constexpr int16_t ROUTE_BREAK = INT16_MIN;
 inline std::vector<int16_t> route_on(const Route &r, const geo::View &v) {
   std::vector<int16_t> out;
@@ -504,13 +504,13 @@ inline std::vector<int16_t> route_on(const Route &r, const geo::View &v) {
 // A view's middle and range that hold every one of `places` on a glass `w` x `h` (round or not), with room to spare:
 // the whole route, and the plane on it. The range is what the settings keep, the map's zoom a whole one near it.
 struct Fit {
-  geo::Place centre;
+  geo::Place center;
   int range_nm;
 };
 inline Fit fit(const std::vector<geo::Place> &places, int w, int h, bool round) {
   Fit out{{0, 0}, MAX_RANGE_NM};
   if (places.empty()) return out;
-  // Web Mercator at zoom 0, each longitude taken the short way round from the first, so a route over the date line
+  // Web Mercator at zoom 0, each longitude taken the short way around from the first, so a route over the date line
   // is one piece.
   double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const auto &p : places) {
@@ -523,26 +523,26 @@ inline Fit fit(const std::vector<geo::Place> &places, int w, int h, bool round) 
     y1 = std::max(y1, q.y);
   }
   const double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  out.centre.lon = std::remainder(cx / geo::TILE_PX * 360.0 - 180.0, 360.0);
-  out.centre.lat = geo::degrees(std::atan(std::sinh(geo::PI * (1 - 2 * cy / geo::TILE_PX))));
+  out.center.lon = std::remainder(cx / geo::TILE_PX * 360.0 - 180.0, 360.0);
+  out.center.lat = geo::degrees(std::atan(std::sinh(geo::PI * (1 - 2 * cy / geo::TILE_PX))));
   // A map's zoom is rounded to a whole one (up as much as half a level) and a round glass has no corners: room for both.
   const double fill = round ? 0.45 : 0.65;
   const double zoom = std::log2(std::min(w * fill / std::max(x1 - x0, 1e-6), h * fill / std::max(y1 - y0, 1e-6)));
-  const double nm = geo::metres_per_pixel(out.centre.lat, zoom) * std::min(w, h) / 2 / geo::NM;
+  const double nm = geo::meters_per_pixel(out.center.lat, zoom) * std::min(w, h) / 2 / geo::NM;
   out.range_nm = std::max(MIN_RANGE_NM, std::min(MAX_RANGE_NM, (int) std::ceil(nm)));
   return out;
 }
 
-// The view a range round a place takes on a glass `w` x `h`, at the whole zoom a map would have (tiles.h plan).
+// The view a range around a place takes on a glass `w` x `h`, at the whole zoom a map would have (tiles.h plan).
 inline geo::View view_for(double lat, double lon, int range_nm, int w, int h) {
   const double z = geo::zoom_for_radius(lat, range_nm * geo::NM, std::min(w, h));
   return geo::View(lat, lon, std::floor(z + 0.5), w, h);
 }
-constexpr int PLANE_RANGE_NM = 100;  // the Plane key's view round a plane whose speed is not known
+constexpr int PLANE_RANGE_NM = 100;  // the Plane key's view around a plane whose speed is not known
 
 // How far a plane at `heading` crosses the glass between two steps of the view, as a share of half its shorter side:
-// from LEAD behind the middle (centre_for) to KEEP of the way out to the edge ahead (off_centre). Across a long glass it
-// has further to go than towards a short side; on round glass it is the same every way.
+// from LEAD behind the middle (center_for) to KEEP of the way out to the edge ahead (off_center). Across a long glass it
+// has further to go than toward a short side; on round glass it is the same every way.
 inline double step_share(int w, int h, bool round, bool has_heading, float heading) {
   if (round || !has_heading || w == h) return LEAD + KEEP;
   const double half = std::min(w, h) / 2.0;
@@ -559,14 +559,14 @@ inline double step_share(int w, int h, bool round, bool has_heading, float headi
 constexpr double STEP_S = 60;
 inline int plane_range_nm(const feed::Flight &f, double lat, int w, int h, bool round) {
   if (!f.has_speed || w <= 0 || h <= 0) return PLANE_RANGE_NM;
-  const double metres_per_s = std::max(1.0f, f.speed) * geo::NM / 3600.0;
+  const double meters_per_s = std::max(1.0f, f.speed) * geo::NM / 3600.0;
   // The distance to fly, as a share of the range (half the shorter side).
   const double share = step_share(w, h, round, f.has_heading, f.heading);
   double best_nm = MIN_RANGE_NM, best_off = 1e9;
   int best_z = 0;
   for (int z = 0; z <= 20; ++z) {
-    const double range_m = geo::metres_per_pixel(lat, z) * std::min(w, h) / 2.0;
-    const double off = std::fabs(std::log2(share * range_m / metres_per_s / STEP_S));
+    const double range_m = geo::meters_per_pixel(lat, z) * std::min(w, h) / 2.0;
+    const double off = std::fabs(std::log2(share * range_m / meters_per_s / STEP_S));
     if (off < best_off) {
       best_off = off;
       best_nm = range_m / geo::NM;

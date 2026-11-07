@@ -67,7 +67,7 @@ NM_PER_DEGREE = 60.0
 
 
 def bearing_offset(lat, lon, bearing, nm):
-    """The place `nm` away from lat, lon towards `bearing` (degrees true)."""
+    """The place `nm` away from lat, lon toward `bearing` (degrees true)."""
     b = math.radians(bearing)
     return mock_feed.offset(lat, lon, nm * math.cos(b), nm * math.sin(b))
 
@@ -285,9 +285,9 @@ class Sky:
             # A base leg at right angles to the final, eight miles out, turning onto it.
             _, t_lat, t_lon, course, side, start, gs = path
             span = 30.0
-            travelled = (30 - start) + gs * seconds / 3600
-            generation = int(travelled // span)
-            s = travelled % span  # along the leg, from its start 22 NM out to the side
+            traveled = (30 - start) + gs * seconds / 3600
+            generation = int(traveled // span)
+            s = traveled % span  # along the leg, from its start 22 NM out to the side
             join = 9.0
             out = 22 - s
             if out > 0:
@@ -302,9 +302,9 @@ class Sky:
         if kind == "climb":
             _, t_lat, t_lon, course, turn, start, gs = path
             span = 32.0
-            travelled = start + gs * seconds / 3600
-            generation = int(travelled // span)
-            s = travelled % span
+            traveled = start + gs * seconds / 3600
+            generation = int(traveled // span)
+            s = traveled % span
             straight = min(s, 4)
             lat, lon = bearing_offset(t_lat, t_lon, course, straight)
             track = course
@@ -312,11 +312,11 @@ class Sky:
                 track = course + turn
                 lat, lon = bearing_offset(lat, lon, track, s - 4)
             return lat, lon, self.elevation + min(1000 + s * 650, 17000), gs, track, generation
-        # A straight line through the area, `length` long, and round again (as another plane) when it leaves.
+        # A straight line through the area, `length` long, and around again (as another plane) when it leaves.
         _, north, east, track, gs, length, phase, alt = path
-        travelled = phase * length + gs * seconds / 3600
-        generation = int(travelled // length)
-        s = travelled % length - length / 2
+        traveled = phase * length + gs * seconds / 3600
+        generation = int(traveled // length)
+        s = traveled % length - length / 2
         lat, lon = mock_feed.offset(self.lat, self.lon, north, east)
         lat, lon = bearing_offset(lat, lon, track, s)
         return lat, lon, alt, gs, track, generation
@@ -341,10 +341,10 @@ SCENES = [
      {"map": "streets", "theme": "dark", "range_nm": 20, "airspace": True}, None),
     ("card", "KJFK", "A plane's card", "Tap a plane: its type, registration, altitude with the climb or descent, speed, "
      "heading and squawk.", {"map": "streets", "theme": "dark", "range_nm": 20, "airspace": True}, "card"),
-    ("sectional", "KSFO", "VFR sectional", "The FAA's sectional chart round San Francisco, with the Class B shelves "
+    ("sectional", "KSFO", "VFR sectional", "The FAA's sectional chart around San Francisco, with the Class B shelves "
      "over it.", {"map": "sectional", "theme": "light", "range_nm": 20, "airspace": True}, None),
     ("ifr-low-dark", "KORD", "IFR low, dark, with data blocks", "The IFR enroute low chart made dark (its paper and "
-     "ink turned round, its colours kept), and every label a controller's data block.",
+     "ink turned around, its colors kept), and every label a controller's data block.",
      {"map": "ifr_low", "theme": "dark", "range_nm": 30, "airspace": True, "label": "scope"}, None),
     ("radar", "KATL", "Radar scope", "The scope drawn on the screen itself, nothing downloaded: its glow, bearing "
      "lines and the beam painting the planes as it passes, with Atlanta's airspace in the phosphor.",
@@ -355,16 +355,16 @@ SCENES = [
       "label": "scope"}, None),
     ("satellite", "KLAS", "Satellite", "Esri's imagery of Las Vegas with its place names over it.",
      {"map": "satellite", "theme": "dark", "range_nm": 10}, None),
-    ("topo", "KSLC", "USGS topo", "The USGS topographic map round Salt Lake City, light.",
+    ("topo", "KSLC", "USGS topo", "The USGS topographic map around Salt Lake City, light.",
      {"map": "topo", "theme": "light", "range_nm": 20}, None),
     ("ifr-high", "KDEN", "IFR high enroute", "The IFR high enroute chart at 80 NM, the jets passing over Denver.",
      {"map": "ifr_high", "theme": "light", "range_nm": 80, "airspace": True, "label": "callsign"}, None),
-    ("osm", "EGLL", "OpenStreetMap, dark", "OpenStreetMap round Heathrow, drawn dark with its hues kept, and a watched "
-     "plane in a colour of its own.", {"map": "osm", "theme": "dark", "range_nm": 15}, "watch"),
+    ("osm", "EGLL", "OpenStreetMap, dark", "OpenStreetMap around Heathrow, drawn dark with its hues kept, and a watched "
+     "plane in a color of its own.", {"map": "osm", "theme": "dark", "range_nm": 15}, "watch"),
     ("weather-radar", "rain", "Weather radar", "The NEXRAD composite over the dark streets map, where it is raining "
      "now.", {"map": "streets", "theme": "dark", "range_nm": 60, "radar_overlay": True, "airspace": True}, None),
     ("weather-page", "KJFK", "Aviation weather", "A swipe up from the bottom edge: the station's METAR, decoded, with "
-     "its flight category in colour; the TAF, MOS and advisories are a tab away.",
+     "its flight category in color; the TAF, MOS and advisories are a tab away.",
      {"map": "streets", "theme": "dark", "range_nm": 20}, "weather"),
     ("menu", "KJFK", "The menu", "A long press opens a menu with every setting the web page has; a tap on a value "
      "types it on a keyboard on the glass.", {"map": "streets", "theme": "dark", "range_nm": 20}, "menu"),
@@ -533,7 +533,7 @@ def main():
     saved.write_text(json.dumps(original))
 
     server = mock_feed.Server(port=args.port).start()
-    origin = f"http://{device_test.own_address_towards(args.address)}:{server.port}"
+    origin = f"http://{device_test.own_address_toward(args.address)}:{server.port}"
     glass = Glass(screen)
     skies = {}
     failed = 0
@@ -564,7 +564,7 @@ def main():
                 shown = [p for p in sky.aircraft() if dist_nm(lat, lon, p["lat"], p["lon"]) < settings["range_nm"] * 0.6
                          and p["alt_baro"] > 3000]
                 if shown:
-                    full["watch"] = [{"id": shown[0]["flight"].strip(), "colour": "purple"}]
+                    full["watch"] = [{"id": shown[0]["flight"].strip(), "color": "purple"}]
             area = (code, settings["range_nm"], settings.get("airspace", False))
             before = None if area == last_area else screen.json("/api/status")[1]["airspace_rev"]
             last_area = area

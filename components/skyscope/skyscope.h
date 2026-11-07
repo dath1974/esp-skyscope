@@ -152,7 +152,7 @@ class Skyscope : public Component,
     uint32_t settings_rev = 0;
     tiles::Plan plan;
     uint32_t plan_rev = 0;
-    // The plan of the next step while a plane is followed, for the worker to draw ahead (follow.h next_centre); no
+    // The plan of the next step while a plane is followed, for the worker to draw ahead (follow.h next_center); no
     // tiles for none.
     tiles::Plan ahead;
     uint32_t ahead_rev = 0;
@@ -211,8 +211,8 @@ class Skyscope : public Component,
     } firmware;
     // loop -> worker: the view's middle while a plane is followed (follow.h). worker -> loop: that plane as the reports
     // have seen it, for the follow named in follower_for.
-    follow::Centre centre;
-    uint32_t centre_rev = 0;
+    follow::Center center;
+    uint32_t center_rev = 0;
     follow::Follower follower;
     std::string follower_for;
     uint32_t follower_rev = 0;
@@ -273,7 +273,7 @@ class Skyscope : public Component,
   void show_level_(int percent);
   // The settings menu (menu.cpp): a long press on the map opens it.
   void open_menu_();
-  void build_menu_();  // the menu's objects, in the colours of the settings it is editing
+  void build_menu_();  // the menu's objects, in the colors of the settings it is editing
   void close_menu_();
   void refresh_menu_();
   void menu_step_(int index, int step);
@@ -321,7 +321,7 @@ class Skyscope : public Component,
   void unfreeze_();     // a frame of the plan's own is in the canvas: the live planes again
   void end_pinch_();
   void settle_preview_();
-  void use_view_(const Settings &s, const follow::Centre *centre = nullptr);
+  void use_view_(const Settings &s, const follow::Center *center = nullptr);
   void end_preview_(bool keep);
   void preview_tick_(uint32_t now);
   // A swipe along the strip at the bottom changes the map (swipe.cpp): its name shown at once, the map planned and
@@ -355,19 +355,19 @@ class Skyscope : public Component,
   lv_indev_t *probe_input_{nullptr};
   uint32_t probe_busy_until_{0};  // the web server's task: the touch under way ends then
 #endif
-  // The colours of what lies over the map: the radar's phosphor on a scope, else the screen's own.
+  // The colors of what lies over the map: the radar's phosphor on a scope, else the screen's own.
   struct Chrome { uint32_t ink, muted, card, accent; };
   Chrome chrome_() const;
   static Chrome chrome_for_(const Settings &s);
   void restyle_();
-  void set_status_colour_(uint32_t colour);
+  void set_status_color_(uint32_t color);
   // The map card's state for the API (web.cpp), from a copy of Shared::Card.
   void card_json_(JsonObject out, const Shared::Card &c) const;
   // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
   // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
   // Following a plane (follow.h) moves the view's middle with it, and so shown_ is follow::shown of them too.
   const Settings &shown_() const { return shown_settings_; }
-  void reshow_();  // shown_settings_ again, from settings_, offline_ and centre_
+  void reshow_();  // shown_settings_ again, from settings_, offline_ and center_
   void go_offline_(bool offline);
   // settings
   void load_settings_();
@@ -409,7 +409,7 @@ class Skyscope : public Component,
   Settings shown_settings_;
   // The plane followed (follow.h): the view's middle, the plane as the worker last told of it and for which follow, and
   // the middle the view had when a preview began (preview.cpp), for its Cancel.
-  follow::Centre centre_, held_centre_;
+  follow::Center center_, held_center_;
   follow::Follower follower_;
   std::string follower_for_;
   uint32_t follower_rev_{0};
@@ -418,19 +418,19 @@ class Skyscope : public Component,
   uint32_t follow_asking_since_{0};
   follow::Trail trail_;  // its way so far, for its track (follow.h)
   std::string ranged_hex_;  // the plane last put at its own range on being followed (follow_tick_)
-  // The view of the next step, as given to the worker to draw ahead (follow.h next_centre), and when it was last
+  // The view of the next step, as given to the worker to draw ahead (follow.h next_center), and when it was last
   // looked at; ahead_.on false for none.
-  follow::Centre ahead_;
+  follow::Center ahead_;
   geo::View ahead_view_;
   uint32_t ahead_at_{0};
   void plan_ahead_(uint32_t now, const geo::Place &plane);
   void drop_ahead_();
   tiles::Plan plan_for_(const Settings &shown) const;
-  bool following_() const { return centre_.on; }
+  bool following_() const { return center_.on; }
   void follow_tick_(uint32_t now);  // the follower from the worker, the view moved with the plane, a landing's stop
   // The view's middle there (and the range `range_nm`, where it is one), its frame planned, the glass as it was moved
   // to it meanwhile.
-  void set_centre_(const follow::Centre &c, int range_nm = 0);
+  void set_center_(const follow::Center &c, int range_nm = 0);
   // The keys down the left edge while a plane is followed: the whole route in view, the range the screen had before
   // following changed it, or the plane at its own range (follow.h plane_range_nm). show_plane_ also begins following,
   // at that range; `range_nm` 0 is the plane's own.
@@ -478,7 +478,7 @@ class Skyscope : public Component,
   uint32_t loop_last_us_{0}, loop_passes_{0}, loop_window_start_{0}, steps_from_{0};
   float loop_gap_ms_{0}, loop_gap_max_ms_{0}, loops_per_s_{0}, steps_per_s_{0}, paint_ms_{0};
   int64_t paint_from_{0};
-  uint32_t status_colour_{0xFFFFFFFF};
+  uint32_t status_color_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool asleep_{false};
   // An install: the screen says so, and the worker rests, until the screen restarts or the install fails.

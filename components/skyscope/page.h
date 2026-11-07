@@ -33,11 +33,11 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" step="any" min="-85" max="85" required></div>
 <div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" step="any" min="-180" max="180" required></div></div>
 <label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="5000">
-<p class="hint">Up to 5000 NM, for following a plane across an ocean. The exchanges answer for 250 NM round a point at most, so the planes shown come from that far round the place, or round the plane followed.</p>
+<p class="hint">Up to 5000 NM, for following a plane across an ocean. The exchanges answer for 250 NM around a point at most, so the planes shown come from that far around the place, or around the plane followed.</p>
 <label for="follow">Follow a plane</label><input id="follow" name="follow" placeholder="N12345, G-EUPT, BAW286 or BA 286">
 <div id="followed"><div class="row"><div><label for="follow_label">Its label</label><select id="follow_label" name="follow_label"><option value="auto">As the other planes'</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
 <div><label for="follow_track_min">Its track (minutes, 0 for the whole flight)</label><input id="follow_track_min" name="follow_track_min" type="number" min="0" max="1440"></div></div></div>
-<p class="hint">Its registration, callsign or flight number (the larger airlines' flight numbers are turned into their callsigns); empty to stop. The screen finds it anywhere in the world, moves the map with it (a chart of the United States gives way to the streets map outside it) and asks for the planes round it; your place stays as it is. Out of reach of the volunteers' receivers, over an ocean, it is shown faint where it is likely to be until it is heard again. Following stops by itself once it has landed. <span id="following"></span></p>
+<p class="hint">Its registration, callsign or flight number (the larger airlines' flight numbers are turned into their callsigns); empty to stop. The screen finds it anywhere in the world, moves the map with it (a chart of the United States gives way to the streets map outside it) and asks for the planes around it; your place stays as it is. Out of reach of the volunteers' receivers, over an ocean, it is shown faint where it is likely to be until it is heard again. Following stops by itself once it has landed. <span id="following"></span></p>
 </section>
 <section><h2>Map</h2>
 <div class="row"><div><label for="map">Background</label><select id="map" name="map">
@@ -47,7 +47,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <option value="ifr_low">FAA IFR area charts, low (busy terminal areas)</option><option value="ifr_high">FAA IFR high enroute (United States)</option>
 <option value="custom">Custom tile server</option></select></div>
 <div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="theme">Appearance</label><select id="theme" name="theme"><option value="dark">Dark</option><option value="light">Light</option></select></div></div>
-<p class="hint" data-for="osm topo sectional ifr_low ifr_high">This map has no dark version of its own: dark, its paper is turned dark (the sectional is dimmed instead, so its colours stay true).</p>
+<p class="hint" data-for="osm topo sectional ifr_low ifr_high">This map has no dark version of its own: dark, its paper is turned dark (the sectional is dimmed instead, so its colors stay true).</p>
 <div data-for="custom"><label for="custom_url">Tile URL</label><input id="custom_url" name="custom_url" placeholder="https://example.com/tiles/{z}/{x}/{y}.png">
 <p class="hint">256-pixel PNG or JPEG tiles with {z}, {x} and {y}, shown as they are. Follow the server's terms of use.</p></div>
 <div class="row"><div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="map_brightness">Map brightness (%)</label><input id="map_brightness" name="map_brightness" type="number" min="10" max="100"></div>
@@ -74,15 +74,15 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <div class="row3"><div><label for="marker">Marker</label><select id="marker" name="marker"><option value="type">plane by type</option><option>plane</option><option>arrow</option><option>dot</option></select></div>
 <div><label for="label">Label</label><select id="label" name="label"><option value="auto">Automatic</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
 <div><label for="track_s">Track (s, 0 for none)</label><input id="track_s" name="track_s" type="number" min="0" max="300"></div></div>
-<label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Colour by altitude</label>
+<label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Color by altitude</label>
 <label class="check"><input type="checkbox" id="glide" name="glide"> Glide between reports</label>
 <label class="check"><input type="checkbox" id="ground" name="ground"> Show aircraft on the ground</label>
 <label for="watch">Watched aircraft</label><textarea id="watch" placeholder="N12345 red&#10;BAW123 blue"></textarea>
-<p class="hint">One per line: a registration, callsign or ICAO hex, then a colour (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring.</p>
+<p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring.</p>
 </section>
 <section><h2>Screen</h2>
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
-<div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Metres, km/h</option></select></div></div>
+<div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Meters, km/h</option></select></div></div>
 <label for="sleep_min">Turn the screen off after (minutes without a touch, 0 for never)</label><input id="sleep_min" name="sleep_min" type="number" min="0" max="1440">
 <p class="hint">A tap turns it on again. While it is off the screen asks for no planes or map tiles. Drag up or down along the screen's right edge to set its brightness.</p>
 <label class="check"><input type="checkbox" id="bedtime" name="bedtime"> Bedtime: turn the screen off every night</label>
@@ -118,12 +118,12 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <button type="button" class="plain" id="card_format" style="display:none">Format the card</button></div>
 <p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32, and the screen formats one that is not (a new card larger than 32 GB comes as exFAT); it keeps its tiles in a folder named tiles and leaves the rest alone. Clearing deletes only its tiles, a few at a time while it has nothing else to do; formatting erases everything on the card.</p>
 <div class="row3"><div><label for="dl_map">Download an area of</label><select id="dl_map"><option value="sectional">FAA VFR sectional</option><option value="ifr_low">FAA IFR area charts, low</option><option value="ifr_high">FAA IFR high enroute</option><option value="topo">USGS topographic</option></select></div>
-<div><label for="dl_radius">Round the place (NM)</label><input id="dl_radius" type="number" min="1" max="250" value="100"></div>
+<div><label for="dl_radius">Around the place (NM)</label><input id="dl_radius" type="number" min="1" max="250" value="100"></div>
 <div><label for="dl_zoom">Down to</label><select id="dl_zoom"></select></div></div>
 <p class="hint" id="dl_estimate"></p>
 <div class="bar" style="position:static;padding:0"><button type="button" id="dl_start">Download</button><button type="button" class="plain" id="dl_stop" style="display:none">Stop</button></div>
 <p id="dl_progress"></p>
-<p class="hint">For a slow network, or none: the area round the place above, every zoom of the map down to the one chosen, the widest first. Only the FAA's charts and the USGS map are downloaded ahead (they are the United States government's, free to copy); the other maps ask that their tiles are fetched only as they are looked at. The screen takes a tile at a time between its other work, keeps going while it is off, and carries on after a restart. Tiles the card has already are skipped.</p>
+<p class="hint">For a slow network, or none: the area around the place above, every zoom of the map down to the one chosen, the widest first. Only the FAA's charts and the USGS map are downloaded ahead (they are the United States government's, free to copy); the other maps ask that their tiles are fetched only as they are looked at. The screen takes a tile at a time between its other work, keeps going while it is off, and carries on after a restart. Tiles the card has already are skipped.</p>
 </section>
 <section id="fw" style="display:none"><h2>Firmware</h2>
 <p id="fw_text">Asking the update server...</p>
@@ -139,7 +139,7 @@ const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','f
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
- $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.colour).join('\n');
+ $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.color).join('\n');
  $('q').value=s.place||'';
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
  ['bed_off','bed_on'].forEach(k=>{const [h,m]=(s[k]||'0:00').split(':');$(k).value=h.padStart(2,'0')+':'+m});
@@ -170,7 +170,7 @@ $('follow').addEventListener('input',followed);
 async function load(){const r=await fetch('api/settings');show(await r.json())}
 f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value!=='')s[k]=Number($(k).value)});
  BOOL.forEach(k=>s[k]=$(k).checked);TXT.forEach(k=>s[k]=$(k).value);s.metric=$('metric').value==='true';
- s.watch=$('watch').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const p=l.split(/\s+/);return{id:p[0],colour:(p[1]||'red').toLowerCase()}});
+ s.watch=$('watch').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const p=l.split(/\s+/);return{id:p[0],color:(p[1]||'red').toLowerCase()}});
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};

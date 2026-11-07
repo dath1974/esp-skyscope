@@ -22,8 +22,8 @@ constexpr int BANDS = 5, NO_BAND = -1, NO_HEADING = -1;
 // How long a plane glides on after its report: a source that stopped reporting leaves its planes where the last report
 // and this much flight put them.
 constexpr uint32_t GLIDE_MS = 30000;
-// Watched aircraft (settings.h WATCH_COLOURS): a plane's colour is 1 to WATCH_COLOURS, 0 for one nobody watches.
-constexpr int WATCH_COLOURS = 6;
+// Watched aircraft (settings.h WATCH_COLORS): a plane's color is 1 to WATCH_COLORS, 0 for one nobody watches.
+constexpr int WATCH_COLORS = 6;
 // A watched plane is drawn this much larger, with a ring around it.
 constexpr float WATCH_SCALE = 1.35f;
 // The most planes a frame shows, the watched ones beside them.
@@ -36,13 +36,13 @@ struct Plane {
   int vx = 0, vy = 0;          // pixels a minute
   std::string label;           // its lines, joined by '\n'
   std::vector<int16_t> track;  // x, y, x, y ... oldest first, ending where the plane is
-  int watch = 0;               // 1 to WATCH_COLOURS for a watched plane, in its colour
+  int watch = 0;               // 1 to WATCH_COLORS for a watched plane, in its color
   std::string id;              // the transponder's address: what a finger picks it by
   uint8_t kind = 0;            // what it is drawn as (shapes.h Kind), AIRLINER unless the marker is by type
   bool estimated = false;      // where a plane followed is likely to be, out of reach (follow.h): drawn faint
 };
 
-// A map drawn as a radar scope: its phosphor (colours.h TINTS), the middle of the scope on the frame, and whether its
+// A map drawn as a radar scope: its phosphor (colors.h TINTS), the middle of the scope on the frame, and whether its
 // beam turns.
 struct Radar {
   bool on = false;
@@ -55,9 +55,9 @@ struct Radar {
 struct Overlay {
   int width = 0, height = 0;  // the frame the planes are placed on
   Marker marker = DOT;
-  bool by_altitude = true;  // coloured by band, else in the accent
+  bool by_altitude = true;  // colored by band, else in the accent
   bool glide = true;
-  bool light = false;       // the light appearance: the pills and rings in its palette (colours.h)
+  bool light = false;       // the light appearance: the pills and rings in its palette (colors.h)
   uint32_t at = 0;          // millis() when it came
   std::vector<Plane> planes;
   Radar radar;
@@ -91,7 +91,7 @@ inline std::array<Point, 2> heading_tick(Point c, float radius, float length, in
 // its hottest light (over 1): low planes dim, high ones bright, all in one hue. NO_BAND is drawn as the ground's.
 inline constexpr float BAND_LIGHT[BANDS] = {0.5f, 0.75f, 1.0f, 1.35f, 1.7f};
 inline float band_light(int band) { return BAND_LIGHT[band >= 0 && band < BANDS ? band : 0]; }
-// The beam of a scope that sweeps: once round in SWEEP_MS, clockwise from north, its afterglow a trail of
+// The beam of a scope that sweeps: once around in SWEEP_MS, clockwise from north, its afterglow a trail of
 // SWEEP_TRAIL degrees behind it, drawn every SWEEP_FRAME_MS (on the clock, view.cpp's sweep: 18 steps a second
 // measured on the AMOLED 2.41 standing up with a few planes, of the 20 asked for). A plane it passes lights up and fades over AFTERGLOW
 // degrees of the turn. Every pixel of the trail changes each frame, so it is kept short: each is a see-through pixel to
@@ -113,7 +113,7 @@ inline bool crossed(float was, float now, float at) { return was != now && behin
 inline float afterglow(float since) { return since >= AFTERGLOW ? 0.0f : 1.0f - since / AFTERGLOW; }
 
 struct Box { int x, y, w, h; };
-// The box round the wedge of a circle of radius `r` about `c`, from bearing `from` clockwise to bearing `to` (less than
+// The box around the wedge of a circle of radius `r` about `c`, from bearing `from` clockwise to bearing `to` (less than
 // a turn): its middle, its two ends and every quarter of north, east, south and west it passes.
 inline Box wedge_box(Point c, float r, float from, float to) {
   auto at = [&](float b) { const float a = b * 3.14159265f / 180.0f; return Point{c.x + std::sin(a) * r, c.y - std::cos(a) * r}; };
@@ -148,7 +148,7 @@ inline Box label_box(Point c, int reach, int w, int h, int frame_w, int frame_h,
   return {x, y, w, h};
 }
 
-// Labels kept apart, as a radar display de-conflicts its data blocks: each label takes the first spot round its plane
+// Labels kept apart, as a radar display de-conflicts its data blocks: each label takes the first spot around its plane
 // that is inside the frame and clear of every label placed before it and of every plane's marker, and one moved off its
 // plane is drawn with a leader line back to it. The spots, in order: beside the plane (right, left), its corners, above
 // and below, then the same eight directions on rings `step` further out (LABEL_RINGS of them). Watched planes are

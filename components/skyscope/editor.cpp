@@ -1,7 +1,7 @@
 // The menu's keyboard, and the lists it picks from, over the menu (menu.cpp opens them).
 //
 // - The keyboard (keyboard.h) types a row's value, which the settings check when Done is pressed: the row's hint shows
-//   under the text, in the error colour when they refuse it. It also types a place to find, which the worker looks for
+//   under the text, in the error color when they refuse it. It also types a place to find, which the worker looks for
 //   (places.h) and a list then offers, and a Wi-Fi network's name and password.
 // - The list offers the places a search found, or the Wi-Fi networks: first those the screen knows, first choice first
 //   (networks.h), each with keys to move it up or down and to forget it, then the others in reach. While the screen is
@@ -11,7 +11,7 @@
 //   knows, and opens the setup network after a minute without any, as at the first start.
 #include "skyscope.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "menu_rows.h"
 #include "ui.h"
 #include "widgets.h"
@@ -38,7 +38,7 @@ enum { KEY_UP, KEY_DOWN, KEY_FORGET };
 constexpr uint32_t FORGET_MS = 4000;  // Forget's second tap, within this
 constexpr size_t MOST_NETWORKS = 12;
 
-// A panel over everything, the size of the glass, in the menu's colours.
+// A panel over everything, the size of the glass, in the menu's colors.
 lv_obj_t *panel(int width, int height, uint32_t ground) {
   lv_obj_t *p = plain(lv_screen_active());
   lv_obj_set_size(p, width, height);
@@ -95,7 +95,7 @@ void Skyscope::open_editor_(Typing what, const std::string &title, const std::st
   editor_error_.clear();
   editor_masked_ = what == TYPING_PASSWORD;
   const Chrome c = chrome_for_(menu_settings_);
-  const uint32_t surface = colours::mix(c.ink, c.card, 20);
+  const uint32_t surface = colors::mix(c.ink, c.card, 20);
   const int tall = ui::mm(8);
   editor_ = panel(width_, height_, c.card);
 
@@ -228,7 +228,7 @@ void Skyscope::refresh_editor_() {
   lv_obj_set_pos(editor_cursor_, lv_obj_get_x(editor_text_) + at.x, lv_obj_get_y(editor_text_) + at.y);
   lv_obj_scroll_to_view(editor_cursor_, LV_ANIM_OFF);
   set_label(editor_hint_, editor_error_.empty() ? editor_hint_text_ : editor_error_);
-  set_colour(editor_hint_, editor_error_.empty() ? c.muted : colours::ERROR);
+  set_color(editor_hint_, editor_error_.empty() ? c.muted : colors::ERROR);
 }
 
 void Skyscope::editor_done_() {

@@ -131,7 +131,7 @@ inline int minutes(const std::string &hhmm) {
   return h * 60 + m;
 }
 
-// Whether `now` (minutes of the day) lies between going dark at `off` and coming on at `on`, round midnight or not.
+// Whether `now` (minutes of the day) lies between going dark at `off` and coming on at `on`, around midnight or not.
 inline bool within(int now, int off, int on) {
   if (off == on) return false;
   return off < on ? now >= off && now < on : now >= off || now < on;

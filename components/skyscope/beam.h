@@ -7,7 +7,7 @@
 #include <cmath>
 #include <cstdint>
 
-#include "colours.h"
+#include "colors.h"
 #include "plan.h"
 
 namespace sky::beam {
@@ -30,9 +30,9 @@ struct Painter {
   uint16_t glow = 0, beam = 0;
   float beam_width = 2;
 
-  void set_tint(const colours::Tint &t) {
+  void set_tint(const colors::Tint &t) {
     glow = pack(t.glow);
-    beam = pack(colours::mix(t.hot, t.glow, 153));
+    beam = pack(colors::mix(t.hot, t.glow, 153));
   }
 
   // The beam at `now` (degrees) with its trail behind it, and every pixel between `was - TRAIL` and the trail's end

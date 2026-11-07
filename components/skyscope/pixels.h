@@ -11,22 +11,22 @@
 
 namespace sky::pixels {
 
-// A decoded tile: its colours and opacity (0 to 255), `stride` pixels a row, `width` x `height` of them used.
+// A decoded tile: its colors and opacity (0 to 255), `stride` pixels a row, `width` x `height` of them used.
 struct Tile {
-  const uint16_t *colour;
+  const uint16_t *color;
   const uint8_t *alpha;
   int width, height, stride;
   bool opaque = false;  // every pixel wholly opaque (most map tiles): laid without reading the alphas or the frame
 };
 
-// `colour` over `under` at an opacity of `alpha` (0 to 255).
-inline uint16_t blend(uint16_t under, uint16_t colour, uint32_t alpha) {
-  if (alpha >= 255) return colour;
+// `color` over `under` at an opacity of `alpha` (0 to 255).
+inline uint16_t blend(uint16_t under, uint16_t color, uint32_t alpha) {
+  if (alpha >= 255) return color;
   if (alpha == 0) return under;
   const uint32_t a = alpha + (alpha >> 7);  // 0 to 256
-  const uint32_t r = ((under >> 11) * (256 - a) + (colour >> 11) * a) >> 8;
-  const uint32_t g = ((under >> 5 & 0x3F) * (256 - a) + (colour >> 5 & 0x3F) * a) >> 8;
-  const uint32_t b = ((under & 0x1F) * (256 - a) + (colour & 0x1F) * a) >> 8;
+  const uint32_t r = ((under >> 11) * (256 - a) + (color >> 11) * a) >> 8;
+  const uint32_t g = ((under >> 5 & 0x3F) * (256 - a) + (color >> 5 & 0x3F) * a) >> 8;
+  const uint32_t b = ((under & 0x1F) * (256 - a) + (color & 0x1F) * a) >> 8;
   return (uint16_t) (r << 11 | g << 5 | b);
 }
 
@@ -34,7 +34,7 @@ inline uint16_t blend(uint16_t under, uint16_t colour, uint32_t alpha) {
 inline uint16_t rgb565(uint32_t c) { return (uint16_t) ((c >> 8 & 0xF800) | (c >> 5 & 0x07E0) | (c >> 3 & 0x001F)); }
 
 // line(), its ends within the reach of single precision; `r` half its width, `reach` how far its pixels go.
-inline void line_near(uint16_t *frame, int fw, int fh, float x0, float y0, float x1, float y1, uint16_t colour, float r,
+inline void line_near(uint16_t *frame, int fw, int fh, float x0, float y0, float x1, float y1, uint16_t color, float r,
                       float reach) {
   if (std::max(x0, x1) < -reach || std::min(x0, x1) > fw - 1 + reach || std::max(y0, y1) < -reach ||
       std::min(y0, y1) > fh - 1 + reach)
@@ -63,24 +63,24 @@ inline void line_near(uint16_t *frame, int fw, int fh, float x0, float y0, float
       const float cover = r + 0.5f - std::sqrt(ex * ex + ey * ey);
       if (cover <= 0) continue;
       uint16_t &out = frame[(int) py * fw + (int) px];
-      out = blend(out, colour, cover >= 1 ? 255 : (uint32_t) (cover * 255 + 0.5f));
+      out = blend(out, color, cover >= 1 ? 255 : (uint32_t) (cover * 255 + 0.5f));
     }
   }
 }
 
-// A line from (x0, y0) to (x1, y1), `width` pixels across with round ends and smoothed edges, in `colour`, clipped to
+// A line from (x0, y0) to (x1, y1), `width` pixels across with round ends and smoothed edges, in `color`, clipped to
 // the frame. It is walked along its longer axis, a short span across it each step, each pixel covered by how far its
 // middle is from the line. Single precision throughout, which the chip has hardware for; a line from far off is first
 // cut to the frame, so its arithmetic stays in pixels the frame has.
-inline void line(uint16_t *frame, int fw, int fh, double ax, double ay, double bx, double by, uint16_t colour,
+inline void line(uint16_t *frame, int fw, int fh, double ax, double ay, double bx, double by, uint16_t color,
                  float width) {
   const float r = std::max(0.5f, width / 2), reach = r + 1;
   constexpr double FAR = 16384;
   if (std::fabs(ax) < FAR && std::fabs(ay) < FAR && std::fabs(bx) < FAR && std::fabs(by) < FAR) {
-    line_near(frame, fw, fh, (float) ax, (float) ay, (float) bx, (float) by, colour, r, reach);
+    line_near(frame, fw, fh, (float) ax, (float) ay, (float) bx, (float) by, color, r, reach);
     return;
   }
-  // Liang and Barsky's clipping, to the frame and `reach` round it.
+  // Liang and Barsky's clipping, to the frame and `reach` around it.
   double t0 = 0, t1 = 1;
   const double ddx = bx - ax, ddy = by - ay;
   for (const auto &[p, q] : {std::pair<double, double>{-ddx, ax + reach}, {ddx, fw - 1 + reach - ax},
@@ -95,7 +95,7 @@ inline void line(uint16_t *frame, int fw, int fh, double ax, double ay, double b
     if (t0 > t1) return;
   }
   line_near(frame, fw, fh, (float) (ax + t0 * ddx), (float) (ay + t0 * ddy), (float) (ax + t1 * ddx),
-            (float) (ay + t1 * ddy), colour, r, reach);
+            (float) (ay + t1 * ddy), color, r, reach);
 }
 
 // Four RGB565 pixels mixed by weights summing to 256.
@@ -109,7 +109,7 @@ inline uint16_t mix4(uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint32_t wa
 // The decoded tile into the frame at (ox, oy), `scale` frame pixels a tile pixel.
 inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double scale, const Tile &tile) {
   const int tw = tile.width, th = tile.height, stride = tile.stride;
-  const uint16_t *colours = tile.colour;
+  const uint16_t *colors = tile.color;
   const uint8_t *alphas = tile.alpha;
   const int fw = (int) std::lround(tw * scale), fh = (int) std::lround(th * scale);
   const int x0 = std::max(0, ox), x1 = std::min(width, ox + fw);
@@ -118,7 +118,7 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
   if (scale == 1.0) {
     for (int y = y0; y < y1; ++y) {
       uint16_t *out = frame + y * width;
-      const uint16_t *c = colours + (y - oy) * stride;
+      const uint16_t *c = colors + (y - oy) * stride;
       const uint8_t *a = alphas + (y - oy) * stride;
       if (tile.opaque) std::copy(c + (x0 - ox), c + (x1 - ox), out + x0);
       else for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
@@ -133,12 +133,12 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       uint16_t *out = frame + y * width;
       for (int x = x0; x < x1; ++x) {
         const int tx = std::min(tw - 1, (int) ((x - ox + 0.5) * step));
-        out[x] = tile.opaque ? colours[ty * stride + tx] : blend(out[x], colours[ty * stride + tx], alphas[ty * stride + tx]);
+        out[x] = tile.opaque ? colors[ty * stride + tx] : blend(out[x], colors[ty * stride + tx], alphas[ty * stride + tx]);
       }
     }
     return;
   }
-  // Larger: bilinear, in 1/256ths of a tile pixel. Past the tile's edge the edge pixel stands in for its neighbour's.
+  // Larger: bilinear, in 1/256ths of a tile pixel. Past the tile's edge the edge pixel stands in for its neighbor's.
   const int32_t step = (int32_t) std::lround(256.0 / scale);
   for (int y = y0; y < y1; ++y) {
     const int32_t sy = (int32_t) std::lround(((y - oy) + 0.5) * 256.0 / scale) - 128;
@@ -153,13 +153,13 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       const uint32_t wd = 256 - wa - wb - wc;
       const int ia = ya * stride + xa, ib = ya * stride + xb, ic = yb * stride + xa, id = yb * stride + xb;
       if (tile.opaque) {
-        out[x] = mix4(colours[ia], colours[ib], colours[ic], colours[id], wa, wb, wc, wd);
+        out[x] = mix4(colors[ia], colors[ib], colors[ic], colors[id], wa, wb, wc, wd);
         continue;
       }
       const uint32_t alpha =
           (alphas[ia] * wa + alphas[ib] * wb + alphas[ic] * wc + alphas[id] * wd) >> 8;
       if (!alpha) continue;
-      const uint16_t c = mix4(colours[ia], colours[ib], colours[ic], colours[id], wa, wb, wc, wd);
+      const uint16_t c = mix4(colors[ia], colors[ib], colors[ic], colors[id], wa, wb, wc, wd);
       out[x] = blend(out[x], c, alpha);
     }
   }

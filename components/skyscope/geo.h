@@ -8,7 +8,7 @@
 namespace sky::geo {
 constexpr double TILE_PX = 256.0;
 constexpr double MAX_LATITUDE = 85.05112878;
-constexpr double EARTH_METRES = 6371000.0;
+constexpr double EARTH_METERS = 6371000.0;
 constexpr double NM = 1852.0;
 constexpr double PI = 3.14159265358979323846;
 // Zoom 1 is the world twice as wide as a tile: far enough out for MAX_RANGE_NM on any glass, wherever it is.
@@ -28,16 +28,16 @@ inline Pixel world(double lat, double lon, double zoom) {
   return {(lon + 180.0) / 360.0 * size, (0.5 - std::log((1 + s) / (1 - s)) / (4 * PI)) * size};
 }
 
-inline double metres_between(double lat1, double lon1, double lat2, double lon2) {
+inline double meters_between(double lat1, double lon1, double lat2, double lon2) {
   const double p1 = radians(lat1), p2 = radians(lat2), dp = p2 - p1, dl = radians(lon2 - lon1);
   const double a = std::sin(dp / 2) * std::sin(dp / 2) + std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
-  return 2 * EARTH_METRES * std::asin(std::min(1.0, std::sqrt(a)));
+  return 2 * EARTH_METERS * std::asin(std::min(1.0, std::sqrt(a)));
 }
 
-// The place `metres` from (lat, lon) setting off on `bearing` (degrees from true north) along a great circle, as a long
+// The place `meters` from (lat, lon) setting off on `bearing` (degrees from true north) along a great circle, as a long
 // flight goes; its longitude kept within -180 to 180.
-inline Place destination(double lat, double lon, double bearing, double metres) {
-  const double d = metres / EARTH_METRES, b = radians(bearing), p1 = radians(lat);
+inline Place destination(double lat, double lon, double bearing, double meters) {
+  const double d = meters / EARTH_METERS, b = radians(bearing), p1 = radians(lat);
   const double p2 = std::asin(std::sin(p1) * std::cos(d) + std::cos(p1) * std::sin(d) * std::cos(b));
   const double l2 = radians(lon) + std::atan2(std::sin(b) * std::sin(d) * std::cos(p1),
                                               std::cos(d) - std::sin(p1) * std::sin(p2));
@@ -47,7 +47,7 @@ inline Place destination(double lat, double lon, double bearing, double metres) 
 // The place `f` of the way (0 to 1) along the great circle from one place to another.
 inline Place between(double lat1, double lon1, double lat2, double lon2, double f) {
   const double p1 = radians(lat1), l1 = radians(lon1), p2 = radians(lat2), l2 = radians(lon2);
-  const double d = metres_between(lat1, lon1, lat2, lon2) / EARTH_METRES;
+  const double d = meters_between(lat1, lon1, lat2, lon2) / EARTH_METERS;
   if (d < 1e-9) return {lat1, lon1};
   const double a = std::sin((1 - f) * d) / std::sin(d), b = std::sin(f * d) / std::sin(d);
   const double x = a * std::cos(p1) * std::cos(l1) + b * std::cos(p2) * std::cos(l2);
@@ -56,14 +56,14 @@ inline Place between(double lat1, double lon1, double lat2, double lon2, double 
   return {degrees(std::atan2(z, std::hypot(x, y))), degrees(std::atan2(y, x))};
 }
 
-inline double metres_per_pixel(double lat, double zoom) {
-  return 2 * PI * EARTH_METRES * std::cos(radians(lat)) / (TILE_PX * std::pow(2.0, zoom));
+inline double meters_per_pixel(double lat, double zoom) {
+  return 2 * PI * EARTH_METERS * std::cos(radians(lat)) / (TILE_PX * std::pow(2.0, zoom));
 }
 
-// The zoom at which `metres` either side of the middle fill the frame's shorter side, `short_px` pixels.
-inline double zoom_for_radius(double lat, double metres, int short_px) {
-  const double wanted = 2 * metres / std::max(1, short_px);  // metres per pixel
-  return std::log2(2 * PI * EARTH_METRES * std::cos(radians(lat)) / (TILE_PX * wanted));
+// The zoom at which `meters` either side of the middle fill the frame's shorter side, `short_px` pixels.
+inline double zoom_for_radius(double lat, double meters, int short_px) {
+  const double wanted = 2 * meters / std::max(1, short_px);  // meters per pixel
+  return std::log2(2 * PI * EARTH_METERS * std::cos(radians(lat)) / (TILE_PX * wanted));
 }
 
 struct View {
@@ -82,7 +82,7 @@ struct View {
   Pixel point(double plat, double plon) const {
     const Pixel p = world(plat, plon, zoom);
     double x = p.x - left;
-    // The short way round the date line.
+    // The short way around the date line.
     const double size = TILE_PX * std::pow(2.0, zoom);
     if (x < -size / 2) x += size;
     if (x > size / 2) x -= size;
@@ -94,9 +94,9 @@ struct View {
     const double wx = left + x, wy = top + y;
     return {degrees(std::atan(std::sinh(PI * (1 - 2 * wy / size)))), wx / size * 360.0 - 180.0};
   }
-  double metres_per_px() const { return metres_per_pixel(lat, zoom); }
-  // The farthest corner from the middle, in metres: how far a feed must be asked to cover the frame.
-  double reach_metres() const { return std::hypot(width / 2.0, height / 2.0) * metres_per_px(); }
+  double meters_per_px() const { return meters_per_pixel(lat, zoom); }
+  // The farthest corner from the middle, in meters: how far a feed must be asked to cover the frame.
+  double reach_meters() const { return std::hypot(width / 2.0, height / 2.0) * meters_per_px(); }
   bool operator==(const View &o) const {
     return lat == o.lat && lon == o.lon && zoom == o.zoom && width == o.width && height == o.height;
   }
@@ -109,7 +109,7 @@ inline TileOrigin tile_origin(const View &v, int tz, int tx, int ty) {
   const double scale = std::pow(2.0, v.zoom - tz), span = TILE_PX * scale;
   const int count = 1 << tz;
   double column = tx;
-  // A tile that wraps round the date line is drawn where the frame needs it.
+  // A tile that wraps around the date line is drawn where the frame needs it.
   while (column * span + span < v.left) column += count;
   while (column * span > v.left + v.width) column -= count;
   return {column * span - v.left, ty * span - v.top, scale};

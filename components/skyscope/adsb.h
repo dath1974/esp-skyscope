@@ -56,7 +56,7 @@ inline bool altitude12(uint32_t a, int &feet) {
   feet = (int) (((a & 0xFE0) >> 1) | (a & 0x00F)) * 25 - 1000;
   return true;
 }
-// The 13-bit altitude code of a surveillance reply (DF0, 4, 16, 20, bits 20 to 32): the same, with an M bit for metres
+// The 13-bit altitude code of a surveillance reply (DF0, 4, 16, 20, bits 20 to 32): the same, with an M bit for meters
 // (left unread) besides the Q bit.
 inline bool altitude13(uint32_t a, int &feet) {
   if (a == 0 || (a & 0x0040) || !(a & 0x0010)) return false;
@@ -145,7 +145,7 @@ inline bool local(const Cpr &c, double ref_lat, double ref_lon, double &lat, dou
 }
 
 inline double nm_between(double lat1, double lon1, double lat2, double lon2) {
-  return geo::metres_between(lat1, lon1, lat2, lon2) / geo::NM;
+  return geo::meters_between(lat1, lon1, lat2, lon2) / geo::NM;
 }
 
 // ---------------------------------------------------------------- the planes

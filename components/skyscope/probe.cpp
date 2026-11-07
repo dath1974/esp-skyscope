@@ -8,7 +8,7 @@
 //                     the list over it (its line and items), the map a swipe went to, and where each plane is, to
 //                     touch them by
 //   GET  /api/screenshot  what the glass shows, as a picture: a BMP of the screen's own pixels (16-bit, top row first),
-//                     the screen's way up, for the README's pictures (tools/screenshots.py)
+//                     the screen's way up, for docs/screens.md's pictures (tools/screenshots.py)
 //
 // A touch goes in as a second input device beside the touch panel: LVGL reads it as it reads a finger, so the same
 // objects get the same events (a long press, a drag along the brightness strip, a click on a key). While the screen

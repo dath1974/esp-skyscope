@@ -122,7 +122,7 @@ inline Header header_for(uint32_t now, uint32_t lifetime, bool empty) {
 // there is nothing better to show.
 inline bool fresh(const Header &h, uint32_t now) { return now == 0 || h.expires > now; }
 
-// ---- An area to download: one map's tiles in a square round a place, every zoom from the map's first to `z_max`,
+// ---- An area to download: one map's tiles in a square around a place, every zoom from the map's first to `z_max`,
 // the lowest zoom first (a download cut short still covers the whole area, if not as sharply).
 constexpr int MOST_RADIUS_NM = 250;
 constexpr size_t MOST_TILES = 40000;
@@ -182,7 +182,7 @@ inline bool plan(const Area &a, Plan &out, std::string &error) {
     return false;
   }
   // The square's corners: the radius north and south, and east and west at the place's latitude.
-  const double dlat = a.radius_nm * geo::NM / (geo::EARTH_METRES * geo::PI / 180.0);
+  const double dlat = a.radius_nm * geo::NM / (geo::EARTH_METERS * geo::PI / 180.0);
   const double dlon = std::min(180.0, dlat / std::max(0.01, std::cos(geo::radians(a.lat))));
   for (int z = z0; z <= a.z_max; ++z) {
     const uint32_t n = 1u << z;

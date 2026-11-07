@@ -16,7 +16,7 @@
 # Tests - No Hardware Required
 #   make test             test-host, test-python and test-page: everything
 #                         that needs no screen
-#   make test-host        the C++, with the address and undefined-behaviour
+#   make test-host        the C++, with the address and undefined-behavior
 #                         sanitizers
 #   make test-python      tools/release_site.py, the mock (tests/mock_feed.py)
 #                         and tools/screenshots.py
@@ -127,7 +127,7 @@ help:
 
 test: test-host test-python test-page
 
-# The C++ that needs no screen, with the address and undefined-behaviour
+# The C++ that needs no screen, with the address and undefined-behavior
 # sanitizers (ARDUINOJSON_DIR, CXX are used).
 test-host:
 	tests/run.sh

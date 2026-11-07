@@ -15,15 +15,15 @@
 namespace sky::tiles {
 
 // How a map that has no dark version of its own is drawn in the dark appearance (Tessera's night rules):
-//  NIGHT_INVERT: its light turned round and its hue back half a circle (a browser's invert(1) hue-rotate(180deg)),
+//  NIGHT_INVERT: its light turned around and its hue back half a circle (a browser's invert(1) hue-rotate(180deg)),
 //    fitted between the dark screen's ground and its ink: white paper dark, black lines light, blue water bluish. For
 //    drawn maps of line work on white (OpenStreetMap, USGS topo).
-//  NIGHT_COLOURS: only its paper and ink turned round; every coloured mark keeps its own colour, lifted so it stands out
-//    on the dark paper (as ForeFlight's inverted charts): for the IFR charts, whose colours mean something.
-//  NIGHT_DIM: a share of its light (NIGHT_DIM_KEEP): for the sectional, whose colour areas (yellow towns, terrain
+//  NIGHT_COLORS: only its paper and ink turned around; every colored mark keeps its own color, lifted so it stands out
+//    on the dark paper (as ForeFlight's inverted charts): for the IFR charts, whose colors mean something.
+//  NIGHT_DIM: a share of its light (NIGHT_DIM_KEEP): for the sectional, whose color areas (yellow towns, terrain
 //    tints) turn muddy inverted.
 //  NIGHT_NONE: as it is: a dark map already, or imagery.
-enum Night : uint8_t { NIGHT_NONE, NIGHT_INVERT, NIGHT_COLOURS, NIGHT_DIM };
+enum Night : uint8_t { NIGHT_NONE, NIGHT_INVERT, NIGHT_COLORS, NIGHT_DIM };
 constexpr int NIGHT_DIM_KEEP = 154;  // of 256: 60 %
 
 struct Source {
@@ -64,8 +64,8 @@ inline constexpr Source SOURCES[] = {
     /* SRC_TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS",
                     nullptr, nullptr, false, NIGHT_INVERT},
     /* SRC_SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA", nullptr, nullptr, true, NIGHT_DIM},
-    /* SRC_IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA", nullptr, nullptr, true, NIGHT_COLOURS},
-    /* SRC_IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA", nullptr, nullptr, true, NIGHT_COLOURS},
+    /* SRC_IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA", nullptr, nullptr, true, NIGHT_COLORS},
+    /* SRC_IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA", nullptr, nullptr, true, NIGHT_COLORS},
     // A server of one's own is taken as it is: nothing is known of it.
     /* SRC_CUSTOM */ {"", 0, 19, ""},
 };
@@ -120,7 +120,7 @@ struct Plan {
   std::vector<Key> keys;   // nearest the middle first, so the middle of the map comes first
 };
 
-// The frame of `range_nm` round a place on a glass `w` x `h`, with the tiles under it. `tile_scale` is how many pixels
+// The frame of `range_nm` around a place on a glass `w` x `h`, with the tiles under it. `tile_scale` is how many pixels
 // of the glass one tile pixel takes (1 or 2), so a dense glass can draw the words of a map large enough to read.
 inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   Plan out;
@@ -187,7 +187,7 @@ inline Format format_of(const uint8_t *data, size_t size) {
   return UNKNOWN;
 }
 
-// How a tile's colours are turned on their way to the glass: the map's night rule in the dark appearance (Source
+// How a tile's colors are turned on their way to the glass: the map's night rule in the dark appearance (Source
 // night), then the map brightness the person set, in either appearance.
 struct Filter {
   Night night = NIGHT_NONE;
@@ -220,11 +220,11 @@ inline uint16_t rgb565(int r, int g, int b) {
   auto c = [](int v) { return v < 0 ? 0 : v > 255 ? 255 : v; };
   return (uint16_t) ((c(r) & 0xF8) << 8 | (c(g) & 0xFC) << 3 | c(b) >> 3);
 }
-// The dark appearance's ground and ink, which a turned map is fitted between (colours.h BACKGROUND is black; a map's
+// The dark appearance's ground and ink, which a turned map is fitted between (colors.h BACKGROUND is black; a map's
 // darkest is a touch above it, so its edges still read against the glass's black).
 constexpr int NIGHT_LOW = 24, NIGHT_HIGH = 226;
 struct Rgb { int r, g, b; };
-// Light turned round, hue back half a circle (CSS invert(1) hue-rotate(180deg), the matrix in thousandths), fitted
+// Light turned around, hue back half a circle (CSS invert(1) hue-rotate(180deg), the matrix in thousandths), fitted
 // between NIGHT_LOW and NIGHT_HIGH.
 inline Rgb turned(int r, int g, int b) {
   const int ir = 255 - r, ig = 255 - g, ib = 255 - b;
@@ -235,24 +235,24 @@ inline Rgb turned(int r, int g, int b) {
 }
 // 255 at or below `full`, 0 from `none`, a straight line between.
 inline int ramp(int v, int full, int none) { return v <= full ? 255 : v >= none ? 0 : 255 * (none - v) / (none - full); }
-// NIGHT_COLOURS: a pixel this grey (saturation, 0 to 255) or this dark (value) is paper or ink, and turned round; a
-// coloured one keeps its colour, lifted to at least COLOUR_VALUE, so it stands out on the dark paper.
-constexpr int GREY_FULL = 50, GREY_NONE = 110, INK_FULL = 70, INK_NONE = 120, COLOUR_VALUE = 190;
-inline Rgb night_colours(int r, int g, int b) {
+// NIGHT_COLORS: a pixel this gray (saturation, 0 to 255) or this dark (value) is paper or ink, and turned around; a
+// colored one keeps its color, lifted to at least COLOR_VALUE, so it stands out on the dark paper.
+constexpr int GRAY_FULL = 50, GRAY_NONE = 110, INK_FULL = 70, INK_NONE = 120, COLOR_VALUE = 190;
+inline Rgb night_colors(int r, int g, int b) {
   const int v = std::max({r, g, b}), mn = std::min({r, g, b});
   const int sat = v ? (v - mn) * 255 / v : 0;
-  const int grey = std::max(ramp(sat, GREY_FULL, GREY_NONE), ramp(v, INK_FULL, INK_NONE));  // 255: paper or ink
+  const int gray = std::max(ramp(sat, GRAY_FULL, GRAY_NONE), ramp(v, INK_FULL, INK_NONE));  // 255: paper or ink
   const Rgb t = turned(r, g, b);
   Rgb lifted{r, g, b};
-  if (v > 0 && v < COLOUR_VALUE) lifted = {r * COLOUR_VALUE / v, g * COLOUR_VALUE / v, b * COLOUR_VALUE / v};
-  return {(t.r * grey + lifted.r * (255 - grey)) / 255, (t.g * grey + lifted.g * (255 - grey)) / 255,
-          (t.b * grey + lifted.b * (255 - grey)) / 255};
+  if (v > 0 && v < COLOR_VALUE) lifted = {r * COLOR_VALUE / v, g * COLOR_VALUE / v, b * COLOR_VALUE / v};
+  return {(t.r * gray + lifted.r * (255 - gray)) / 255, (t.g * gray + lifted.g * (255 - gray)) / 255,
+          (t.b * gray + lifted.b * (255 - gray)) / 255};
 }
 inline uint16_t paint(const Filter &f, int r, int g, int b) {
   Rgb c{r, g, b};
   switch (f.night) {
     case NIGHT_INVERT: c = turned(r, g, b); break;
-    case NIGHT_COLOURS: c = night_colours(r, g, b); break;
+    case NIGHT_COLORS: c = night_colors(r, g, b); break;
     case NIGHT_DIM: c = {r * NIGHT_DIM_KEEP >> 8, g * NIGHT_DIM_KEEP >> 8, b * NIGHT_DIM_KEEP >> 8}; break;
     default: break;
   }
@@ -260,8 +260,8 @@ inline uint16_t paint(const Filter &f, int r, int g, int b) {
   return rgb565(c.r, c.g, c.b);
 }
 
-// The filter as a table: every RGB565 colour to what paint makes of it, built once for a filter rather than worked out
-// again for each pixel of each tile (the dark maps' rules take divisions a pixel). A PNG's own colours are taken to
+// The filter as a table: every RGB565 color to what paint makes of it, built once for a filter rather than worked out
+// again for each pixel of each tile (the dark maps' rules take divisions a pixel). A PNG's own colors are taken to
 // RGB565 first, a hair coarser than painting them whole, and nothing the glass's own RGB565 can show.
 constexpr size_t PAINT_TABLE = 65536;
 inline int red_of(uint16_t c) { return (c >> 8 & 0xF8) | c >> 13; }

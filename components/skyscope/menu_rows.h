@@ -61,7 +61,7 @@ inline const std::vector<Row> &rows() {
         {"25", "25 NM"}, {"30", "30 NM"}, {"40", "40 NM"}, {"50", "50 NM"}, {"60", "60 NM"}, {"80", "80 NM"},
         {"100", "100 NM"}, {"150", "150 NM"}, {"200", "200 NM"}, {"250", "250 NM"}, {"500", "500 NM"},
         {"1000", "1000 NM"}, {"2000", "2000 NM"}, {"3000", "3000 NM"}, {"5000", "5000 NM"}},
-       ALL, WHOLE, " NM", "Nautical miles to the nearer edge, 1 to 5000; planes come from 250 NM round at most"},
+       ALL, WHOLE, " NM", "Nautical miles to the nearer edge, 1 to 5000; planes come from 250 NM around at most"},
       {.key = "follow", .name = "Follow", .kind = TEXT, .pad = WORDS,
        .hint = "A plane to follow anywhere: its registration (N12345, G-EUPT), callsign (BAW286) or flight number "
                "(BA 286). Empty to stop",
@@ -105,11 +105,11 @@ inline const std::vector<Row> &rows() {
        .hint = "Feet, 0 to 60000, and no higher than the highest"},
       {.key = "alt_max", .name = "Highest", .kind = NUMBER, .pad = WHOLE, .unit = " ft",
        .hint = "Feet, 0 to 60000, and no lower than the lowest"},
-      {"by_altitude", "Colour by altitude", FLAG, {}},
+      {"by_altitude", "Color by altitude", FLAG, {}},
       {"glide", "Glide", FLAG, {}},
       {"ground", "On the ground", FLAG, {}},
       {.key = "watch", .name = "Watched", .kind = TEXT, .pad = WORDS,
-       .hint = "A registration, callsign or ICAO hex and a colour (red, orange, amber, green, blue, purple), with a "
+       .hint = "A registration, callsign or ICAO hex and a color (red, orange, amber, green, blue, purple), with a "
                "comma between: N12345 red, BAW123 blue",
        .most = 240},
       {"feed", "Source", TEXT,
@@ -194,7 +194,7 @@ inline bool applies(const Row &row, const Settings &s) {
 }
 
 // A row's value as the keyboard starts from it: the number or the words, the place's name, coordinates to five places
-// (none before there is a place), the watched aircraft each with its colour.
+// (none before there is a place), the watched aircraft each with its color.
 inline std::string text_of(const Row &row, const Settings &s) {
   const std::string key = row.key;
   if (row.kind == PLACE) return s.place;
@@ -206,7 +206,7 @@ inline std::string text_of(const Row &row, const Settings &s) {
   }
   if (key == "watch") {
     std::string out;
-    for (const auto &w : s.watch) out += (out.empty() ? "" : ", ") + w.id + " " + WATCH_COLOURS[w.colour];
+    for (const auto &w : s.watch) out += (out.empty() ? "" : ", ") + w.id + " " + WATCH_COLORS[w.color];
     return out;
   }
   JsonDocument doc;
@@ -240,7 +240,7 @@ inline std::string shown(const Row &row, const Settings &s) {
   return row.kind == NUMBER ? now + row.unit : now;
 }
 
-// `s` with `row` one step on (`step` 1) or back (-1). Words go round; numbers stop at their ends, and a number between
+// `s` with `row` one step on (`step` 1) or back (-1). Words go around; numbers stop at their ends, and a number between
 // two choices steps to the next one its way. The map skips the custom server, and the source a receiver, where none is
 // set, and the radio on a screen without one. False when nothing changes or the settings refuse it.
 inline bool stepped(const Row &row, Settings &s, int step) {
@@ -311,7 +311,7 @@ inline bool typed_in(const Row &row, Settings &s, const std::string &typed) {
     if (*end) return false;
     if (key == "lat" || key == "lon") change["place"] = "";
   } else if (key == "watch") {
-    // "N12345 red, BAW123": each an aircraft and its colour, red where none is given.
+    // "N12345 red, BAW123": each an aircraft and its color, red where none is given.
     JsonArray list = change["watch"].to<JsonArray>();
     size_t from = 0;
     while (from <= text.size()) {
@@ -323,9 +323,9 @@ inline bool typed_in(const Row &row, Settings &s, const std::string &typed) {
       const size_t gap = item.find(' ');
       JsonObject w = list.add<JsonObject>();
       w["id"] = item.substr(0, gap);
-      std::string colour = gap == std::string::npos ? "red" : keyboard::trimmed(item.substr(gap));
-      for (char &c : colour) c = (char) std::tolower((unsigned char) c);
-      w["colour"] = colour;
+      std::string color = gap == std::string::npos ? "red" : keyboard::trimmed(item.substr(gap));
+      for (char &c : color) c = (char) std::tolower((unsigned char) c);
+      w["color"] = color;
     }
   } else {
     change[row.key] = text;

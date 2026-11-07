@@ -20,12 +20,12 @@ static uint32_t crc(const uint8_t *p, size_t n, uint32_t c = 0xFFFFFFFFu) {
   return c;
 }
 
-// A grey PNG, its pixels stored in deflate's blocks that are not compressed: no zlib needed.
-static bool write_png(const char *path, int w, int h, const std::vector<uint8_t> &grey) {
+// A gray PNG, its pixels stored in deflate's blocks that are not compressed: no zlib needed.
+static bool write_png(const char *path, int w, int h, const std::vector<uint8_t> &gray) {
   std::vector<uint8_t> raw;
   for (int y = 0; y < h; ++y) {
     raw.push_back(0);
-    raw.insert(raw.end(), grey.begin() + (size_t) y * w, grey.begin() + (size_t) (y + 1) * w);
+    raw.insert(raw.end(), gray.begin() + (size_t) y * w, gray.begin() + (size_t) (y + 1) * w);
   }
   std::vector<uint8_t> z{0x78, 0x01};
   uint32_t a = 1, b = 0;

@@ -1,5 +1,5 @@
 #pragma once
-// The screen's sizes and fonts: every size in code is a number of millimetres or of reference pixels turned into the
+// The screen's sizes and fonts: every size in code is a number of millimeters or of reference pixels turned into the
 // glass's own pixels here, so a board only states its density (`dpi` in the YAML).
 #include "lvgl.h"
 
@@ -15,7 +15,7 @@ namespace sky::ui {
 inline float density = 1.0f;  // the glass's pixels per reference pixel
 inline float px_per_mm = 200.0f / 25.4f;
 inline int px(float reference) { return (int) std::lround(reference * density); }
-inline int mm(float millimetres) { return (int) std::lround(millimetres * px_per_mm); }
+inline int mm(float millimeters) { return (int) std::lround(millimeters * px_per_mm); }
 inline void set_dpi(float dpi) {
   density = dpi / 200.0f;
   px_per_mm = dpi / 25.4f;
@@ -34,7 +34,7 @@ inline void pad_page(lv_obj_t *page, int pad) {
 }
 
 // A box along the top or bottom edge, aligned as LVGL aligns it (`align` one of the TOP_ or BOTTOM_ ones, `x` and `y`
-// from there). On round glass it is centred instead, `y` in from the edge plus as far as its width needs to lie wholly
+// from there). On round glass it is centerd instead, `y` in from the edge plus as far as its width needs to lie wholly
 // on the glass, and moved again whenever its size changes: a status that grows, a card with more rows.
 inline void place_on_edge(lv_obj_t *o, bool top, int gap) {
   const int in = glass::edge_inset(shape, lv_obj_get_width(o)) + gap;

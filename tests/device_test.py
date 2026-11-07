@@ -18,7 +18,7 @@ airspace, runways and airports, the weather and the weather radar, place search 
 set to a test place (New York JFK) and the mock's receiver. It needs the test API (`test_api: true`), and the screen
 must reach this machine (WSL: networkingMode=mirrored).
 
---public is the other way round: the public services themselves, each asked at the test place, to know they still
+--public is the other way around: the public services themselves, each asked at the test place, to know they still
 answer as the screen expects (what the mock stands in for). It is not repeatable (the sky and the services change), and
 needs no test API but for the weather page.
 
@@ -35,7 +35,7 @@ It never prints the screen's place. Python's standard library only. Nothing here
 - touches (unless --no-touch), through /api/touch and /api/ui: a long press opens the menu; its arrows step a value
   without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
   is refused out of reach and shown, not applied, within it; the Wi-Fi list finds networks and goes back; another
-  appearance rebuilds the menu in its colours; Check asks the update server, and Install takes a second tap (never
+  appearance rebuilds the menu in its colors; Check asks the update server, and Install takes a second tap (never
   given); a tap on a plane opens its card and a second closes it; a tap on the map shows the screen's address; a drag
   up the right edge brightens it; a swipe along the bottom changes the map and one back undoes it; a swipe up opens
   the weather page, whose tabs fill in with the mock's station; the weather radar's scan and its loop;
@@ -59,7 +59,7 @@ It never prints the screen's place. Python's standard library only. Nothing here
 - --soak (on its own; the other groups are not run): memory sampled for that long, the mock's 80 planes of every kind
   circling the test place (so each symbol turns through every heading), two of them watched; failing if it keeps
   falling or the screen restarts; with --churn, the view changed every so many minutes (every map, near and far, dark
-  and light), memory compared each time the first of them comes round again, and the records that grow as the
+  and light), memory compared each time the first of them comes around again, and the records that grow as the
   screen runs (the plane symbols' memory among them) checked for staying bounded;
 - --public: adsb.fi and adsb.lol answer with planes; the published release manifest is read and the screen finds the
   same version; the FAA's airspace and runways near, none of the runways far; every map drawn whole without a tile
@@ -444,7 +444,7 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
             run.check(gone is not None, "Back goes back to the menu")
     run.check(glass.close_menu("cancel"), "Cancel closes the menu")
 
-    # The paging arrows, and the menu rebuilt in another appearance's colours.
+    # The paging arrows, and the menu rebuilt in another appearance's colors.
     m = glass.open_menu()
     glass.tap_key(m["keys"]["down"])
     lower = glass.menu()["scroll_y"]
@@ -458,7 +458,7 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
         time.sleep(0.5)  # rebuilt after the event
         theme = glass.row("theme")
         run.check(glass.menu() is not None and theme["value"] != was, f"the appearance steps ({was} to {theme['value']})")
-        run.check(glass.menu()["keys"]["save"]["reachable"], "and the menu, rebuilt in its colours, still works")
+        run.check(glass.menu()["keys"]["save"]["reachable"], "and the menu, rebuilt in its colors, still works")
 
     # The firmware: Check asks the server; Install wants a second tap, which is never given here.
     check = glass.scroll_to(lambda m: m["keys"].get("check"))
@@ -621,7 +621,7 @@ def test_sleep(screen: Screen, run: Run, original: dict):
 TEST_PLACE = {"lat": 40.6413, "lon": -73.7781}  # New York JFK: the screen's own place is never used or shown
 
 
-def own_address_towards(device: str) -> str:
+def own_address_toward(device: str) -> str:
     """This machine's address on the network the screen is on."""
     host = device.removeprefix("http://").split("/")[0].split(":")[0]
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -643,7 +643,7 @@ def test_mock(screen: Screen, run: Run, original: dict, server, install: str = N
             time.sleep(1.5)
         base = {**TEST_PLACE, "place": "TEST", "range_nm": 15, "map": "radar", "feed": "receiver", "receiver_url": url,
                 "fallback": False, "refresh_s": 5, "most": 40, "alt_min": 0, "alt_max": 60000, "ground": False,
-                "watch": [{"id": "N12345", "colour": "red"}], "track_s": 0, "sleep_min": 0, "bedtime": False,
+                "watch": [{"id": "N12345", "color": "red"}], "track_s": 0, "sleep_min": 0, "bedtime": False,
                 "metric": False, "label": "callsign", "marker": "type",
                 "glide": False, "sweep": False}  # each plane where its report put it, for the geometry below
         status, answer = screen.json("/api/settings", base)
@@ -738,8 +738,8 @@ def test_mock(screen: Screen, run: Run, original: dict, server, install: str = N
                 feet = card["rows"][1]
                 screen.json("/api/settings", {"metric": True})
                 time.sleep(1.5)
-                metres = (glass.ui().get("card") or {"rows": ["", ""]})["rows"][1]
-                run.check(metres != feet, f"and in metric ({feet} / {metres})")
+                meters = (glass.ui().get("card") or {"rows": ["", ""]})["rows"][1]
+                run.check(meters != feet, f"and in metric ({feet} / {meters})")
                 screen.json("/api/settings", {"metric": False})
                 glass.tap(p["x"], p["y"])
 
@@ -1209,7 +1209,7 @@ def test_reboot(screen: Screen, run: Run, original: dict, origin: str = ""):
         run.check(s.get("divert") == origin, "and still sent to the mock")
 
 
-# The views the soak goes round with CHURN: every map (the mock's tiles in place of each), near and far, dark and light.
+# The views the soak goes around with CHURN: every map (the mock's tiles in place of each), near and far, dark and light.
 CHURN = [{"map": "streets", "range_nm": 15, "theme": "light"}, {"map": "satellite", "range_nm": 40},
          {"map": "radar", "range_nm": 25}, {"map": "sectional", "range_nm": 7, "theme": "dark"},
          {"map": "osm", "range_nm": 100}, {"map": "topo", "range_nm": 5, "theme": "light"},
@@ -1227,7 +1227,7 @@ def test_soak(screen: Screen, run: Run, minutes: float, churn: float, server):
     server.feed.set(scenario="circling")
     try:
         status, answer = screen.json("/api/settings", {"most": 60, "glide": True, "track_s": 60, "watch": [
-            {"id": "N30001", "colour": "red"}, {"id": "N30005", "colour": "blue"}]})
+            {"id": "N30001", "color": "red"}, {"id": "N30005", "color": "blue"}]})
         if run.check(status == 200, "the circling planes, two watched", str(answer)):
             soak(screen, run, minutes, churn)
     finally:
@@ -1285,7 +1285,7 @@ def soak(screen: Screen, run: Run, minutes: float, churn: float):
                   f"{h0 // 1024} and {h1 // 1024} KB")
         run.check(p1 >= p0 - 512_000, f"PSRAM at the same view: {p0 // 1024} and {p1 // 1024} KB")
     elif churn:
-        print("  (too short for the views to come round twice: no comparison of rounds)")
+        print("  (too short for the views to come around twice: no comparison of rounds)")
 
 
 def test_settings(origin: str) -> dict:
@@ -1318,7 +1318,7 @@ def against_mock(screen: Screen, run: Run, args):
     import mock_feed
 
     server = mock_feed.Server(port=args.port, **TEST_PLACE).start()
-    origin = f"http://{own_address_towards(args.address)}:{server.port}"
+    origin = f"http://{own_address_toward(args.address)}:{server.port}"
     started = time.time()
     try:
         print("Sent to the mock (the screen restarts)")

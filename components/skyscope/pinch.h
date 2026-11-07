@@ -19,7 +19,7 @@ struct Point {
 
 // The range a view shows, as the settings keep it: nautical miles from the middle to the nearer edge, whole, 1 to 250.
 inline int range_nm(const geo::View &v) {
-  const double nm = v.metres_per_px() * std::min(v.width, v.height) / 2.0 / geo::NM;
+  const double nm = v.meters_per_px() * std::min(v.width, v.height) / 2.0 / geo::NM;
   return std::max(MIN_RANGE_NM, std::min(MAX_RANGE_NM, (int) std::lround(nm)));
 }
 
@@ -69,7 +69,7 @@ inline Transform transform(const geo::View &drawn, const geo::View &target) {
   t.scale = std::pow(2.0, target.zoom - drawn.zoom);
   t.dx = drawn.left * t.scale - target.left;
   t.dy = drawn.top * t.scale - target.top;
-  // The short way round the date line.
+  // The short way around the date line.
   const double size = geo::TILE_PX * std::pow(2.0, target.zoom);
   t.dx = std::remainder(t.dx, size);
   return t;

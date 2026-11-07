@@ -15,7 +15,7 @@ tests/device_test.py --mock starts one of its own, in the same process. By hand,
     GET  /firmware/manifest.json  a release, as tools/release_site.py writes it (the screen asks it with the test
                                   API's {"source": url} on /api/firmware)
     GET  /firmware/<name>.ota.bin its firmware
-    GET  /tiles/<z>/<x>/<y>.png   a map tile (a custom map's {z}/{x}/{y}): a plain checkered square, each its own colour
+    GET  /tiles/<z>/<x>/<y>.png   a map tile (a custom map's {z}/{x}/{y}): a plain checkered square, each its own color
     GET  /<server>/<path>         a public service, for a screen that sends it every request (tests/mock_services.py);
                                   the project's releases (<x>.github.io) are the release above
 
@@ -97,14 +97,14 @@ CIRCLING = [({"t": "B738"}, 300), ({"t": "B77W"}, 420), ({"t": "B744"}, 450), ({
 
 
 def circling(lat: float, lon: float, seconds: float):
-    """80 planes flying circles round the middle, at `seconds` since the scenario began."""
+    """80 planes flying circles around the middle, at `seconds` since the scenario began."""
     planes = []
     for i in range(80):
         fields, gs = CIRCLING[i % len(CIRCLING)]
         radius = 2 + (i % 20) * (i // 20 + 1)  # 2 to 78 NM
         # Every minute one plane in twenty is another, so the screen lets go of planes and their tracks as it runs.
         generation = int((seconds + i * 3) // 60) if i % 20 == 0 else 0
-        sense = 1 if i % 2 else -1  # half of them each way round
+        sense = 1 if i % 2 else -1  # half of them each way around
         angle = math.radians(i * 47) + sense * gs / 3600 * seconds / radius
         lat_p, lon_p = offset(lat, lon, radius * math.cos(angle), radius * math.sin(angle))
         track = (math.degrees(angle) + 90 * sense) % 360

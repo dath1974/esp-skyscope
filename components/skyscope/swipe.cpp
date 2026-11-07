@@ -8,7 +8,7 @@
 // drags make one too.
 #include "skyscope.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "swipe.h"
 #include "ui.h"
 #include "widgets.h"

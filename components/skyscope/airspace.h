@@ -3,7 +3,7 @@
 // its charts): the outlines of the Class B, C and D airspace around the screen, and each runway as a line, those of
 // the airports with a tower lengthened into dashed centerlines, as a controller's scope draws them. The screen asks
 // once for each place and range and reads the reply here, with no network, so the tests run on a PC, and draws it
-// here too, straight into the frame's pixels; worker.cpp fetches and scope.cpp chooses its colours. United States
+// here too, straight into the frame's pixels; worker.cpp fetches and scope.cpp chooses its colors. United States
 // only, like the FAA's charts.
 #include <ArduinoJson.h>
 
@@ -96,7 +96,7 @@ struct Ask {
 inline Ask ask(const geo::View &v, int range_nm) {
   const Box b = box_of(v);
   // Half a pixel, in degrees of latitude.
-  const double tolerance = v.metres_per_px() * 0.5 / 111320.0;
+  const double tolerance = v.meters_per_px() * 0.5 / 111320.0;
   Ask out;
   out.airspace = query("Class_Airspace", "CLASS%20IN%20(%27B%27,%27C%27,%27D%27)", "CLASS,ADHP_ID", b, tolerance);
   if (range_nm <= RUNWAY_RANGE_NM) {
@@ -415,7 +415,7 @@ inline bool unpack(const uint8_t *data, size_t size, Map &out, std::string &key,
 
 // ---- Drawing it
 
-// Its colours (RGB565) and sizes on the glass (pixels).
+// Its colors (RGB565) and sizes on the glass (pixels).
 struct Ink {
   uint16_t b, c, d, runway, centerline;
   float thin, wide;  // Class C and D, centerlines; Class B, runways
@@ -424,7 +424,7 @@ struct Ink {
 
 namespace detail {
 // The dashes of a line from a to b, `dash` pixels with `gap` between, each to `on(from, to)`. `phase` is how far along
-// the pattern it starts, and is carried on, so an outline drawn piece by piece keeps one pattern round its corners.
+// the pattern it starts, and is carried on, so an outline drawn piece by piece keeps one pattern around its corners.
 template<typename F> void dashes(geo::Pixel a, geo::Pixel b, double dash, double gap, double &phase, F on) {
   const double length = std::hypot(b.x - a.x, b.y - a.y), period = dash + gap;
   if (length <= 0 || period <= 0) return;
@@ -445,12 +445,12 @@ template<typename F> void dashes(geo::Pixel a, geo::Pixel b, double dash, double
 // (or `ink.dash`, far out); every runway over them.
 inline void draw(uint16_t *frame, const geo::View &v, const Map &map, const Ink &ink) {
   const int w = v.width, h = v.height;
-  // From zoom 0 to the frame: a multiplication and a subtraction (the short way round the date line is left out: the
+  // From zoom 0 to the frame: a multiplication and a subtraction (the short way around the date line is left out: the
   // FAA's airspace is nowhere near it).
   const double scale = std::exp2(v.zoom);
   auto at = [&](const geo::Pixel &p) { return geo::Pixel{p.x * scale - v.left, p.y * scale - v.top}; };
-  auto stroke = [&](geo::Pixel a, geo::Pixel b, uint16_t colour, float width) {
-    pixels::line(frame, w, h, a.x, a.y, b.x, b.y, colour, width);
+  auto stroke = [&](geo::Pixel a, geo::Pixel b, uint16_t color, float width) {
+    pixels::line(frame, w, h, a.x, a.y, b.x, b.y, color, width);
   };
   // A piece that misses the frame is only measured, for the dashes after it.
   auto off = [&](geo::Pixel a, geo::Pixel b) {
@@ -459,7 +459,7 @@ inline void draw(uint16_t *frame, const geo::View &v, const Map &map, const Ink 
            (a.y > h + m && b.y > h + m);
   };
   for (const Class cls : {CLASS_D, CLASS_C, CLASS_B}) {
-    const uint16_t colour = cls == CLASS_B ? ink.b : cls == CLASS_C ? ink.c : ink.d;
+    const uint16_t color = cls == CLASS_B ? ink.b : cls == CLASS_C ? ink.c : ink.d;
     const float width = cls == CLASS_B ? ink.wide : ink.thin;
     for (const Area &area : map.areas) {
       if (area.cls != cls) continue;
@@ -469,15 +469,15 @@ inline void draw(uint16_t *frame, const geo::View &v, const Map &map, const Ink 
       for (uint32_t i = 1; i < area.count; ++i) {
         const geo::Pixel to = at(p[i]);
         if (off(from, to)) phase = std::fmod(phase + std::hypot(to.x - from.x, to.y - from.y), ink.dash + ink.gap);
-        else if (cls != CLASS_D) stroke(from, to, colour, width);
+        else if (cls != CLASS_D) stroke(from, to, color, width);
         else detail::dashes(from, to, ink.dash, ink.gap, phase, [&](geo::Pixel a, geo::Pixel b) {
-          stroke(a, b, colour, width);
+          stroke(a, b, color, width);
         });
         from = to;
       }
     }
   }
-  const double px_per_nm = geo::NM / v.metres_per_px(), step = std::max<double>(ink.dash, px_per_nm);
+  const double px_per_nm = geo::NM / v.meters_per_px(), step = std::max<double>(ink.dash, px_per_nm);
   for (const Runway &r : map.runways) {
     if (!lengthened(r)) continue;
     const geo::Pixel a = at(r.world_a), b = at(r.world_b);

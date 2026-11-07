@@ -1,7 +1,7 @@
 #pragma once
 // What each kind of aircraft is drawn as, and which kind a plane is. A kind is an outline seen from above in its own
 // frame (x to the right wing, y forward, the nose at y = 0.5 and the tail at -0.5, the span within -0.5 ... 0.5), made
-// of convex parts, each with its ink: a helicopter's rotor is a faint disc under a solid body. sprites.h rasterises an
+// of convex parts, each with its ink: a helicopter's rotor is a faint disc under a solid body. sprites.h rasterizes an
 // outline at each size and heading once; the screen only stamps it.
 //
 // A plane's kind comes from its type (the ICAO designator, `t`) where the table below knows it, else from the class its
@@ -58,7 +58,7 @@ inline Part mirror(const Part &a) {
   for (int i = 0; i < a.corners; ++i) b.p[i] = {-a.p[a.corners - 1 - i].x, a.p[a.corners - 1 - i].y};
   return b;
 }
-// An ellipse of `n` corners round `c`, `rx` across and `ry` along.
+// An ellipse of `n` corners around `c`, `rx` across and `ry` along.
 inline Part ellipse(Point c, float rx, float ry, uint8_t ink = 255, int n = MOST_CORNERS) {
   Part part{(uint8_t) n, ink, {}};
   for (int i = 0; i < n; ++i) {
@@ -192,7 +192,7 @@ inline Outline outline(Kind k) {
       break;
     }
     case DRONE: {
-      // Four rotors on the arms of an X round a small body.
+      // Four rotors on the arms of an X around a small body.
       for (const float sx : {-1.0f, 1.0f})
         for (const float sy : {-1.0f, 1.0f}) {
           o.add(ellipse({sx * 0.33f, sy * 0.33f}, 0.17f, 0.17f, 150, 12));

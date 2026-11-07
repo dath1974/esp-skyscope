@@ -2,13 +2,13 @@
 // the strip along the bottom of the map opens it (swipe.cpp), and so does the menu's Weather group. Its tabs: the
 // METAR of the station (set in the menu, or the nearest to the place that reports), in words under it; the TAF a line a
 // change; the GFS MOS an hour a line; and over the area the SIGMETs, G-AIRMETs and pilot reports. The station's flight
-// category shows in its colour beside its name.
+// category shows in its color beside its name.
 //
 // The worker asks for the weather only while the page is shown: when it opens with nothing newer than REFRESH_MS, at
 // Refresh, and every REFRESH_MS while it stays open.
 #include "skyscope.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "ui.h"
 #include "widgets.h"
 
@@ -23,8 +23,8 @@ namespace {
 enum { TAB_METAR, TAB_TAF, TAB_MOS, TAB_AREA, TABS };
 const char *const TAB_NAMES[TABS] = {"METAR", "TAF", "MOS", "Area"};
 constexpr int WX_CLOSE = -1, WX_REFRESH = -2;
-// The flight categories' colours, as the charts and the Aviation Weather Center draw them.
-uint32_t category_colour(weather::Category c, uint32_t otherwise) {
+// The flight categories' colors, as the charts and the Aviation Weather Center draw them.
+uint32_t category_color(weather::Category c, uint32_t otherwise) {
   switch (c) {
     case weather::VFR: return 0x2ECC40;
     case weather::MVFR: return 0x3D8BFF;
@@ -47,7 +47,7 @@ int64_t Skyscope::unix_now_() const {
 
 void Skyscope::open_weather_() {
   if (wx_) return;
-  menu_settings_ = menu_ ? menu_settings_ : settings_;  // the keys' colours (menu.cpp button_)
+  menu_settings_ = menu_ ? menu_settings_ : settings_;  // the keys' colors (menu.cpp button_)
   const Chrome c = chrome_for_(menu_settings_);
   const int tall = ui::mm(8);
   wx_ = plain(lv_screen_active());
@@ -133,7 +133,7 @@ void Skyscope::weather_tab_(int tab) {
     // The tab shown filled with the accent, as a primary key.
     lv_obj_set_style_bg_color(wx_tabs_[t], lv_color_hex(t == tab ? c.accent : c.ink), 0);
     lv_obj_set_style_bg_opa(wx_tabs_[t], t == tab ? LV_OPA_COVER : LV_OPA_20, 0);
-    set_colour(lv_obj_get_child(wx_tabs_[t], 0), t == tab ? c.card : c.ink);
+    set_color(lv_obj_get_child(wx_tabs_[t], 0), t == tab ? c.card : c.ink);
   }
   fill_weather_();
 }
@@ -143,8 +143,8 @@ void Skyscope::fill_weather_() {
   const Chrome c = chrome_for_(menu_settings_);
   lv_obj_clean(wx_list_);
   lv_obj_scroll_to_y(wx_list_, 0, LV_ANIM_OFF);
-  auto line = [&](const std::string &s, const lv_font_t *font, uint32_t colour) {
-    lv_obj_t *l = text(wx_list_, font, colour, s.c_str());
+  auto line = [&](const std::string &s, const lv_font_t *font, uint32_t color) {
+    lv_obj_t *l = text(wx_list_, font, color, s.c_str());
     lv_obj_set_width(l, lv_pct(100));
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
     return l;
@@ -152,16 +152,16 @@ void Skyscope::fill_weather_() {
   const weather::Report *r = wx_report_.get();
   // The station and its category in the title.
   std::string title = "Weather";
-  uint32_t title_colour = c.ink;
+  uint32_t title_color = c.ink;
   if (r && !r->station.empty()) {
     title = r->station;
     if (r->has_metar && r->metar.category != weather::UNKNOWN) {
       title += std::string("  ") + weather::CATEGORY_NAMES[r->metar.category];
-      title_colour = category_colour(r->metar.category, c.ink);
+      title_color = category_color(r->metar.category, c.ink);
     }
   }
   set_label(wx_title_, title);
-  set_colour(wx_title_, title_colour);
+  set_color(wx_title_, title_color);
   if (!r) {
     line("Asking the Aviation Weather Center...", ui::fonts.label, c.muted);
     return;
@@ -194,7 +194,7 @@ void Skyscope::fill_weather_() {
       }
       line("GFS MOS: hour, temperature/dew point, wind, sky, category", ui::fonts.small, c.muted);
       for (const weather::MosRow &m : r->mos)
-        line(weather::mos_line(m), ui::fonts.label, category_colour(weather::category_of(m), c.ink));
+        line(weather::mos_line(m), ui::fonts.label, category_color(weather::category_of(m), c.ink));
       break;
     case TAB_AREA:
       if (r->advisories.empty()) line("No SIGMET or G-AIRMET over the area", ui::fonts.label, c.muted);

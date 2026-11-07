@@ -6,7 +6,7 @@
 #include "decode.h"
 #include "http.h"
 #include "radar.h"
-#include "colours.h"
+#include "colors.h"
 #include "ui.h"
 
 #include "esphome/core/hal.h"
@@ -292,7 +292,7 @@ void Skyscope::worker_() {
   Shared::TileTimes times;
   int64_t frame_began_us = 0;
   int frame_drawn = 0;  // its tiles drawn since it was begun
-  // The frame of the next step while a plane is followed (follow.h next_centre), drawn ahead while the glass shows
+  // The frame of the next step while a plane is followed (follow.h next_center), drawn ahead while the glass shows
   // this one: its plan, what it shows, which of its tiles are in it and which were tried, and the next to try.
   tiles::Plan ahead;
   uint32_t ahead_rev = 0;
@@ -339,8 +339,8 @@ void Skyscope::worker_() {
   // middle the loop gave, the plane as the reports have seen it and for which follow, the asks still to make for it and
   // when the next is due. exchange_at: when an exchange was last asked, so two requests are never too close.
   Settings saved;
-  follow::Centre centre;
-  uint32_t centre_rev = 0;
+  follow::Center center;
+  uint32_t center_rev = 0;
   follow::Follower follower;
   std::string follow_for, follow_hex_for;
   std::vector<follow::Ask> follow_asks;
@@ -500,12 +500,12 @@ void Skyscope::worker_() {
         ahead_key.clear();
         ahead_fresh = true;
       }
-      if (shared_.centre_rev != centre_rev) {
-        centre = shared_.centre;
-        centre_rev = shared_.centre_rev;
+      if (shared_.center_rev != center_rev) {
+        center = shared_.center;
+        center_rev = shared_.center_rev;
         reshow = true;
       }
-      if (reshow) settings = follow::shown(saved, radio_only ? follow::Centre{} : centre);
+      if (reshow) settings = follow::shown(saved, radio_only ? follow::Center{} : center);
       if (shared_.plan_rev != plan_rev) {
         plan = shared_.plan;
         plan_rev = shared_.plan_rev;
@@ -684,7 +684,7 @@ void Skyscope::worker_() {
     }
 
     // ---- The plane followed: a new one looked for afresh; until it is found, each way of asking for it in turn and
-    // then again a while later; once found, by its hex whenever the reports round it have not had it for a while.
+    // then again a while later; once found, by its hex whenever the reports around it have not had it for a while.
     if (saved.follow != follow_for ||
         (!saved.follow_hex.empty() && saved.follow_hex != follow_hex_for && saved.follow_hex != follower.hex())) {
       follow_for = saved.follow;
@@ -707,7 +707,7 @@ void Skyscope::worker_() {
       const bool looking = !follower.known();
       const uint32_t at = millis();
       if (!looking && follower.age_ms(at) < follow::HEX_EVERY_MS) {
-        // The reports round it have it: nothing to ask.
+        // The reports around it have it: nothing to ask.
         follow_due = at + follow::HEX_EVERY_MS - follower.age_ms(at);
       } else if (looking && follow_asks.empty()) {
         follow_due = at + follow::LOOK_EVERY_MS;
@@ -814,7 +814,7 @@ void Skyscope::worker_() {
           return;
         }
     };
-    const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_metres() / geo::NM * 1.05));
+    const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_meters() / geo::NM * 1.05));
     char place[64];
     std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm, (int) settings.feed,
                   (int) settings.fallback);
@@ -868,10 +868,10 @@ void Skyscope::worker_() {
           feed_due = done;
         }
       } else {
-        // Following a plane: the planes round it, out to the view's farthest corner from it, as far as the exchanges go.
+        // Following a plane: the planes around it, out to the view's farthest corner from it, as far as the exchanges go.
         double ask_lat = settings.lat, ask_lon = settings.lon;
         int ask_nm = radius_nm;
-        if (centre.on && follower.known()) {
+        if (center.on && follower.known()) {
           const geo::Place p = follower.where(millis());
           ask_lat = p.lat;
           ask_lon = p.lon;
@@ -1105,7 +1105,7 @@ void Skyscope::worker_() {
       return drawn;
     };
     auto ground = [&]() {
-      const uint32_t g = colours::palette(settings.theme == LIGHT).ground;
+      const uint32_t g = colors::palette(settings.theme == LIGHT).ground;
       return tiles::rgb565(g >> 16 & 0xFF, g >> 8 & 0xFF, g & 0xFF);
     };
 
@@ -1472,7 +1472,7 @@ void Skyscope::worker_() {
                              geo::tile_origin(plan.view, key.z, key.x, key.y), radar::filter(), error);
             }
             ui::worker_phase = ui::IDLE;
-            // What it changed, kept for the loop's next time round while the loop's scans together fit.
+            // What it changed, kept for the loop's next time around while the loop's scans together fit.
             if (settings.radar_loop) {
               size_t used = 0;
               for (const radar::Overlay &o : overlays) used += o.pixels.size();
@@ -1517,7 +1517,7 @@ void Skyscope::worker_() {
       shared_.radar_scan = 0;
     }
 
-    // ---- The next step's frame, drawn ahead (follow.h next_centre): once the map shown is whole, a tile a turn, on
+    // ---- The next step's frame, drawn ahead (follow.h next_center): once the map shown is whole, a tile a turn, on
     // this core alone and with no lock on the glass's frame, so nothing the glass does waits for it. Only the one view
     // the plane is flying into, a minute or so ahead, so no tile is fetched that would not soon be looked at.
     if (pending.empty() && online && !ahead.keys.empty() && painting_rev == plan_rev) {

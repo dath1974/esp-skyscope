@@ -9,7 +9,7 @@
 
 namespace sky::view {
 struct View;  // the object over the map and the planes it shows
-// Shows `o` in a layer filling `parent`, made the first time; afterwards only its planes change.
+// Shows `o` in a layer filling `parent`, made the first time; afterward only its planes change.
 void show(View *&view, lv_obj_t *parent, const plan::Overlay &o);
 // The map under the planes changed (another range, a new picture): a sweeping scope paints its planes anew.
 void new_frame(View *view);
@@ -36,7 +36,7 @@ void tick(View *view, uint32_t now);
 // How many entries each of the layer's own records holds, for /api/status: what grows as the screen runs.
 struct Counts { size_t spot_of = 0, drawn = 0, box_of = 0, label_images = 0, symbols = 0, symbol_kb = 0, again = 0; };
 Counts counts(const View *view);
-// A radar scope's colours: its phosphor at `light` (0 the ground, 1 the glow, 2 the hottest light), and its ground.
+// A radar scope's colors: its phosphor at `light` (0 the ground, 1 the glow, 2 the hottest light), and its ground.
 lv_color_t phosphor(const plan::Overlay &o, float light);
 lv_color_t ground(const plan::Overlay &o);
 }  // namespace sky::view

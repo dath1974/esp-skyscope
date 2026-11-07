@@ -73,7 +73,7 @@ class MockFeed(unittest.TestCase):
         planes = json.loads(self.get()[1])["aircraft"]
         self.assertEqual(len(planes), 80)
         self.assertEqual(len({p["hex"] for p in planes}), 80)
-        # Each flies round the middle: its track across the line from the middle, at its own distance all the way.
+        # Each flies around the middle: its track across the line from the middle, at its own distance all the way.
         start = mock_feed.circling(40.6413, -73.7781, 0)
         later = mock_feed.circling(40.6413, -73.7781, 3600)
         tracks = set()

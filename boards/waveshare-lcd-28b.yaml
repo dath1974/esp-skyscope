@@ -113,7 +113,7 @@ touchscreen:
 display:
   # The project's own driver (components/rgb_panel): ESPHome's mipi_rgb always sets the panel's pixel format (16 or 18
   # bits), and the data lines are wired for the panel's own 24-bit format (COLMOD 70h, as Waveshare's demo leaves it):
-  # in 16 or 18 bits the panel reads each colour from other lines and every colour on the glass is wrong. rgb_panel
+  # in 16 or 18 bits the panel reads each color from other lines and every color on the glass is wrong. rgb_panel
   # sends only the sequence below and lets go of the SPI lines after it (the card has them to itself).
   - platform: rgb_panel
     id: panel

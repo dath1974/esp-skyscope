@@ -3,7 +3,7 @@
 A screen sent to the mock (the test API's /api/test {"divert": "http://<mock>:8095"}) asks it every address it would
 have asked the world, as /<server>/<path>: http://<mock>:8095/tile.openstreetmap.org/9/150/192.png. `answer` gives
 what each service would, in its own form, at the mock's place: map tiles of every map (a checkered square, each its own
-colour; the layers of place names a few marks on nothing), the FAA's airspace and runways and its airports, places by
+color; the layers of place names a few marks on nothing), the FAA's airspace and runways and its airports, places by
 name, the weather (METAR, TAF, MOS, SIGMETs, G-AIRMETs, pilot reports), the weather radar's latest scan and its tiles,
 and the ADS-B exchanges' planes. What each is is known, so a test can say exactly what the screen should make of it:
 
@@ -22,7 +22,7 @@ import zlib
 
 NM_PER_DEGREE = 60.0
 
-# The airspace round the mock's place: (class, its airport's id, its middle north and east in NM, its half-width in NM).
+# The airspace around the mock's place: (class, its airport's id, its middle north and east in NM, its half-width in NM).
 AREAS = [("B", "MOCK-B-AIRPORT", 0, 0, 12), ("C", "MOCK-C-AIRPORT", 20, 25, 6), ("D", "MOCK-D1-AIRPORT", -15, -10, 3),
          ("D", "MOCK-D2-AIRPORT", 10, -20, 3)]
 # A Class E, which the screen passes over.
@@ -55,7 +55,7 @@ def png(width: int, height: int, rows_rgba) -> bytes:
 
 
 def tile_png(z: int, x: int, y: int, layer: bool = False) -> bytes:
-    """A 256-pixel tile. A map's: squares of 32 in two shades of a colour of its own, so a tile out of place shows. A
+    """A 256-pixel tile. A map's: squares of 32 in two shades of a color of its own, so a tile out of place shows. A
     layer over a map (place names, the weather radar): nothing but a small mark in its middle."""
     seed = (z * 73856093) ^ (x * 19349663) ^ (y * 83492791)
     if layer:

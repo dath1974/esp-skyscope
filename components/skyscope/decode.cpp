@@ -1,4 +1,4 @@
-// A map tile's PNG or JPEG painted into the frame: decoded whole into a tile of its own (its colours through the map's
+// A map tile's PNG or JPEG painted into the frame: decoded whole into a tile of its own (its colors through the map's
 // filter, and how opaque each pixel is), then laid where tiles::plan put it: at its own pixels, enlarged smoothly
 // (each pixel of the frame a blend of the four tile pixels nearest it, so a chart's words and lines keep their shape
 // rather than turning into steps), or made smaller. A pixel only partly opaque (a place name's edge, a chart's border)
@@ -29,12 +29,12 @@ constexpr int TILE = 256;
 
 // The tile as decoded: RGB565 and opacity (0 to 255), in PSRAM, kept for the worker's whole life (it alone decodes).
 struct Scratch {
-  uint16_t *colour = nullptr;
+  uint16_t *color = nullptr;
   uint8_t *alpha = nullptr;
   bool ready() {
-    if (!colour) colour = static_cast<uint16_t *>(heap_caps_malloc(TILE * TILE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!color) color = static_cast<uint16_t *>(heap_caps_malloc(TILE * TILE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!alpha) alpha = static_cast<uint8_t *>(heap_caps_malloc(TILE * TILE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    return colour && alpha;
+    return color && alpha;
   }
 };
 Scratch scratch;
@@ -42,20 +42,20 @@ Scratch scratch;
 // The map's filter as a table (tiles.h paint_table), in PSRAM, built again only when the filter changes; nullptr for
 // a filter that changes nothing, or no memory for it (each pixel is then painted as it comes).
 struct Table {
-  uint16_t *colours = nullptr;
+  uint16_t *colors = nullptr;
   tiles::Filter filter;
   bool built = false;
   const uint16_t *for_filter(const tiles::Filter &f) {
     if (tiles::plain(f)) return nullptr;
-    if (!colours)
-      colours = static_cast<uint16_t *>(heap_caps_malloc(tiles::PAINT_TABLE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!colours) return nullptr;
+    if (!colors)
+      colors = static_cast<uint16_t *>(heap_caps_malloc(tiles::PAINT_TABLE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!colors) return nullptr;
     if (!built || !(filter == f)) {
-      tiles::paint_table(f, colours);
+      tiles::paint_table(f, colors);
       filter = f;
       built = true;
     }
-    return colours;
+    return colors;
   }
 };
 Table table;
@@ -111,7 +111,7 @@ int png_row(PNGDRAW *row) {
   const int w = std::min(row->iWidth, TILE);
   const pngrow::Row r{row->pPixels, w, row->iPixelType, row->iBpp, row->iHasAlpha != 0, job.png->getTransparentColor()};
   uint8_t *alpha = scratch.alpha + row->y * TILE;
-  pngrow::convert(r, job.d->filter, job.d->table, &job.palette, scratch.colour + row->y * TILE, alpha);
+  pngrow::convert(r, job.d->filter, job.d->table, &job.palette, scratch.color + row->y * TILE, alpha);
   // Whether it is see-through anywhere, looked at while the row is still at hand.
   if (job.d->options.lean && job.d->opaque) job.d->opaque = std::all_of(alpha, alpha + w, [](uint8_t v) { return v == 255; });
   return 1;
@@ -124,14 +124,14 @@ inline uint16_t painted(const Decoding &d, int r, int g, int b) {
 
 void pngle_pixel(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t rgba[4]) {
   Decoding &d = *static_cast<Decoding *>(pngle_get_user_data(pngle));
-  const uint16_t colour = painted(d, rgba[0], rgba[1], rgba[2]);
+  const uint16_t color = painted(d, rgba[0], rgba[1], rgba[2]);
   const uint8_t a = pngrow::opaque(d.filter, rgba[3]);
   if (a != 255) d.opaque = false;
   for (uint32_t dy = 0; dy < h; ++dy)
     for (uint32_t dx = 0; dx < w; ++dx) {
       const uint32_t px = x + dx, py = y + dy;
       if (px >= TILE || py >= TILE) continue;
-      scratch.colour[py * TILE + px] = colour;
+      scratch.color[py * TILE + px] = color;
       scratch.alpha[py * TILE + px] = a;
     }
 }
@@ -141,7 +141,7 @@ void pngle_pixel(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 int jpeg_block(JPEGDRAW *j) {
   const Decoding &d = *static_cast<const Decoding *>(j->pUser);
   const bool plain = tiles::plain(d.filter);
-  auto colour_of = [&](uint16_t c) {
+  auto color_of = [&](uint16_t c) {
     return d.table ? d.table[c] : plain ? c : tiles::paint(d.filter, tiles::red_of(c), tiles::green_of(c), tiles::blue_of(c));
   };
   if (d.frame) {
@@ -154,7 +154,7 @@ int jpeg_block(JPEGDRAW *j) {
       const uint16_t *in = j->pPixels + y * j->iWidth + (x0 - j->x);
       uint16_t *out = d.frame + fy * d.frame_w + d.ox + x0;
       if (!d.table && plain) std::memcpy(out, in, (x1 - x0) * 2);
-      else for (int x = 0; x < x1 - x0; ++x) out[x] = colour_of(in[x]);
+      else for (int x = 0; x < x1 - x0; ++x) out[x] = color_of(in[x]);
     }
     return 1;
   }
@@ -165,7 +165,7 @@ int jpeg_block(JPEGDRAW *j) {
     for (int x = 0; x < j->iWidth; ++x) {
       const int px = j->x + x;
       if (px < 0 || px >= TILE) continue;
-      scratch.colour[py * TILE + px] = colour_of(j->pPixels[y * j->iWidth + x]);
+      scratch.color[py * TILE + px] = color_of(j->pPixels[y * j->iWidth + x]);
       if (alphas) scratch.alpha[py * TILE + px] = d.filter.opacity;
     }
   }
@@ -288,7 +288,7 @@ bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int heig
         }
       }
     }
-    pixels::lay(frame, width, height, ox, oy, at.scale, {scratch.colour, scratch.alpha, d.width, d.height, TILE, opaque});
+    pixels::lay(frame, width, height, ox, oy, at.scale, {scratch.color, scratch.alpha, d.width, d.height, TILE, opaque});
   }
   if (times) {
     times->decode_us = decoded - started;

@@ -2,7 +2,7 @@
 #include "skyscope.h"
 #include "http.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "panel_sync.h"
 #include "scope.h"
 #include "ui.h"
@@ -133,17 +133,17 @@ void frame_ready(lv_event_t *) {
 lv_obj_t *panel(lv_obj_t *parent) {
   lv_obj_t *o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
-  lv_obj_set_style_bg_color(o, lv_color_hex(colours::CARD), 0);
+  lv_obj_set_style_bg_color(o, lv_color_hex(colors::CARD), 0);
   lv_obj_set_style_bg_opa(o, LV_OPA_80, 0);
   lv_obj_set_style_radius(o, ui::px(8), 0);
   lv_obj_set_style_pad_all(o, ui::px(6), 0);
   lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
   return o;
 }
-lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t colour) {
+lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t color) {
   lv_obj_t *l = lv_label_create(parent);
   if (font) lv_obj_set_style_text_font(l, font, 0);
-  lv_obj_set_style_text_color(l, lv_color_hex(colour), 0);
+  lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
   lv_label_set_text(l, "");
   return l;
 }
@@ -255,32 +255,32 @@ void Skyscope::use_settings_(const Settings &s) {
 }
 
 void Skyscope::reshow_() {
-  shown_settings_ = follow::shown(offline_ ? offline_settings_ : settings_, offline_ ? follow::Centre{} : centre_);
+  shown_settings_ = follow::shown(offline_ ? offline_settings_ : settings_, offline_ ? follow::Center{} : center_);
 }
 
 Skyscope::Chrome Skyscope::chrome_() const { return chrome_for_(shown_()); }
 
 Skyscope::Chrome Skyscope::chrome_for_(const Settings &s) {
   if (s.map != RADAR) {
-    const colours::Palette &p = colours::palette(s.theme == LIGHT);
-    return {p.ink, p.muted, p.card, s.theme == LIGHT ? colours::LIGHT_ACCENT : colours::ACCENT};
+    const colors::Palette &p = colors::palette(s.theme == LIGHT);
+    return {p.ink, p.muted, p.card, s.theme == LIGHT ? colors::LIGHT_ACCENT : colors::ACCENT};
   }
-  const colours::Tint &t = colours::tint(s.tint);
-  return {t.glow, colours::glow_share(t, 0.6f), t.ground, t.hot};
+  const colors::Tint &t = colors::tint(s.tint);
+  return {t.glow, colors::glow_share(t, 0.6f), t.ground, t.hot};
 }
 
-void Skyscope::set_status_colour_(uint32_t colour) {
+void Skyscope::set_status_color_(uint32_t color) {
   // Set only when it changes: LVGL draws a label again whenever a style is set, the same value or not.
-  if (colour == status_colour_) return;
-  status_colour_ = colour;
-  lv_obj_set_style_text_color(status_, lv_color_hex(colour), 0);
+  if (color == status_color_) return;
+  status_color_ = color;
+  lv_obj_set_style_text_color(status_, lv_color_hex(color), 0);
 }
 
 void Skyscope::restyle_() {
   if (!ui_built_) return;
   const Chrome c = chrome_();
   lv_obj_set_style_bg_color(status_, lv_color_hex(c.card), 0);
-  status_colour_ = 0xFFFFFFFF;
+  status_color_ = 0xFFFFFFFF;
   lv_obj_set_style_text_color(credit_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_bg_color(card_, lv_color_hex(c.card), 0);
   lv_obj_set_style_border_color(card_, lv_color_hex(c.muted), 0);
@@ -289,7 +289,7 @@ void Skyscope::restyle_() {
   lv_obj_set_style_radius(card_, radar ? 0 : ui::px(8), 0);
   // The brightness bar: the scope's phosphor on the radar, the accent over a map.
   lv_obj_set_style_bg_color(level_, lv_color_hex(c.card), 0);
-  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(radar ? colours::tint(settings_.tint).glow : colours::ACCENT), 0);
+  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(radar ? colors::tint(settings_.tint).glow : colors::ACCENT), 0);
   lv_obj_set_style_text_color(level_text_, lv_color_hex(c.ink), 0);
   for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
   lv_obj_set_style_text_color(card_after_, lv_color_hex(c.muted), 0);
@@ -602,7 +602,7 @@ void Skyscope::build_ui_() {
   }, LV_EVENT_LONG_PRESSED, this);
 
   // The credits, along the bottom of the map: made before the planes so the planes and their labels draw over them.
-  credit_ = label(screen, ui::fonts.small, colours::MUTED);
+  credit_ = label(screen, ui::fonts.small, colors::MUTED);
   ui::hug_edge(credit_, LV_ALIGN_BOTTOM_LEFT, ui::px(6), -ui::px(4));
   lv_obj_set_style_text_opa(credit_, LV_OPA_80, 0);
 
@@ -631,17 +631,17 @@ void Skyscope::build_ui_() {
   level_fill_ = lv_obj_create(level_);
   lv_obj_remove_style_all(level_fill_);
   lv_obj_set_width(level_fill_, lv_pct(100));
-  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(colours::ACCENT), 0);
+  lv_obj_set_style_bg_color(level_fill_, lv_color_hex(colors::ACCENT), 0);
   lv_obj_set_style_bg_opa(level_fill_, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(level_fill_, ui::px(4), 0);
   lv_obj_align(level_fill_, LV_ALIGN_BOTTOM_MID, 0, 0);
-  level_text_ = label(screen, ui::fonts.label, colours::INK);
+  level_text_ = label(screen, ui::fonts.label, colors::INK);
   lv_obj_set_parent(level_text_, level_);
   lv_obj_align(level_text_, LV_ALIGN_TOP_MID, 0, 0);
   lv_obj_add_flag(level_, LV_OBJ_FLAG_HIDDEN);
 
-  status_ = label(screen, ui::fonts.small, colours::INK);
-  lv_obj_set_style_bg_color(status_, lv_color_hex(colours::CARD), 0);
+  status_ = label(screen, ui::fonts.small, colors::INK);
+  lv_obj_set_style_bg_color(status_, lv_color_hex(colors::CARD), 0);
   lv_obj_set_style_bg_opa(status_, LV_OPA_70, 0);
   lv_obj_set_style_radius(status_, ui::px(6), 0);
   lv_obj_set_style_pad_hor(status_, ui::px(6), 0);
@@ -660,7 +660,7 @@ void Skyscope::build_ui_() {
   lv_obj_set_style_pad_row(card_, ui::px(2), 0);
   ui::hug_edge(card_, LV_ALIGN_BOTTOM_MID, 0, -ui::px(8));
   lv_obj_set_style_bg_opa(card_, LV_OPA_90, 0);
-  card_title_ = label(card_, ui::fonts.title, colours::INK);
+  card_title_ = label(card_, ui::fonts.title, colors::INK);
   for (size_t i = 0; i < 3; ++i) {
     lv_obj_t *parent = card_;
     if (i == 1) {
@@ -673,7 +673,7 @@ void Skyscope::build_ui_() {
       lv_obj_remove_flag(card_motion_, LV_OBJ_FLAG_CLICKABLE);
       parent = card_motion_;
     }
-    card_rows_[i] = label(parent, ui::fonts.label, colours::MUTED);
+    card_rows_[i] = label(parent, ui::fonts.label, colors::MUTED);
     lv_label_set_long_mode(card_rows_[i], LV_LABEL_LONG_DOT);
     if (i != 1) lv_obj_set_width(card_rows_[i], lv_pct(100));
   }
@@ -693,12 +693,12 @@ void Skyscope::build_ui_() {
     card_arrow_points_[4] = {h + wide / 2, h + tall};
     lv_line_set_points_mutable(card_arrow_, card_arrow_points_, 5);
     card_arrow_way_ = 1;
-    card_after_ = label(card_motion_, ui::fonts.label, colours::MUTED);
+    card_after_ = label(card_motion_, ui::fonts.label, colors::MUTED);
     lv_label_set_long_mode(card_after_, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(card_after_, 1);
   }
   // Follow the plane wherever it flies (follow.h), or stop following it.
-  menu_settings_ = settings_;  // the key's colours (menu.cpp button_); restyle_ keeps them after
+  menu_settings_ = settings_;  // the key's colors (menu.cpp button_); restyle_ keeps them after
   card_follow_ = button_(card_, "Follow", LV_SIZE_CONTENT, ui::mm(7), -1, true);
   lv_obj_add_event_cb(card_follow_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
@@ -714,7 +714,7 @@ void Skyscope::build_ui_() {
   lv_obj_set_flex_flow(follow_keys_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(follow_keys_, ui::mm(1.5f), 0);  // with the keys' wider touch, a gap between them
   lv_obj_remove_flag(follow_keys_, LV_OBJ_FLAG_CLICKABLE);
-  // Small round keys, each just round a symbol drawn in it (the route, and a sight on the plane), both symbols inside
+  // Small round keys, each just around a symbol drawn in it (the route, and a sight on the plane), both symbols inside
   // the same circle; a finger's touch is taken a little beyond the key (round_key_).
   const int side = ui::mm(3.45f), across = side * 13 / 10;
   route_key_ = round_key_(follow_keys_, across);
@@ -761,14 +761,14 @@ void Skyscope::build_ui_() {
   setup_ = lv_obj_create(screen);
   lv_obj_remove_style_all(setup_);
   lv_obj_set_size(setup_, width_, height_);
-  lv_obj_set_style_bg_color(setup_, lv_color_hex(colours::BACKGROUND), 0);
+  lv_obj_set_style_bg_color(setup_, lv_color_hex(colors::BACKGROUND), 0);
   lv_obj_set_style_bg_opa(setup_, LV_OPA_COVER, 0);
   ui::pad_page(setup_, ui::mm(3));
   lv_obj_set_flex_flow(setup_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(setup_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(setup_, ui::mm(2), 0);
-  setup_title_ = label(setup_, ui::fonts.title, colours::ACCENT);
-  setup_body_ = label(setup_, ui::fonts.label, colours::INK);
+  setup_title_ = label(setup_, ui::fonts.title, colors::ACCENT);
+  setup_body_ = label(setup_, ui::fonts.label, colors::INK);
   lv_label_set_long_mode(setup_body_, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(setup_body_, lv_pct(100));
   // Without a network, the networks in reach at a tap, chosen and typed on the glass as in the menu: the setup network
@@ -993,7 +993,7 @@ void Skyscope::update_frame_() {
       (fingers_.active || settle_at_ || (!radar && done < total && now - planned_at_ < WHOLE_FRAME_MS)))
     return;
   if (radar) {
-    lv_canvas_fill_bg(canvas_, lv_color_hex(colours::tint(s.tint).ground), LV_OPA_COVER);
+    lv_canvas_fill_bg(canvas_, lv_color_hex(colors::tint(s.tint).ground), LV_OPA_COVER);
   } else {
     std::unique_lock<std::mutex> frame(frame_lock_, std::try_to_lock);
     if (!frame.owns_lock()) return;
@@ -1030,7 +1030,7 @@ void Skyscope::update_frame_() {
     // To the rose, where the beam turns (as view.cpp's scope_reach).
     painter_.reach = scope::rose_radius(plan_.view, width_ / 2.0, height_ / 2.0) + 2;
     painter_.beam_width = std::max(2, ui::px(3));
-    painter_.set_tint(colours::tint(s.tint));
+    painter_.set_tint(colors::tint(s.tint));
   } else if (scope_background_) {
     // No beam to wipe away: the clean copy let go, or closing the menu would put back the scope as it last swept (in
     // the phosphor it had then).
@@ -1113,7 +1113,7 @@ void Skyscope::update_card_() {
   }
   const bool metric = settings_.metric;
   set_text(card_title_, overlay::name_of(*f) + (f->emergency ? "  SQUAWK " + f->squawk : ""));
-  lv_obj_set_style_text_color(card_title_, lv_color_hex(f->emergency ? colours::EMERGENCY : chrome_().ink), 0);
+  lv_obj_set_style_text_color(card_title_, lv_color_hex(f->emergency ? colors::EMERGENCY : chrome_().ink), 0);
   auto join = [](std::initializer_list<std::string> parts) {
     std::string out;
     for (const auto &p : parts) {
@@ -1210,7 +1210,7 @@ void Skyscope::update_status_(uint32_t now) {
     if (radio_fitted) body += " Without a network, the radar shows the planes the radio hears.";
   } else if (!settings_.located && !following_()) {
     // On a network with no place yet, the menu opens by itself, once: its first rows are the place, and its top the
-    // address for a browser. Cancelled, this page says what to do instead.
+    // address for a browser. Canceled, this page says what to do instead.
     if (online && !offline_ && !asked_where_ && !menu_ && !install_.busy()) {
       asked_where_ = true;
       this->defer([this]() { open_menu_(); });
@@ -1259,12 +1259,12 @@ void Skyscope::update_status_(uint32_t now) {
     radar_scan = shared_.radar_scan;
   }
   const uint32_t ink = chrome_().ink;
-  uint32_t colour = ink;
+  uint32_t color = ink;
   if (address_until_ && (int32_t) (now - address_until_) < 0) {
     const std::string address = own_address();
     set_text(status_, (address.empty() ? std::string("No network") : "http://" + address + "/") + "  \xC2\xB7  " +
                           std::to_string(settings_.range_nm) + " NM");
-    set_status_colour_(chrome_().ink);
+    set_status_color_(chrome_().ink);
     return;
   }
   address_until_ = 0;
@@ -1284,7 +1284,7 @@ void Skyscope::update_status_(uint32_t now) {
     // The receiver chosen with no address, or the radio on a screen without one, and no other source allowed.
     status = preferred == RADIO ? "This screen has no radio: choose another source"
                                 : "No receiver address: set it on the web page";
-    colour = colours::WARNING;
+    color = colors::WARNING;
   } else if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
     // Every exchange it may ask is waiting: the one free soonest, and when.
     Feed next = preferred;
@@ -1294,7 +1294,7 @@ void Skyscope::update_status_(uint32_t now) {
     }
     const providers::State &s = sources.state(next);
     status = std::string(feed::credit(next)) + ": " + s.error + ", again in " + feed::countdown(s.until, now);
-    colour = colours::ERROR;
+    color = colors::ERROR;
   } else if (feed_at == 0) {
     status = "Finding aircraft...";
   } else {
@@ -1311,7 +1311,7 @@ void Skyscope::update_status_(uint32_t now) {
       status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);
     if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) {
       status += " (" + std::to_string((now - feed_at) / 1000) + " s old)";
-      colour = colours::WARNING;
+      color = colors::WARNING;
     }
   }
   // Off a network, the planes are the radio's alone, and said so.
@@ -1321,13 +1321,13 @@ void Skyscope::update_status_(uint32_t now) {
       status += "  \xC2\xB7  no map at this range";
     } else if (!tile_error.empty()) {
       status += "  \xC2\xB7  map: " + tile_error;
-      colour = colour == ink ? colours::WARNING : colour;
+      color = color == ink ? colors::WARNING : color;
     } else if (done < total) {
       status += "  \xC2\xB7  map " + std::to_string(done) + "/" + std::to_string(total);
     } else if (missing) {
       // Off a network, the squares the card does not have are left empty.
       status += "  \xC2\xB7  map: " + std::to_string(missing) + " not on the card";
-      colour = colour == ink ? colours::WARNING : colour;
+      color = color == ink ? colors::WARNING : color;
     }
   }
   if (downloading)
@@ -1336,10 +1336,10 @@ void Skyscope::update_status_(uint32_t now) {
     status += "  \xC2\xB7  airspace: " + airspace_error;
     const int32_t left_ms = (int32_t) (airspace_retry_at - now);
     if (airspace_retry_at && left_ms > 0) status += ", again in " + std::to_string((left_ms + 999) / 1000) + " s";
-    colour = colour == ink ? colours::WARNING : colour;
+    color = color == ink ? colors::WARNING : color;
   }
   set_text(status_, status);
-  set_status_colour_(colour);
+  set_status_color_(color);
 }
 }  // namespace esphome::skyscope
 
@@ -1390,7 +1390,7 @@ void Skyscope::follow_tick_(uint32_t now) {
   }
   if (!asked || !follower_.known()) {
     // Stopped: the view back to the place, at the range it had before following changed it.
-    if (centre_.on || (settings_.follow.empty() && settings_.own_range_nm)) set_centre_(follow::Centre{});
+    if (center_.on || (settings_.follow.empty() && settings_.own_range_nm)) set_center_(follow::Center{});
     if (settings_.follow.empty()) {
       if (trail_.size()) trail_.clear();
       ranged_hex_.clear();
@@ -1413,13 +1413,13 @@ void Skyscope::follow_tick_(uint32_t now) {
   const geo::Place p = follower_.where(now);
   // With the whole route in view the view stays until the plane would leave it; else it steps with the plane.
   const double keep = route_view_ ? 0.95 : follow::KEEP;
-  if (centre_.on && centre_.hex == follower_.hex() && !follow::off_centre(plan_.view, p.lat, p.lon, keep)) {
+  if (center_.on && center_.hex == follower_.hex() && !follow::off_center(plan_.view, p.lat, p.lon, keep)) {
     plan_ahead_(now, p);
     return;
   }
   route_view_ = false;
   const feed::Flight &f = follower_.last();
-  geo::Place c = follow::centre_for(plan_.view, p.lat, p.lon, f.has_heading, f.heading);
+  geo::Place c = follow::center_for(plan_.view, p.lat, p.lon, f.has_heading, f.heading);
   // The view drawn ahead, where the plane is about where it would put it: taken as it is, so its frame is the one
   // the worker has ready.
   const bool took_ahead = ahead_.on && ahead_.hex == follower_.hex() && ahead_view_.zoom == plan_.view.zoom &&
@@ -1427,12 +1427,12 @@ void Skyscope::follow_tick_(uint32_t now) {
   if (took_ahead) c = {ahead_.lat, ahead_.lon};
   ESP_LOGD(TAG, "Following: a step, %s", took_ahead ? "to the view drawn ahead" : "drawn now");
   ahead_at_ = 0;  // the step after it planned at once
-  follow::Centre next;
+  follow::Center next;
   next.on = true;
   next.lat = c.lat;
   next.lon = c.lon;
   next.hex = follower_.hex();
-  set_centre_(next);
+  set_center_(next);
 }
 
 // The next step's view, for the worker to draw while the plane flies there: where the plane, flying on as it is, goes
@@ -1450,11 +1450,11 @@ void Skyscope::plan_ahead_(uint32_t now, const geo::Place &plane) {
     drop_ahead_();
     return;
   }
-  if (ahead_.on && ahead_.hex == centre_.hex && ahead_view_.zoom == plan_.view.zoom &&
+  if (ahead_.on && ahead_.hex == center_.hex && ahead_view_.zoom == plan_.view.zoom &&
       follow::suits(ahead_view_, at.lat, at.lon, f.heading))
     return;
-  const geo::Place mid = follow::centre_for(plan_.view, at.lat, at.lon, true, f.heading);
-  follow::Centre c = centre_;
+  const geo::Place mid = follow::center_for(plan_.view, at.lat, at.lon, true, f.heading);
+  follow::Center c = center_;
   c.lat = mid.lat;
   c.lon = mid.lon;
   const Settings shown = follow::shown(settings_, c);
@@ -1472,13 +1472,13 @@ void Skyscope::plan_ahead_(uint32_t now, const geo::Place &plane) {
 
 void Skyscope::drop_ahead_() {
   if (!ahead_.on) return;
-  ahead_ = follow::Centre{};
+  ahead_ = follow::Center{};
   std::lock_guard<std::mutex> guard(lock_);
   shared_.ahead = tiles::Plan{};
   shared_.ahead_rev++;
 }
 
-void Skyscope::set_centre_(const follow::Centre &c, int range_nm) {
+void Skyscope::set_center_(const follow::Center &c, int range_nm) {
   // The range following first changes is kept, to go back to (the Own range key, and once following stops).
   Settings s = settings_;
   if (range_nm > 0) {
@@ -1490,29 +1490,29 @@ void Skyscope::set_centre_(const follow::Centre &c, int range_nm) {
     s.own_range_nm = 0;
   }
   const bool new_range = s.range_nm != settings_.range_nm || s.own_range_nm != settings_.own_range_nm;
-  if (c == centre_ && !new_range) return;
+  if (c == center_ && !new_range) return;
   // A step of the map along with its plane: the glass as it was, moved to the new view, stays until the new frame is
   // whole, so the map moves in one step instead of through the bare ground while its tiles come.
-  const bool step = centre_.on && c.on && ui_built_ && !menu_ && !frozen_shown_ && !asleep_ && shown_().map != RADAR;
+  const bool step = center_.on && c.on && ui_built_ && !menu_ && !frozen_shown_ && !asleep_ && shown_().map != RADAR;
   if (step) target_view_ = plan_.view;
   const bool frozen = step && freeze_();
-  centre_ = c;
+  center_ = c;
   if (new_range) {
     // The range is a setting (kept, as a pinch's Save keeps it): the frame is planned with the middle at once.
     {
       std::lock_guard<std::mutex> guard(lock_);
-      shared_.centre = centre_;
-      shared_.centre_rev++;
+      shared_.center = center_;
+      shared_.center_rev++;
     }
     use_settings_(s);
   } else {
     reshow_();
     std::lock_guard<std::mutex> guard(lock_);
-    shared_.centre = centre_;
-    shared_.centre_rev++;
+    shared_.center = center_;
+    shared_.center_rev++;
     replan_locked_();
   }
-  restyle_();  // a chart of the United States may have given way to a map of the world, in its own colours
+  restyle_();  // a chart of the United States may have given way to a map of the world, in its own colors
   seen_flights_rev_ = AGAIN;
   if (frozen) {
     target_view_ = plan_.view;
@@ -1535,7 +1535,7 @@ lv_obj_t *Skyscope::round_key_(lv_obj_t *parent, int across) {
   return b;
 }
 
-// A box for a symbol, centred in its key, its parts drawn in it; none of them takes a finger from the key.
+// A box for a symbol, centerd in its key, its parts drawn in it; none of them takes a finger from the key.
 static lv_obj_t *symbol_box(lv_obj_t *key, int side) {
   lv_obj_t *box = widgets::plain(key);
   lv_obj_set_size(box, side, side);
@@ -1569,7 +1569,7 @@ static lv_obj_t *stroke_line(lv_obj_t *box, lv_point_precise_t *points, int coun
 static int symbol_stroke(int side) { return std::max(2, (int) std::lround(side / 13.0)); }
 
 // The route: where it starts, a ring low on the left; where it ends, a ring high on the right; and the leg between,
-// out from the first, round a turn high on the left, and on to the second. All of it inside the circle the sight
+// out from the first, around a turn high on the left, and on to the second. All of it inside the circle the sight
 // fills, so the two keys' symbols are the same size.
 void Skyscope::draw_route_symbol_(lv_obj_t *key, int side) {
   lv_obj_t *box = symbol_box(key, side);
@@ -1640,32 +1640,32 @@ void Skyscope::show_route_() {
   std::vector<geo::Place> places = follow::route_places(route_, 24);
   places.push_back(follower_.where(millis()));
   const follow::Fit f = follow::fit(places, width_, height_, round_);
-  follow::Centre c = centre_;
-  c.lat = f.centre.lat;
-  c.lon = f.centre.lon;
+  follow::Center c = center_;
+  c.lat = f.center.lat;
+  c.lon = f.center.lon;
   route_view_ = true;
   ESP_LOGI(TAG, "Following: the route %s to %s, %d NM", route_.from.c_str(), route_.to.c_str(), f.range_nm);
-  set_centre_(c, f.range_nm);
+  set_center_(c, f.range_nm);
 }
 
 void Skyscope::show_plane_(int range_nm) {
   if (!follower_.known() || width_ <= 0) return;
-  // Round it at its own range (follow.h plane_range_nm) or the one given, the plane a little behind the middle as the
+  // Around it at its own range (follow.h plane_range_nm) or the one given, the plane a little behind the middle as the
   // view steps with it.
   const geo::Place p = follower_.where(millis());
   const feed::Flight &f = follower_.last();
   if (range_nm <= 0) range_nm = follow::plane_range_nm(f, p.lat, width_, height_, round_);
   geo::View v = follow::view_for(p.lat, p.lon, range_nm, width_, height_);
   v.round = round_;
-  const geo::Place at = follow::centre_for(v, p.lat, p.lon, f.has_heading, f.heading);
-  follow::Centre c;
+  const geo::Place at = follow::center_for(v, p.lat, p.lon, f.has_heading, f.heading);
+  follow::Center c;
   c.on = true;
   c.lat = at.lat;
   c.lon = at.lon;
   c.hex = follower_.hex();
   route_view_ = false;
-  ESP_LOGI(TAG, "Following: %d NM round the plane at %.0f kt", range_nm, f.has_speed ? f.speed : 0.0f);
-  set_centre_(c, range_nm);
+  ESP_LOGI(TAG, "Following: %d NM around the plane at %.0f kt", range_nm, f.has_speed ? f.speed : 0.0f);
+  set_center_(c, range_nm);
 }
 
 void Skyscope::follow_picked_() {

@@ -19,7 +19,7 @@
 // PAN_MM, so a tap that wavers is still a tap.
 #include "skyscope.h"
 
-#include "colours.h"
+#include "colors.h"
 #include "swipe.h"
 #include "ui.h"
 #include "widgets.h"
@@ -80,7 +80,7 @@ void Skyscope::update(const touchscreen::TouchPoints_t &points) {
     taps_from_ = now + AFTER_PINCH_MS;
     begin_preview_();
     if (!freeze_()) return;
-    // A drag from where the finger came down, so the map keeps up with it from the first millimetre.
+    // A drag from where the finger came down, so the map keeps up with it from the first millimeter.
     if (count < 2) fingers_.start(touch_from_, touch_from_, target_view_);
     else fingers_.start(a, b, target_view_);
     finger_count_ = count;
@@ -116,7 +116,7 @@ void Skyscope::begin_preview_() {
   if (previewing_) return;
   previewing_ = true;
   held_ = settings_;
-  held_centre_ = centre_;
+  held_center_ = center_;
   target_view_ = plan_.view;
   ESP_LOGD(TAG, "Previewing");
 }
@@ -154,8 +154,8 @@ void Skyscope::draw_frozen_() {
   frozen_dirty_ = false;
   drawn_frozen_at_ = millis();
   if (!frozen_ || !frozen_shown_ || !canvas_buffer_) return;
-  // The ground where the picture does not reach: the radar's, or the screen's own colour.
-  const uint32_t ground = shown_().map == RADAR ? colours::tint(settings_.tint).ground : chrome_().card;
+  // The ground where the picture does not reach: the radar's, or the screen's own color.
+  const uint32_t ground = shown_().map == RADAR ? colors::tint(settings_.tint).ground : chrome_().card;
   pinch::stretch(frozen_, canvas_buffer_, width_, height_, pinch::transform(frozen_view_, target_view_),
                  lv_color_to_u16(lv_color_hex(ground)), frozen_columns_);
   lv_obj_invalidate(canvas_);
@@ -169,7 +169,7 @@ void Skyscope::end_pinch_() {
   preview_until_ = (now + PREVIEW_MS) | 1;
   if (preview_bar_ || !previewing_) return;
   // The bar: Cancel, the range and the time left, and Save; along the bottom, so most of the map shows.
-  menu_settings_ = settings_;  // the keys' colours (menu.cpp button_)
+  menu_settings_ = settings_;  // the keys' colors (menu.cpp button_)
   const Chrome c = chrome_();
   preview_bar_ = plain(lv_screen_active());
   lv_obj_set_size(preview_bar_, glass::page_width(ui::shape, ui::mm(1)), LV_SIZE_CONTENT);
@@ -205,11 +205,11 @@ void Skyscope::settle_preview_() {
     // goes on following the plane after (follow_tick_).
     Settings s = settings_;
     s.range_nm = pinch::range_nm(target_view_);
-    follow::Centre c = centre_;
+    follow::Center c = center_;
     c.lat = target_view_.lat;
     c.lon = target_view_.lon;
     use_view_(s, &c);
-    ESP_LOGD(TAG, "Previewing %d NM round the plane followed", s.range_nm);
+    ESP_LOGD(TAG, "Previewing %d NM around the plane followed", s.range_nm);
     return;
   }
   Settings s = settings_;
@@ -218,7 +218,7 @@ void Skyscope::settle_preview_() {
   s.lon = target_view_.lon;
   s.range_nm = pinch::range_nm(target_view_);
   // Hardly moved (a zoom whose fingers drifted): still the place by its name, at its own spot. Else no longer it.
-  if (geo::metres_between(held_.lat, held_.lon, s.lat, s.lon) <= 0.02 * s.range_nm * geo::NM) {
+  if (geo::meters_between(held_.lat, held_.lon, s.lat, s.lon) <= 0.02 * s.range_nm * geo::NM) {
     s.lat = held_.lat;
     s.lon = held_.lon;
     s.place = held_.place;
@@ -229,14 +229,14 @@ void Skyscope::settle_preview_() {
   ESP_LOGD(TAG, "Previewing %d NM", s.range_nm);
 }
 
-void Skyscope::use_view_(const Settings &s, const follow::Centre *centre) {
+void Skyscope::use_view_(const Settings &s, const follow::Center *center) {
   const uint32_t before = plan_rev_;
-  if (centre && *centre != centre_) {
-    centre_ = *centre;
+  if (center && *center != center_) {
+    center_ = *center;
     reshow_();
     std::lock_guard<std::mutex> guard(lock_);
-    shared_.centre = centre_;
-    shared_.centre_rev++;
+    shared_.center = center_;
+    shared_.center_rev++;
     replan_locked_();
   }
   use_settings_(s);
@@ -269,8 +269,8 @@ void Skyscope::end_preview_(bool keep) {
   s.range_nm = held_.range_nm;
   s.place = held_.place;
   // Following a plane: its view's middle as it was too, if it is still following that plane.
-  const bool same = held_centre_.on && centre_.on && held_centre_.hex == centre_.hex;
-  use_view_(s, same ? &held_centre_ : nullptr);
+  const bool same = held_center_.on && center_.on && held_center_.hex == center_.hex;
+  use_view_(s, same ? &held_center_ : nullptr);
   ESP_LOGD(TAG, "Dropped");
 }
 
