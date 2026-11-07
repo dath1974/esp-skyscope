@@ -24,7 +24,8 @@ guide; read it for what the screen does and how it is set up.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
   `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
-- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `wake_table.py` (`wake.h`,
+- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `screenshots.py`
+  (`docs/screens.md`'s pictures, from a real screen), `wake_table.py` (`wake.h`,
   each type's wake category from the FAA's list).
 
 ## Build and test
@@ -49,7 +50,7 @@ guide; read it for what the screen does and how it is set up.
 - **Public services.** adsb.fi, adsb.lol, Esri, OSM, USGS, FAA, the Aviation Weather Center and the Iowa Environmental
   Mesonet have terms; keep to them. Respect rate-limit headers and backoff in `feed.h`, keep the User-Agent and tile
   caching, and keep attribution as each source requires.
-- **Test endpoints** (`/api/touch`, `/api/ui`, `/api/test`) are compiled out with `test_api: false`; keep them behind
+- **Test endpoints** (`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`) are compiled out with `test_api: false`; keep them behind
   that flag.
 - **Tests against the mock.** The device tests (all but `--public`) send the screen to `tests/mock_feed.py`, which
   stands in for every public service (`tests/mock_services.py`), so a run is the same every time and on every board.

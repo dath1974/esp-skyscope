@@ -3,6 +3,15 @@
 Live aircraft tracking on a self-contained ESP32 touch screen: the ESP32 (an S3 or a P4) fetches traffic information
 from a public ADS-B exchange and the map tiles from public tile servers, decodes and draws everything itself.
 
+<p>
+<img src="docs/screens/streets-dark.png" alt="Streets, dark, with airspace" width="24%">
+<img src="docs/screens/sectional.png" alt="VFR sectional" width="24%">
+<img src="docs/screens/radar.png" alt="Radar scope" width="24%">
+<img src="docs/screens/weather-radar.png" alt="Weather radar" width="24%">
+</p>
+
+More of what the screen shows, each map and page with a word on it: [docs/screens.md](docs/screens.md).
+
 - **Maps**: a radar scope drawn on the screen (nothing downloaded), streets (Esri's gray maps, dark or light),
   OpenStreetMap, satellite imagery (Esri), the USGS topographic map, and the FAA's VFR sectional, IFR area (low) and
   IFR high enroute charts, or any 256-pixel PNG/JPEG tile server of your own. One **appearance** switch, dark or light:
@@ -379,6 +388,7 @@ The screen serves its settings page at `/` and a small JSON API beside it:
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/touch` | a touch on the glass for tests: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"`; at the screen's own coordinates |
 | `GET /api/ui` | what the glass shows, for tests: the status line, a plane's card, the brightness level, the menu (rows, values, and where each key is), its keyboard (text, hint and keys) and the list over it (places or networks), the map a swipe went to, the weather page (title, line, tab, lines, keys), and where each plane is |
+| `GET /api/screenshot` | for pictures: what the glass shows, as a BMP of its own pixels (16-bit RGB565, the screen's way up); `tools/screenshots.py` takes [docs/screens.md](docs/screens.md)'s with it |
 | `POST /api/test` | for tests: `{"divert": "http://<host>:<port>"}` sends every HTTPS request the screen makes (every public service: feeds, tiles, airspace, weather, the update server) to that server as `/<server>/<path>`, a plain `http://` address (a receiver) as it is, from the restart it makes until power off or `{"divert": ""}` (another restart); the map card is left alone meanwhile, and `GET /api/status` says where (`divert`) |
 | `POST /api/bench` | for measuring: `{"runs": 3}` decodes and draws every tile of the map shown, each `runs` times after a first, once the old way (0.9.0) and once with each quickening added in turn (a filter table, PNGdec, opaque laying, lean decoding, JPEGs straight into the frame, the decoders in internal RAM when there is room); the glass keeps its last map meanwhile. `GET /api/bench` says whether it is `busy` and gives the `result`: the map, its tiles, whether JPEGs use the S3's vector instructions (`jpeg_simd`), and for each way the median `png_ms`, `jpeg_ms`, `lay_ms` and `map_ms` for the whole map |
 | `POST /api/debug` | measurement only, never stored: `{"planes": false}` hides the planes while the map and the beam go on |
@@ -389,8 +399,8 @@ curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
 ```
 
 The page and the API are open to anyone on your network, as an ESPHome device's own web server is. The test endpoints
-(`/api/touch`, `/api/ui`, `/api/test`, `/api/bench`, and `{"source"}` and the network changes above) are left out of a
-build with `test_api: false` in the `skyscope:` block.
+(`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`, `/api/bench`, and `{"source"}` and the network changes
+above) are left out of a build with `test_api: false` in the `skyscope:` block.
 
 ## Data sources
 
@@ -450,7 +460,8 @@ receiver's range, are missing, and positions may be late.
     needs a C++20 compiler and fetches ArduinoJson's one header). `tests/run.sh reply.json` reads a saved feed reply too.
   - `make test-python`: the release manifest (`tests/test_release_site.py`) against what ESPHome's update check reads,
     and the mock (`tests/test_mock_feed.py`) that the tests on a real screen use: its receiver, update server and
-    stand-ins for the public services.
+    stand-ins for the public services; and `tools/screenshots.py`'s made-up sky and pictures
+    (`tests/test_screenshots.py`).
   - `make test-page`: the web page's script (`tests/test_page.mjs`, Node 18 or newer): the airport search's query, the
     firmware section's words, and that the whole script parses.
 - With a screen on the network (`tests/device_test.py`, Python's standard library only; every setting it changes is
@@ -490,6 +501,14 @@ receiver's range, are missing, and positions may be late.
   is found, the FAA's airspace and runways are read, every map is drawn whole, the weather radar's scan and loop come,
   and the weather page fills in for KJFK. Run it to know the services still answer as the screen expects; it is not
   repeatable (the sky and the services change), and needs no test API but for the weather page.
+- `make screenshots DEVICE=<address>` (`tools/screenshots.py`; `ONLY=streets-dark,radar` for some): the pictures in
+  [docs/screens.md](docs/screens.md), taken from the screen's own glass (`GET /api/screenshot`) at public airports,
+  never the screen's own place. The maps, the FAA's airspace and the weather are the real ones; the planes are made
+  up and served from this machine as a receiver (airliners on the runway's final approach and climbing out, jets
+  passing over, light aircraft, helicopters), so no real flight is shown. Each scene is a place, a map and its
+  settings, and sometimes a touch (a plane's card, the menu, the weather page); the weather radar's goes where a
+  METAR reports rain now. It writes `docs/screens.md` from the pictures, and puts every setting back. It needs the
+  test API, and the screen must reach this machine, as the tests against the mock do.
 
 ### A screen reaching a test server under WSL
 

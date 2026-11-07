@@ -349,6 +349,7 @@ class Skyscope : public Component,
   void probe_touch_start_(const touch::Script &s);  // on the loop
   void describe_ui_(JsonObject out);                  // on the loop
   void handle_probe_(AsyncWebServerRequest *request, const std::string &url, const std::string &body);
+  void send_screenshot_(AsyncWebServerRequest *request);  // GET /api/screenshot, in the web server's task
   touch::Player probe_touch_;
   lv_indev_t *probe_input_{nullptr};
   uint32_t probe_busy_until_{0};  // the web server's task: the touch under way ends then

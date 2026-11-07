@@ -7,6 +7,8 @@
 //                     rows, values and keys, where each key is), its keyboard (the text, the hint and every key) and
 //                     the list over it (its line and items), the map a swipe went to, and where each plane is, to
 //                     touch them by
+//   GET  /api/screenshot  what the glass shows, as a picture: a BMP of the screen's own pixels (16-bit, top row first),
+//                     the screen's way up, for the README's pictures (tools/screenshots.py)
 //
 // A touch goes in as a second input device beside the touch panel: LVGL reads it as it reads a finger, so the same
 // objects get the same events (a long press, a drag along the brightness strip, a click on a key). While the screen
@@ -21,8 +23,10 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#include <esp_heap_caps.h>
 #include <freertos/semphr.h>
 
+#include <cstring>
 #include <memory>
 
 namespace esphome::skyscope {
@@ -48,6 +52,32 @@ void place(JsonObject out, lv_obj_t *o) {
 bool shown(lv_obj_t *o) { return o && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN); }
 const char *text_of(lv_obj_t *label) {
   return label && lv_obj_check_type(label, &lv_label_class) ? lv_label_get_text(label) : "";
+}
+
+// A BMP's header for 16-bit pixels in RGB565 (BI_BITFIELDS), its rows `stride` bytes apart and the top row first:
+// 14 bytes of file header, 40 of the picture's, 12 of the three masks, and two to start the pixels on four bytes.
+constexpr size_t BMP_HEADER = 68;
+void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
+void put32(uint8_t *p, uint32_t v) { for (int i = 0; i < 4; ++i) p[i] = v >> (8 * i); }
+void bmp_header(uint8_t *h, int width, int height, uint32_t stride) {
+  const uint32_t pixels = stride * height;
+  std::memset(h, 0, BMP_HEADER);
+  h[0] = 'B';
+  h[1] = 'M';
+  put32(h + 2, BMP_HEADER + pixels);
+  put32(h + 10, BMP_HEADER);
+  put32(h + 14, 40);
+  put32(h + 18, width);
+  put32(h + 22, (uint32_t) -height);  // a height below zero: the top row first, as LVGL keeps it
+  put16(h + 26, 1);
+  put16(h + 28, 16);
+  put32(h + 30, 3);  // BI_BITFIELDS
+  put32(h + 34, pixels);
+  put32(h + 38, 2835);  // 72 dpi; nothing reads it
+  put32(h + 42, 2835);
+  put32(h + 54, 0xF800);
+  put32(h + 58, 0x07E0);
+  put32(h + 62, 0x001F);
 }
 }  // namespace
 
@@ -222,6 +252,10 @@ void Skyscope::handle_probe_(AsyncWebServerRequest *request, const std::string &
     request->send(200, "application/json", answer.c_str());
     return;
   }
+  if (url == "/api/screenshot") {
+    this->send_screenshot_(request);
+    return;
+  }
   // /api/ui: described on the loop, waited for here.
   struct Answer {
     SemaphoreHandle_t done = xSemaphoreCreateBinary();
@@ -242,6 +276,45 @@ void Skyscope::handle_probe_(AsyncWebServerRequest *request, const std::string &
   auto *response = request->beginResponse(200, "application/json", answer->json);
   response->addHeader("Cache-Control", "no-store");
   request->send(response);
+}
+// The glass as a picture: drawn again into a frame in PSRAM on the loop (which owns LVGL), every object as it is
+// shown, and sent from here. The frame is freed as soon as it is sent, so it takes no memory between pictures.
+void Skyscope::send_screenshot_(AsyncWebServerRequest *request) {
+  struct Shot {
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    uint8_t *data = nullptr;
+    size_t size = 0;
+    bool taken = false;
+    ~Shot() {
+      vSemaphoreDelete(done);
+      heap_caps_free(data);
+    }
+  };
+  const int width = width_, height = height_;
+  const uint32_t stride = ((uint32_t) width * 2 + 3) & ~3u;
+  auto shot = std::make_shared<Shot>();
+  shot->size = BMP_HEADER + (size_t) stride * height;
+  shot->data = static_cast<uint8_t *>(heap_caps_malloc(shot->size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!shot->data) {
+    request->send(503, "application/json", "{\"error\":\"memory\"}");
+    return;
+  }
+  bmp_header(shot->data, width, height, stride);
+  this->defer([shot, width, height, stride]() {
+    lv_draw_buf_t buf;
+    shot->taken = lv_draw_buf_init(&buf, width, height, LV_COLOR_FORMAT_RGB565, stride, shot->data + BMP_HEADER,
+                                   shot->size - BMP_HEADER) == LV_RESULT_OK &&
+                  lv_snapshot_take_to_draw_buf(lv_screen_active(), LV_COLOR_FORMAT_RGB565, &buf) == LV_RESULT_OK;
+    xSemaphoreGive(shot->done);
+  });
+  // Waited for here; if the loop is too slow, the frame is freed when the loop is done with it, not before.
+  if (xSemaphoreTake(shot->done, pdMS_TO_TICKS(5000)) != pdTRUE || !shot->taken) {
+    request->send(503, "application/json", "{\"error\":\"busy\"}");
+    return;
+  }
+  auto *response = request->beginResponse(200, "image/bmp", shot->data, shot->size);
+  response->addHeader("Cache-Control", "no-store");
+  request->send(response);  // sent whole before it returns, so the frame is still there
 }
 }  // namespace esphome::skyscope
 #endif

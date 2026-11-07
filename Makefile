@@ -18,7 +18,8 @@
 #                         that needs no screen
 #   make test-host        the C++, with the address and undefined-behaviour
 #                         sanitizers
-#   make test-python      tools/release_site.py and the mock (tests/mock_feed.py)
+#   make test-python      tools/release_site.py, the mock (tests/mock_feed.py)
+#                         and tools/screenshots.py
 #   make test-page        the web page's script (Node 18 or newer)
 #   make test-markers     every kind of aircraft drawn on a sheet,
 #                         tests/build/markers.png
@@ -35,6 +36,8 @@
 #                         install that firmware
 #   make test-esp32-soak  memory over SOAK minutes [SOAK=30] [CHURN=0]
 #   make test-esp32-public  the public services themselves, at a test place
+#   make screenshots      docs/screens.md's pictures, taken from the screen
+#                         over the real maps with made-up planes [ONLY=a,b]
 #
 # Release, in order (release.yml does the rest once the tag is pushed)
 #   make release-version VERSION=<x.y.z>
@@ -72,7 +75,7 @@ export MSG
 
 .PHONY: all firmware firmware-all firmware-flash firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers \
-	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak test-esp32-public \
+	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak test-esp32-public screenshots \
 	release-version release-tag release clean help
 
 all: firmware test $(if $(DEVICE),test-esp32)
@@ -180,6 +183,14 @@ test-esp32-soak:
 	  { echo "make test-esp32-soak DEVICE=<the screen's address>" \
 	    "[SOAK=minutes] [CHURN=minutes]"; exit 2; }
 	tests/device_test.py $(DEVICE) --port $(PORT) --soak $(SOAK) --churn $(CHURN)
+
+# The pictures in docs/screens.md (tools/screenshots.py): the screen's own
+# glass at public airports, over the real maps, airspace and weather, with
+# made-up planes served from here (port PORT). ONLY=<scene,...> for some.
+screenshots:
+	@test -n "$(DEVICE)" || \
+	  { echo "make screenshots DEVICE=<the screen's address> [ONLY=a,b]"; exit 2; }
+	tools/screenshots.py $(DEVICE) --port $(PORT) $(if $(ONLY),--only $(ONLY))
 
 # Only skyscope.yaml is committed, and only when it has no other changes.
 release-version:

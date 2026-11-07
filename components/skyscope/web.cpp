@@ -19,6 +19,7 @@
 //                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
+//   GET  /api/screenshot   with the test API: the glass as a BMP (probe.cpp)
 //   POST /api/test         with the test API: {"divert": "http://host:port"} sends every HTTPS request to a test's mock
 //                          from the restart it makes on, until power off or {"divert": ""} (and its restart)
 //
@@ -557,7 +558,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     request->send(response);
     return;
   }
-  if ((url == "/api/touch" && post) || url == "/api/ui") {
+  if ((url == "/api/touch" && post) || url == "/api/ui" || url == "/api/screenshot") {
     const std::string text = std::move(body_);
     body_.clear();
     this->handle_probe_(request, url, text);
