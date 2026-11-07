@@ -305,12 +305,14 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     }
     // The weather radar's scan drawn over the map (radar.h), as IEM names it; "" for none.
     out["radar_scan"] = shared_.radar_scan ? radar::stamp(shared_.radar_scan) : std::string();
-    // The airspace shown (airspace.h): its areas and runways, its replies' bytes, and why the last request failed.
+    // The airspace shown (airspace.h): its areas and runways, its replies' bytes, why the last request failed, and
+    // whether it is the one kept in flash from before the start.
     out["airspace_areas"] = shared_.airspace ? shared_.airspace->areas.size() : 0;
     out["airspace_runways"] = shared_.airspace ? shared_.airspace->runways.size() : 0;
     out["airspace_bytes"] = shared_.airspace_bytes;
     out["airspace_rev"] = shared_.airspace_rev;  // counts the replies taken: a new place's is a new one
     out["airspace_error"] = shared_.airspace_error;
+    out["airspace_kept"] = shared_.airspace_kept;
     out["zoom"] = shared_.plan.view.zoom;
     // The plane followed (follow.h): how it is going, and where it is, or is likely to be while out of reach.
     if (!shared_.settings.follow.empty()) {

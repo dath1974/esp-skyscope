@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -107,6 +108,10 @@ inline Ask ask(const geo::View &v, int range_nm) {
 
 // ---- Reading a reply
 
+// The error for a reply that says the FAA's server is too busy to answer (ArcGIS's code 429, sent with HTTP 200). Its
+// limit is of requests a minute from everyone who uses it, not from this screen, so it passes in a minute or two.
+inline constexpr const char *BUSY = "FAA busy";
+
 namespace detail {
 // Calls `each(name, value, value_end)` for each member of the JSON object at `p`; false when it is not one.
 template<typename F> bool members(const char *p, const char *end, F each) {
@@ -194,7 +199,7 @@ bool features(const char *text, size_t length, JsonDocument &doc, const JsonDocu
   }
   if (problem) {
     deserializeJson(doc, problem, problem_end - problem);
-    error = std::string("ADDS: ") + (doc["message"] | "error");
+    error = (doc["code"] | 0) == 429 ? std::string(BUSY) : std::string("ADDS: ") + (doc["message"] | "error");
     doc.clear();
     return false;
   }
@@ -317,6 +322,96 @@ inline bool read_runways(const char *text, size_t length, JsonDocument &doc, con
 
 // Whether a runway's centerline is drawn out past its ends.
 inline bool lengthened(const Runway &r) { return r.towered && r.length_ft >= CENTERLINE_RUNWAY_FT; }
+
+// ---- Keeping it
+
+// The screen keeps the last map it was shown a while in flash (worker.cpp), with the requests it answered and when, so
+// after a restart at the same place and range it is drawn without asking the FAA at all. One kept longer than
+// KEPT_DAYS is asked again (the FAA's charts change every 56 days); one larger than MOST_KEPT_BYTES is not kept.
+constexpr uint32_t KEPT_DAYS = 28;
+constexpr size_t MOST_KEPT_BYTES = 96 * 1024;
+
+namespace detail {
+inline constexpr char KEPT_MAGIC[4] = {'S', 'K', 'A', '1'};
+template<typename T> void put(std::vector<uint8_t> &out, const T &v) {
+  const auto *b = reinterpret_cast<const uint8_t *>(&v);
+  out.insert(out.end(), b, b + sizeof(T));
+}
+template<typename T> bool take(const uint8_t *&p, const uint8_t *end, T &v) {
+  if ((size_t) (end - p) < sizeof(T)) return false;
+  std::memcpy(&v, p, sizeof(T));
+  p += sizeof(T);
+  return true;
+}
+}  // namespace detail
+
+// `map` as bytes, with `key` (the requests it answered) and `unix_s` (when they were answered).
+inline std::vector<uint8_t> pack(const Map &map, const std::string &key, uint32_t unix_s) {
+  std::vector<uint8_t> out;
+  out.reserve(32 + key.size() + map.points.size() * 8 + map.areas.size() * 9 + map.runways.size() * 21);
+  out.insert(out.end(), detail::KEPT_MAGIC, detail::KEPT_MAGIC + 4);
+  detail::put(out, unix_s);
+  detail::put(out, (uint32_t) key.size());
+  out.insert(out.end(), key.begin(), key.end());
+  detail::put(out, (uint8_t) map.cut);
+  detail::put(out, (uint32_t) map.points.size());
+  detail::put(out, (uint32_t) map.areas.size());
+  detail::put(out, (uint32_t) map.runways.size());
+  for (const Point &q : map.points) detail::put(out, q.lat), detail::put(out, q.lon);
+  for (const Area &a : map.areas)
+    detail::put(out, (uint8_t) a.cls), detail::put(out, a.first), detail::put(out, a.count);
+  for (const Runway &r : map.runways) {
+    detail::put(out, r.a.lat), detail::put(out, r.a.lon), detail::put(out, r.b.lat), detail::put(out, r.b.lon);
+    detail::put(out, (int32_t) r.length_ft), detail::put(out, (uint8_t) r.towered);
+  }
+  return out;
+}
+
+// pack's bytes back into `out`, `key` and `unix_s`; false for anything else (another version's, or broken), `out` then
+// left empty.
+inline bool unpack(const uint8_t *data, size_t size, Map &out, std::string &key, uint32_t &unix_s) {
+  out = Map{};
+  const uint8_t *p = data, *end = data + size;
+  uint32_t key_size = 0, points = 0, areas = 0, runways = 0;
+  uint8_t cut = 0;
+  if (size < 4 || std::memcmp(p, detail::KEPT_MAGIC, 4) != 0) return false;
+  p += 4;
+  if (!detail::take(p, end, unix_s) || !detail::take(p, end, key_size) || (size_t) (end - p) < key_size) return false;
+  key.assign(reinterpret_cast<const char *>(p), key_size);
+  p += key_size;
+  if (!detail::take(p, end, cut) || !detail::take(p, end, points) || !detail::take(p, end, areas) ||
+      !detail::take(p, end, runways))
+    return false;
+  // Exactly the bytes those counts take, so a count cannot ask for more memory than came.
+  if ((uint64_t) points * 8 + (uint64_t) areas * 9 + (uint64_t) runways * 21 != (uint64_t) (end - p)) return false;
+  out.cut = cut != 0;
+  out.points.resize(points);
+  out.world.resize(points);
+  for (uint32_t i = 0; i < points; ++i) {
+    Point &q = out.points[i];
+    detail::take(p, end, q.lat), detail::take(p, end, q.lon);
+    out.world[i] = geo::world(q.lat, q.lon, 0);
+  }
+  out.areas.resize(areas);
+  for (Area &a : out.areas) {
+    uint8_t cls = 0;
+    detail::take(p, end, cls), detail::take(p, end, a.first), detail::take(p, end, a.count);
+    a.cls = (Class) cls;
+    if (cls > CLASS_D || a.first > points || a.count > points - a.first) return out = Map{}, false;
+  }
+  out.runways.resize(runways);
+  for (Runway &r : out.runways) {
+    int32_t length = 0;
+    uint8_t towered = 0;
+    detail::take(p, end, r.a.lat), detail::take(p, end, r.a.lon), detail::take(p, end, r.b.lat);
+    detail::take(p, end, r.b.lon), detail::take(p, end, length), detail::take(p, end, towered);
+    r.length_ft = length;
+    r.towered = towered != 0;
+    r.world_a = geo::world(r.a.lat, r.a.lon, 0);
+    r.world_b = geo::world(r.b.lat, r.b.lon, 0);
+  }
+  return true;
+}
 
 // ---- Drawing it
 

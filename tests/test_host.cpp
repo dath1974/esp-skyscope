@@ -167,6 +167,46 @@ static void test_airspace() {
   airspace::Map none;
   CHECK(!airspace::read_airspace(refused.c_str(), refused.size(), doc, none, airports, error));
   CHECK(error == "ADDS: Cannot perform query. Invalid query parameters.");
+  // Too busy, for everyone who asks: its own word, which waits longer (worker.cpp).
+  const std::string busy = R"({"error":{"code":429,"message":"Unable to perform query. Too many requests.","details":[]}})";
+  CHECK(!airspace::read_airspace(busy.c_str(), busy.size(), doc, none, airports, error) && error == airspace::BUSY);
+
+  // Kept in flash for the next start: the same map back, with what it answered and when; anything else refused.
+  {
+    const std::vector<uint8_t> bytes = airspace::pack(map, ask.airspace + ask.runways, 1700000000);
+    airspace::Map back;
+    std::string key;
+    uint32_t unix_s = 0;
+    CHECK(airspace::unpack(bytes.data(), bytes.size(), back, key, unix_s));
+    CHECK(key == ask.airspace + ask.runways && unix_s == 1700000000 && back.cut == map.cut);
+    CHECK(back.points.size() == map.points.size() && back.world.size() == map.world.size());
+    CHECK(back.areas.size() == map.areas.size() && back.runways.size() == map.runways.size());
+    bool same = true;
+    for (size_t i = 0; i < map.points.size(); ++i)
+      same &= back.points[i].lat == map.points[i].lat && back.points[i].lon == map.points[i].lon &&
+              back.world[i].x == map.world[i].x && back.world[i].y == map.world[i].y;
+    for (size_t i = 0; i < map.areas.size(); ++i)
+      same &= back.areas[i].cls == map.areas[i].cls && back.areas[i].first == map.areas[i].first &&
+              back.areas[i].count == map.areas[i].count;
+    for (size_t i = 0; i < map.runways.size(); ++i)
+      same &= back.runways[i].length_ft == map.runways[i].length_ft &&
+              back.runways[i].towered == map.runways[i].towered && back.runways[i].a.lat == map.runways[i].a.lat &&
+              back.runways[i].b.lon == map.runways[i].b.lon && back.runways[i].world_b.x == map.runways[i].world_b.x;
+    CHECK(same);
+    for (size_t cut : {(size_t) 0, (size_t) 3, (size_t) 20, bytes.size() - 1})
+      CHECK(!airspace::unpack(bytes.data(), cut, back, key, unix_s) && back.points.empty());
+    std::vector<uint8_t> longer = bytes;
+    longer.push_back(0);
+    CHECK(!airspace::unpack(longer.data(), longer.size(), back, key, unix_s));
+    std::vector<uint8_t> other = bytes;
+    other[3] = '2';  // another version's
+    CHECK(!airspace::unpack(other.data(), other.size(), back, key, unix_s));
+    // An area past the end of the points.
+    airspace::Map wrong = map;
+    wrong.areas[0].count = (uint32_t) map.points.size() + 1;
+    const std::vector<uint8_t> broken = airspace::pack(wrong, "k", 1);
+    CHECK(!airspace::unpack(broken.data(), broken.size(), back, key, unix_s) && back.areas.empty());
+  }
   for (const std::string &bad : {std::string("<html>"), std::string(""), areas.substr(0, areas.size() / 2),
                                 std::string(R"({"features":[{"attributes":{"CLASS":"B"},"geometry":{"rings":[[["x",1]]]}}]})")}) {
     error.clear();

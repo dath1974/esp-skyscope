@@ -14,6 +14,7 @@
 
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
+#include <nvs.h>
 
 #include <algorithm>
 #include <cstring>
@@ -112,8 +113,13 @@ class Cache {
 // that came but could not be read is fetched again at most this many times.
 constexpr uint32_t TILE_RETRY_FIRST_MS = 2000, TILE_RETRY_MOST_MS = 60000;
 // The FAA's airspace server is shared by everyone who asks it: a request that failed waits 30 s, then twice as long
-// each time it fails again, at most 15 minutes.
-constexpr uint32_t AIRSPACE_RETRY_FIRST_MS = 30000, AIRSPACE_RETRY_MOST_MS = 15 * 60000;
+// each time it fails again, at most 15 minutes. One it was too busy for waits a minute at least: its limit is of
+// requests a minute from all of them.
+constexpr uint32_t AIRSPACE_RETRY_FIRST_MS = 30000, AIRSPACE_RETRY_MOST_MS = 15 * 60000, AIRSPACE_BUSY_MS = 60000;
+// The airspace shown this long is kept in flash for the next start (airspace.h pack), so a map moved past, or a plane
+// followed step by step, does not write the flash each time.
+constexpr uint32_t AIRSPACE_KEEP_AFTER_MS = 60000;
+const char *const AIRSPACE_NVS = "skyscope_air", *const AIRSPACE_NVS_KEY = "map";
 constexpr int TILE_UNREADABLE_MOST = 3;
 // The map card (card.h): a download asks a tile every DOWNLOAD_GAP_MS at most, only while the map shown is whole; a
 // tile that fails waits 2 s, then twice as long each time, at most 5 minutes, and after DOWNLOAD_TRIES is left out.
@@ -132,6 +138,29 @@ const std::string JOB_PATH = std::string(card::ROOT) + "/tiles/job.txt";
 uint32_t unix_now() {
   const time_t t = ::time(nullptr);
   return t > 1600000000 ? (uint32_t) t : 0;
+}
+
+// The airspace kept in flash (airspace.h unpack): the map, the requests it answered and when; false if none is kept.
+bool load_airspace(airspace::Map &map, std::string &key, uint32_t &unix_s) {
+  nvs_handle_t h;
+  if (nvs_open(AIRSPACE_NVS, NVS_READONLY, &h) != ESP_OK) return false;
+  size_t size = 0;
+  bool ok = nvs_get_blob(h, AIRSPACE_NVS_KEY, nullptr, &size) == ESP_OK && size > 0 &&
+            size <= airspace::MOST_KEPT_BYTES + 1024;
+  if (ok) {
+    std::vector<uint8_t> bytes(size);  // in PSRAM, as any block this large
+    ok = nvs_get_blob(h, AIRSPACE_NVS_KEY, bytes.data(), &size) == ESP_OK &&
+         airspace::unpack(bytes.data(), size, map, key, unix_s);
+  }
+  nvs_close(h);
+  return ok;
+}
+bool keep_airspace(const std::vector<uint8_t> &bytes) {
+  nvs_handle_t h;
+  if (nvs_open(AIRSPACE_NVS, NVS_READWRITE, &h) != ESP_OK) return false;
+  const bool ok = nvs_set_blob(h, AIRSPACE_NVS_KEY, bytes.data(), bytes.size()) == ESP_OK && nvs_commit(h) == ESP_OK;
+  nvs_close(h);
+  return ok;
 }
 
 struct Pending {
@@ -287,6 +316,22 @@ void Skyscope::worker_() {
   providers::Providers providers;
   std::string airspace_asked;  // the requests (airspace.h Ask) the airspace shown answered
   uint32_t airspace_due = 0, airspace_wait = 0;
+  // The airspace shown: since when, whether from the network, and when its reply came (Unix seconds, 0 if unknown).
+  std::shared_ptr<const airspace::Map> airspace_shown;
+  uint32_t airspace_shown_at = 0, airspace_unix = 0;
+  bool airspace_fetched = false;
+  // The airspace kept in flash for a restart (airspace.h pack): read once here, and what it answered.
+  std::shared_ptr<const airspace::Map> kept_airspace;
+  std::string kept_airspace_key;
+  uint32_t kept_airspace_unix = 0;
+  {
+    auto map = std::make_shared<airspace::Map>();
+    if (load_airspace(*map, kept_airspace_key, kept_airspace_unix)) {
+      ESP_LOGI(TAG, "Airspace kept: %u areas, %u runways", (unsigned) map->areas.size(),
+               (unsigned) map->runways.size());
+      kept_airspace = std::move(map);
+    }
+  }
   const int width = width_, height = height_;
   uint32_t search_rev = 0, nominatim_at = 0, weather_ask = 0;
   bool was_offline = false, was_card = false;
@@ -884,7 +929,44 @@ void Skyscope::worker_() {
     // ---- The airspace and runways (airspace.h), once for each place and range while they are shown.
     if (settings.airspace && settings.range_nm <= airspace::MOST_RANGE_NM) {
       const airspace::Ask ask = airspace::ask(plan.view, settings.range_nm);
-      if (ask.airspace + ask.runways != airspace_asked && (int32_t) (now - airspace_due) >= 0) {
+      const std::string key = ask.airspace + ask.runways;
+      // The place and range of the last start's: the airspace kept for it, at once, with no request.
+      if (key != airspace_asked && kept_airspace && key == kept_airspace_key) {
+        airspace_asked = key;
+        airspace_shown = kept_airspace;
+        airspace_shown_at = now;
+        airspace_unix = kept_airspace_unix;
+        airspace_fetched = false;
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.airspace = kept_airspace;
+        shared_.airspace_rev++;
+        shared_.airspace_error.clear();
+        shared_.airspace_retry_at = 0;
+        shared_.airspace_kept = true;
+      }
+      // One kept too long is asked again, still shown meanwhile.
+      const uint32_t unix_s = unix_now();
+      const bool stale = key == airspace_asked && !airspace_fetched && unix_s &&
+                         (!airspace_unix || unix_s - airspace_unix > airspace::KEPT_DAYS * 86400);
+      // Kept for the next start once it has been shown a while: a new one, with its time known. The first after a
+      // start often comes before the clock is set; it takes the clock's time once it is (a minute or so out).
+      if (airspace_fetched && !airspace_unix) airspace_unix = unix_s;
+      if (key == airspace_asked && airspace_fetched && airspace_unix &&
+          (key != kept_airspace_key || airspace_unix != kept_airspace_unix) &&
+          now - airspace_shown_at >= AIRSPACE_KEEP_AFTER_MS) {
+        const std::vector<uint8_t> bytes = airspace::pack(*airspace_shown, key, airspace_unix);
+        // Tried once, kept or not (too large), until the next.
+        kept_airspace_key = key;
+        kept_airspace_unix = airspace_unix;
+        kept_airspace.reset();
+        if (bytes.size() <= airspace::MOST_KEPT_BYTES && keep_airspace(bytes)) {
+          kept_airspace = airspace_shown;
+          ESP_LOGI(TAG, "Airspace kept for the next start: %u bytes", (unsigned) bytes.size());
+        }
+      }
+      if ((key != airspace_asked || stale) && (int32_t) (now - airspace_due) >= 0) {
+        // Asking again for the airspace shown: a failure leaves it shown, with no error.
+        const bool refresh = key == airspace_asked;
         auto map = std::make_shared<airspace::Map>();
         std::vector<uint32_t> airports;
         std::string error;
@@ -907,13 +989,18 @@ void Skyscope::worker_() {
         body.clear();
         if (body.room > 256 * 1024) body.release();
         if (ok) {
-          airspace_asked = ask.airspace + ask.runways;
+          airspace_asked = key;
+          airspace_shown = map;
+          airspace_shown_at = millis();
+          airspace_unix = unix_now();
+          airspace_fetched = true;
           airspace_wait = 0;
           ESP_LOGI(TAG, "Airspace: %u areas (%u points), %u runways, %u bytes%s", (unsigned) map->areas.size(),
                    (unsigned) map->points.size(), (unsigned) map->runways.size(), (unsigned) bytes,
                    map->cut ? ", not all of it" : "");
         } else {
           airspace_wait = std::min(AIRSPACE_RETRY_MOST_MS, airspace_wait ? airspace_wait * 2 : AIRSPACE_RETRY_FIRST_MS);
+          if (error == airspace::BUSY) airspace_wait = std::max(airspace_wait, AIRSPACE_BUSY_MS);
           airspace_wait = std::max<uint32_t>(airspace_wait, r.retry_after_s * 1000);
           airspace_due = millis() + airspace_wait;
           ESP_LOGW(TAG, "Airspace: %s (HTTP %d), again in %u s", error.c_str(), r.status,
@@ -923,8 +1010,12 @@ void Skyscope::worker_() {
         if (ok) {
           shared_.airspace = std::move(map);
           shared_.airspace_rev++;
+          shared_.airspace_kept = false;
         }
-        shared_.airspace_error = ok ? std::string() : error;
+        if (!refresh) {
+          shared_.airspace_error = ok ? std::string() : error;
+          shared_.airspace_retry_at = ok ? 0 : airspace_due;
+        }
         shared_.airspace_bytes = bytes;
       }
     }

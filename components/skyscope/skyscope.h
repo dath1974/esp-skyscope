@@ -199,6 +199,8 @@ class Skyscope : public Component,
     std::shared_ptr<const airspace::Map> airspace;
     uint32_t airspace_rev = 0, airspace_bytes = 0;
     std::string airspace_error;
+    uint32_t airspace_retry_at = 0;  // millis() when a request that failed is made again, 0 for none
+    bool airspace_kept = false;  // the airspace shown is the one kept in flash from before the start, not asked
     // loop -> web: the firmware on the update server (web.cpp), as the update entity last told it.
     struct Firmware {
       bool known = false;  // a manifest was read

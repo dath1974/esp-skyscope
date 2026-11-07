@@ -1236,7 +1236,7 @@ void Skyscope::update_status_(uint32_t now) {
   Feed source = ADSB_FI;
   uint32_t feed_at;
   int done, total;
-  uint32_t radar_scan = 0;
+  uint32_t radar_scan = 0, airspace_retry_at = 0;
   int missing = 0;
   bool downloading = false;
   size_t download_next = 0, download_total = 0;
@@ -1250,6 +1250,7 @@ void Skyscope::update_status_(uint32_t now) {
     source = shared_.feed_source;
     tile_error = shared_.tile_error;
     airspace_error = shared_.airspace_error;
+    airspace_retry_at = shared_.airspace_retry_at;
     feed_at = shared_.feed_at;
     done = shared_.tiles_done;
     total = shared_.tiles_total;
@@ -1331,6 +1332,8 @@ void Skyscope::update_status_(uint32_t now) {
     status += "  \xC2\xB7  card " + std::to_string(download_next) + "/" + std::to_string(download_total);
   if (shown.airspace && !airspace_error.empty()) {
     status += "  \xC2\xB7  airspace: " + airspace_error;
+    const int32_t left_ms = (int32_t) (airspace_retry_at - now);
+    if (airspace_retry_at && left_ms > 0) status += ", again in " + std::to_string((left_ms + 999) / 1000) + " s";
     colour = colour == ink ? colours::WARNING : colour;
   }
   set_text(status_, status);
