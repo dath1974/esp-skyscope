@@ -32,6 +32,11 @@ esp32:
     advanced:
       assertion_level: SILENT
       loop_task_stack_size: 16384
+    # The program runs from PSRAM, not flash, so writing the flash (an update, a saved setting) need not turn off the
+    # cache that the flash and the PSRAM share: with it off, the panel's frame could not be read from the PSRAM and
+    # the glass flashed through the whole of an update.
+    sdkconfig_options:
+      CONFIG_SPIRAM_XIP_FROM_PSRAM: y
 
 psram:
   mode: hex
