@@ -6,7 +6,7 @@ The boards the screen runs on, and what is particular to each. Back to the [READ
 |---|---|
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` (the default) |
 | Waveshare ESP32-S3-Touch-LCD-2.8B (Rev 1.1, 480 × 640) | `boards/waveshare-lcd-28b.yaml` |
-| Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720; not yet tried on a real one) | `boards/waveshare-p4-lcd-4c.yaml` |
+| Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720) | `boards/waveshare-p4-lcd-4c.yaml` |
 
 `skyscope.yaml` builds the board its `board` substitution names: `esphome -s board waveshare-p4-lcd-4c run
 skyscope.yaml`, or `make firmware BOARD=waveshare-p4-lcd-4c`. A release publishes each board's firmware separately,

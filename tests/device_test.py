@@ -379,9 +379,9 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
         glass.tap_key(row["edit"])
         editor = wait_for(lambda: (glass.menu() or {}).get("editor"), 5, 0.3)
         if run.check(editor is not None, "a tap on it opens the keyboard"):
-            glass.type_in(editor, "999")
+            glass.type_in(editor, "9999")
             editor = wait_for(lambda: (glass.menu() or {}).get("editor"), 2, 0.3)
-            run.check(editor is not None and editor["refused"], "999 NM is refused, and the keyboard stays")
+            run.check(editor is not None and editor["refused"], "9999 NM is refused, and the keyboard stays")
             if editor:
                 glass.type_in(editor, "12")
             run.check(wait_for(lambda: not (glass.menu() or {}).get("editor"), 5, 0.3) is not None, "Done closes it")

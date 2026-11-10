@@ -40,7 +40,7 @@ How each of these works on the glass: [docs/using.md](docs/using.md).
 |---|---|
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 (Rev 2.0) | `boards/waveshare-amoled-241.yaml` (the default) |
 | Waveshare ESP32-S3-Touch-LCD-2.8B (Rev 1.1, 480 × 640) | `boards/waveshare-lcd-28b.yaml` |
-| Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720; not yet tried on a real one) | `boards/waveshare-p4-lcd-4c.yaml` |
+| Waveshare ESP32-P4-WIFI6-Touch-LCD-4C (round, 720 × 720) | `boards/waveshare-p4-lcd-4c.yaml` |
 
 Notes on each board, the P4's radio, the map card's wiring, and adding a board: [docs/hardware.md](docs/hardware.md).
 
