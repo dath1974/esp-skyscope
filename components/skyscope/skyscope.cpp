@@ -1281,10 +1281,12 @@ void Skyscope::update_status_(uint32_t now) {
   const Feed preferred = shown.feed;
   const providers::State &first = sources.state(preferred);
   if (sources.order().size == 0) {
-    // The receiver chosen with no address, or the radio on a screen without one, and no other source allowed.
-    status = preferred == RADIO ? "This screen has no radio: choose another source"
-                                : "No receiver address: set it on the web page";
-    color = colors::WARNING;
+    // The receiver chosen with no address, or the radio on a screen without one, and no other source allowed: a choice
+    // still to make, not a fault, so in the ordinary color. A screen with a radio points to it: its USB stick is a
+    // receiver too, and the likelier one meant.
+    if (preferred == RADIO) status = "This screen has no radio: choose another source";
+    else if (radio_fitted) status = "No receiver address: set one, or choose USB radio for the stick";
+    else status = "No receiver address: set it on the web page";
   } else if (sources.all_blocked(now) && (feed_at == 0 || now - feed_at > 60000)) {
     // Every exchange it may ask is waiting: the one free soonest, and when.
     Feed next = preferred;
@@ -1309,10 +1311,9 @@ void Skyscope::update_status_(uint32_t now) {
     // While the preferred exchange waits, how long it still waits. Where the planes come from is in the credits.
     if (first.blocked && providers::before(now, first.until))
       status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);
-    if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) {
-      status += " (" + std::to_string((now - feed_at) / 1000) + " s old)";
-      color = colors::WARNING;
-    }
+    // How long since the planes last came in, always: in the warning color once they are well out of date.
+    status += "  \xC2\xB7  " + std::to_string((now - feed_at) / 1000) + " s ago";
+    if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) color = colors::WARNING;
   }
   // Off a network, the planes are the radio's alone, and said so.
   if (offline_) status += "  \xC2\xB7  no Wi-Fi";

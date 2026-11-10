@@ -61,7 +61,7 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps (with the scope)</label>
 </section>
 <section><h2>Aircraft</h2>
-<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">Your own receiver</option><option value="radio" hidden>This screen's radio</option></select></div>
+<div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">A receiver on your network</option><option value="radio" hidden>This screen's radio (USB stick)</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
 <div id="receiver"><label for="receiver_url">Receiver address</label><input id="receiver_url" name="receiver_url" placeholder="http://receiver.local/tar1090/data/aircraft.json">
 <p class="hint">The aircraft.json of a receiver on your network (readsb, tar1090, dump1090-fa). It lists every plane it hears; the screen shows the ones on its map. {lat}, {lon} and {dist} in the address are replaced by the place and range, for a server that takes them.</p></div>

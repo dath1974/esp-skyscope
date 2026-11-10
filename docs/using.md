@@ -34,10 +34,12 @@ does not publish.
 
 ## Aircraft
 
-Planes come from adsb.fi or adsb.lol, a receiver of your own (its `aircraft.json`), or on the P4 board the screen's
-own radio ([docs/hardware.md](hardware.md#the-screens-own-radio-esp32-p4)). If the chosen source is unavailable the
-screen can fall back to another. The credit at the bottom of the glass names the source. A receiver that marks its
-planes as simulated is credited as **simulated**, so made-up planes are never mistaken for real ones.
+Planes come from adsb.fi or adsb.lol, a receiver on your network (**Network receiver**: its `aircraft.json`, by the
+address you give it), or on the P4 board the screen's own radio, an RTL-SDR stick in its USB port (**USB radio**;
+[docs/hardware.md](hardware.md#the-screens-own-radio-esp32-p4)). If the chosen source is unavailable the screen can
+fall back to another. The credit at the bottom of the glass names the source, and the status line says how many
+seconds ago the planes last came in (orange once they are well out of date). A receiver that marks its planes as
+simulated is credited as **simulated**, so made-up planes are never mistaken for real ones.
 
 - **Markers**: each plane is drawn as what it is (airliner, wide-body, four-engined, business jet, turboprop, light
   aircraft, helicopter, fast jet, glider, balloon, airship, drone, ground vehicle), or every plane as one plane shape,

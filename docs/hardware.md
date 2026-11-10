@@ -37,8 +37,9 @@ holds, the status, credit and plane cards moved in from the edge, and no plane o
 
 An RTL-SDR stick in the P4 board's USB-A port makes the screen a receiver of its own: the FlightAware Pro Stick Plus,
 or any stick with an RTL2832U and an R820T or R820T2 tuner. The screen tunes it to 1090 MHz and decodes the planes
-itself, as dump1090 does on a computer. It appears as **Radio** among the sources (only on a screen built with one),
-and the web page's status shows its messages a second and planes heard.
+itself, as dump1090 does on a computer. It appears among the sources as **USB radio** on the glass and **This
+screen's radio (USB stick)** on the web page (only on a screen built with one), and the web page's status shows its
+messages a second and planes heard.
 
 **No network needed.** When a screen with a radio has been off a network for 20 seconds, it shows the planes the radio
 hears, whatever source is set, and the status line ends with **no Wi-Fi**. With a map card the chosen map stays, drawn
