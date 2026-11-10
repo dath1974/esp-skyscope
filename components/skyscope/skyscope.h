@@ -302,6 +302,7 @@ class Skyscope : public Component,
   void open_picker_(Picking what);
   void refresh_picker_();       // its line, from the search or the scan under way
   void fill_picker_();          // its items, built again
+  bool picker_stale_{false};    // a scan answered under a finger: its items built again once it lifts
   void picker_pick_(int index);
   void close_picker_();
   void scan_networks_();

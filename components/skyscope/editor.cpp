@@ -38,6 +38,13 @@ enum { KEY_UP, KEY_DOWN, KEY_FORGET };
 constexpr uint32_t FORGET_MS = 4000;  // Forget's second tap, within this
 constexpr size_t MOST_NETWORKS = 12;
 
+// A finger on the glass (or the test API's touch): a list built again under it loses the key it is on, and its tap.
+bool pressed() {
+  for (lv_indev_t *i = lv_indev_get_next(nullptr); i; i = lv_indev_get_next(i))
+    if (lv_indev_get_state(i) == LV_INDEV_STATE_PRESSED) return true;
+  return false;
+}
+
 // A panel over everything, the size of the glass, in the menu's colors.
 lv_obj_t *panel(int width, int height, uint32_t ground) {
   lv_obj_t *p = plain(lv_screen_active());
@@ -458,6 +465,10 @@ void Skyscope::known_key_(int code) {
 
 void Skyscope::refresh_picker_() {
   if (!picker_) return;
+  if (picker_stale_ && !pressed()) {
+    picker_stale_ = false;
+    fill_picker_();
+  }
   if (picking_ == PICKING_PLACES) {
     if (searching_) {
       std::string q;
@@ -553,6 +564,7 @@ void Skyscope::close_picker_() {
   networks_.clear();
   networks_.shrink_to_fit();
   scanning_until_ = 0;
+  picker_stale_ = false;
 }
 
 // ---------------------------------------------------------------- Wi-Fi
@@ -589,7 +601,9 @@ void Skyscope::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiFiSca
   if (!picker_ || picking_ != PICKING_NETWORKS) return;
   networks_from_(results);
   scanning_until_ = 0;
-  fill_picker_();
+  // A scan takes some seconds (longer through the P4's Wi-Fi chip) and may end mid-tap: then the list waits.
+  if (pressed()) picker_stale_ = true;
+  else fill_picker_();
   refresh_picker_();
 }
 
