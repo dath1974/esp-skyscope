@@ -19,6 +19,9 @@ constexpr size_t TRANSFER_BYTES = 16384;   // each: 4 ms of samples, a whole num
 constexpr size_t STREAM_BYTES = 2u << 20;  // half a second of samples, in PSRAM
 constexpr size_t BLOCK_BYTES = 65536;      // what the demodulator takes at a time: 16 ms
 constexpr uint32_t STALL_MS = 3000;        // no samples for this long: the stick is opened afresh
+constexpr uint32_t PORT_CYCLE_MS = 5000;   // nothing found on the port for this long: it is switched off and on
+constexpr int PORT_CYCLES = 3;             // that many times at most, until something is found
+constexpr uint32_t STOP_MS = 3000;         // stop() waits this long at most (the loop's watchdog allows 5 s)
 constexpr int CORE = 0;                    // the worker's
 constexpr UBaseType_t USB_PRIORITY = 6, RADIO_PRIORITY = 5, DEMOD_PRIORITY = 4;  // the worker runs at 3
 }  // namespace
@@ -79,11 +82,46 @@ void Radio::radio_main(void *arg) {
     return;
   }
   self->set_state("No radio: plug in the stick");
+  uint32_t waiting_since = millis();
+  int cycles = 0;
   for (;;) {
+    if (self->stopping_) {
+      usb_host_lib_set_root_port_power(false);
+      self->stopped_ = true;
+      vTaskDelay(portMAX_DELAY);
+    }
     usb_host_client_handle_events(self->client_, pdMS_TO_TICKS(500));
     const int address = self->new_address_.exchange(0);
-    if (address) self->run_stick((uint8_t) address);
+    if (address) {
+      self->streamed_ = false;
+      self->run_stick((uint8_t) address);
+      if (self->streamed_) cycles = 0;
+      waiting_since = millis();
+      continue;
+    }
+    // A stick left streaming by a reset that kept its power (a crash, the watchdog, the reset button) does not answer
+    // when it is first asked what it is, and is then never heard of again: the port off and on has it found afresh.
+    // A few times at most until a stick has streamed, so a port with nothing on it (or something that is no radio) is
+    // left alone after that.
+    if (cycles < PORT_CYCLES && millis() - waiting_since > PORT_CYCLE_MS) {
+      ++cycles;
+      const esp_err_t off = usb_host_lib_set_root_port_power(false);
+      vTaskDelay(pdMS_TO_TICKS(500));
+      const esp_err_t on = usb_host_lib_set_root_port_power(true);
+      ESP_LOGI(TAG, "No stick found on the USB port: switched off (%s) and on (%s), %d of %d", esp_err_to_name(off),
+               esp_err_to_name(on), cycles, PORT_CYCLES);
+      waiting_since = millis();
+    }
   }
+}
+
+void Radio::stop() {
+  if (!client_ || stopped_) return;
+  stopping_ = true;
+  // The stream's transfers back (up to 2 s, run_stick), then the port off.
+  const uint32_t asked = millis();
+  while (!stopped_ && millis() - asked < STOP_MS) vTaskDelay(pdMS_TO_TICKS(10));
+  ESP_LOGI(TAG, stopped_ ? "Stopped for the restart" : "Not stopped in time for the restart");
 }
 
 // A device plugged in at `address`: if it is a stick, opened, tuned and streamed until it is pulled out or stalls.
@@ -142,10 +180,11 @@ void Radio::run_stick(uint8_t address) {
     set_state("The radio's stream would not start");
   } else {
     streaming_ = true;
+    streamed_ = true;
     set_state("Listening at 1090 MHz");
     last_bytes_at_ = millis();
     uint64_t seen = bytes_;
-    while (!gone_) {
+    while (!gone_ && !stopping_) {
       usb_host_client_handle_events(client_, pdMS_TO_TICKS(100));
       const uint64_t now_bytes = bytes_;
       if (now_bytes != seen) {
@@ -171,8 +210,8 @@ void Radio::run_stick(uint8_t address) {
   for (auto *t : transfers)
     if (t) usb_host_transfer_free(t);
   stick.close();
-  // A stall rather than a pull: the same stick is opened again at once.
-  if (!gone_) new_address_ = address;
+  // A stall rather than a pull: the same stick is opened again at once (not with a restart coming).
+  if (!gone_ && !stopping_) new_address_ = address;
 }
 
 void Radio::on_stream(usb_transfer_t *t) {

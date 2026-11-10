@@ -129,9 +129,12 @@ class Skyscope : public Component,
 
   void setup() override;
   // A change still waiting its few seconds to be saved is saved before any restart (the API's, a network joined, new
-  // firmware): it would be lost otherwise.
+  // firmware): it would be lost otherwise. The radio is stopped too: a restart mid-stream hangs (radio.h).
   void on_safe_shutdown() override {
     if (save_pending_) save_settings_();
+#ifdef USE_SKYSCOPE_RADIO
+    if (radio_) radio_->stop();
+#endif
   }
   void loop() override;
   void dump_config() override;

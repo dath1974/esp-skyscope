@@ -52,6 +52,10 @@ class Radio {
 
   // The tasks started; the stick is opened whenever one is plugged in.
   void start(const Config &config);
+  // Before a restart: the stream stopped, the stick closed and the port switched off, waited for a moment. A restart
+  // with the stick's transfers still in flight hung until the chip's watchdog reset it, and the firmware just
+  // installed was thrown away for it.
+  void stop();
   bool streaming() const { return streaming_; }
   std::string state() {
     std::lock_guard<std::mutex> guard(lock_);
@@ -82,6 +86,8 @@ class Radio {
   std::atomic<int> new_address_{0};  // a device just plugged in, or 0
   std::atomic<bool> gone_{false};    // the stick open now was pulled out
   std::atomic<bool> streaming_{false};
+  std::atomic<bool> stopping_{false}, stopped_{false};  // a restart coming (stop()), and the radio ready for it
+  bool streamed_ = false;  // run_stick got the stick streaming (the radio task's own)
   std::atomic<int> in_flight_{0};
   std::atomic<uint64_t> bytes_{0}, dropped_{0};
   std::atomic<uint32_t> transfer_errors_{0};
