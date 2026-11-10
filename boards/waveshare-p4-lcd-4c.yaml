@@ -20,9 +20,10 @@ esp32:
   # The chip has 32 MB, but ESPHome updates over the air past 16 MB only with ESP-IDF's experimental features: 16 MB
   # holds two firmwares with room to spare.
   flash_size: 16MB
-  # Production silicon is rated for 400 MHz, but ESPHome still marks it experimental (it may not boot) and Waveshare
-  # lists the board at up to 360 MHz.
-  cpu_frequency: 360MHz
+  # Production silicon is rated for 400 MHz, and ESP-IDF offers nothing else for it: asked for 360 MHz, it ran at 400
+  # all the same. ESPHome warns that 400 MHz is experimental on the P4 (early chips may not boot at it), but a v3.2
+  # board runs it through every test.
+  cpu_frequency: 400MHz
   # Production silicon (v3.x), as the 4C ships and Waveshare's own examples assume. A board with an early chip (its boot
   # log says "chip revision: v1.x") would need engineering_sample: true and a build of its own: firmware for one does
   # not start on the other.
@@ -31,12 +32,19 @@ esp32:
     version: recommended
     advanced:
       assertion_level: SILENT
+      # Built for speed, not size: there is room for it (two firmwares of 7.75 MB each), and the map's planes are
+      # drawn faster.
+      compiler_optimization: PERF
       loop_task_stack_size: 16384
     # The program runs from PSRAM, not flash, so writing the flash (an update, a saved setting) need not turn off the
     # cache that the flash and the PSRAM share: with it off, the panel's frame could not be read from the PSRAM and
     # the glass flashed through the whole of an update.
+    # The cache reads the PSRAM 128 bytes at a time, not 64: the map is drawn from long rows of pixels there, and a
+    # frame of planes over it takes up to a fifth less time. A cache of 256 KB (not 128) took up to a quarter off
+    # again, but its 128 KB more come out of the internal RAM that the radio and the card need too.
     sdkconfig_options:
       CONFIG_SPIRAM_XIP_FROM_PSRAM: y
+      CONFIG_CACHE_L2_CACHE_LINE_128B: y
 
 psram:
   mode: hex
