@@ -21,7 +21,9 @@ button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 16px
 button.plain{background:transparent;color:var(--accent);border:1px solid var(--line)}
 .bar{position:sticky;bottom:0;background:var(--bg);padding:10px 0;display:flex;gap:10px;align-items:center}
 #msg{font-size:14px}.bad{color:var(--bad)}#status{font-size:14px;color:var(--muted)}#found button{display:block;width:100%;text-align:left;margin:4px 0}
-@media (max-width:520px){.row,.row3{grid-template-columns:1fr}}
+#hours{display:flex;align-items:flex-end;gap:2px;height:70px;margin:10px 0 2px}#hours div{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px}
+.hlabels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cols ol{margin:4px 0;padding-left:22px}
+@media (max-width:520px){.row,.row3,.cols{grid-template-columns:1fr}}
 </style></head><body><main>
 <h1>Skyscope</h1><div id="status">Loading...</div>
 <form id="f">
@@ -77,8 +79,10 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Color by altitude</label>
 <label class="check"><input type="checkbox" id="glide" name="glide"> Glide between reports</label>
 <label class="check"><input type="checkbox" id="ground" name="ground"> Show aircraft on the ground</label>
+<label class="check"><input type="checkbox" id="photos" name="photos"> A photo on a plane's card</label>
+<p class="hint">The plane's latest photo from Planespotters.net, with its photographer and a QR code to the photo's page there (scan it with a phone to see it full size). Asked when a card opens, and kept only while it is open.</p>
 <label for="watch">Watched aircraft</label><textarea id="watch" placeholder="N12345 red&#10;BAW123 blue"></textarea>
-<p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring.</p>
+<p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring, and one coming into range shows along the top of the screen.</p>
 </section>
 <section><h2>Screen</h2>
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
@@ -103,6 +107,9 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 </div>
 <label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
+<label for="password">Password for this page</label><input id="password" type="password" autocomplete="new-password" maxlength="32">
+<label class="check"><input type="checkbox" id="password_clear"> No password</label>
+<p class="hint" id="password_hint">Asked for this page and every request of its API (the user name is admin; up to 32 characters). Leave it empty to keep the one there is. Forgotten, it can be changed or removed in the screen's own menu (Screen, Web password). ESPHome's own updates over the network and Home Assistant have keys of their own.</p>
 </section>
 <section><h2>Weather</h2>
 <label for="weather_station">Station for the weather page</label><input id="weather_station" name="weather_station" maxlength="4" placeholder="The nearest to the place">
@@ -111,12 +118,20 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <label class="check"><input type="checkbox" id="radar_loop" name="radar_loop"> Play the radar's last hour as a loop</label>
 <p class="hint">The composite of the NWS radars from the Iowa Environmental Mesonet, a new scan every five minutes. The loop shows the last hour a scan at a time; each scan is fetched once.</p>
 </section>
+<section id="stats"><h2>Today in range</h2>
+<p id="stats_text">Nothing seen yet.</p>
+<div id="hours"></div><div class="hlabels"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+<div class="cols"><div><label>Commonest types</label><ol id="stats_types"></ol></div><div><label>Commonest operators</label><ol id="stats_operators"></ol></div></div>
+<p id="stats_records"></p><p class="hint" id="stats_days"></p>
+<p><a href="api/log" download="skyscope-log.csv">Download the log</a> <span class="hint">(the latest visits, as CSV; a screen with a map card keeps every day's in its log folder)</span></p>
+<p class="hint">The planes within the range of the place (up to 250 NM), told apart by their transponders' addresses, since midnight by the screen's clock. Only the planes around the place count: none while a plane is followed elsewhere. A watched plane coming into range, or one squawking an emergency (7500, 7600, 7700), shows along the top of the screen, and Home Assistant hears of it too.</p>
+</section>
 <section id="card" style="display:none"><h2>Map card</h2>
 <p id="card_text"></p>
 <div class="bar" style="position:static;padding:0"><button type="button" class="plain" id="card_mount" style="display:none">Look for the card again</button>
 <button type="button" class="plain" id="card_clear" style="display:none">Clear the screen's tiles</button>
 <button type="button" class="plain" id="card_format" style="display:none">Format the card</button></div>
-<p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32, and the screen formats one that is not (a new card larger than 32 GB comes as exFAT); it keeps its tiles in a folder named tiles and leaves the rest alone. Clearing deletes only its tiles, a few at a time while it has nothing else to do; formatting erases everything on the card.</p>
+<p class="hint">Every map tile the screen fetches is kept on the SD card in its slot, so a map seen once comes back without downloading it again, after a restart too. OpenStreetMap's and Esri's tiles are kept as long as their servers allow, the FAA's charts for 28 days and the USGS map for 90; then they are fetched again, and an old one is still shown if that fails. The card must be FAT32, and the screen formats one that is not (a new card larger than 32 GB comes as exFAT); it keeps its tiles in a folder named tiles and its log of the planes seen in one named log, and leaves the rest alone. Clearing deletes only its tiles, a few at a time while it has nothing else to do; formatting erases everything on the card.</p>
 <div class="row3"><div><label for="dl_map">Download an area of</label><select id="dl_map"><option value="sectional">FAA VFR sectional</option><option value="ifr_low">FAA IFR area charts, low</option><option value="ifr_high">FAA IFR high enroute</option><option value="topo">USGS topographic</option></select></div>
 <div><label for="dl_radius">Around the place (NM)</label><input id="dl_radius" type="number" min="1" max="250" value="100"></div>
 <div><label for="dl_zoom">Down to</label><select id="dl_zoom"></select></div></div>
@@ -135,10 +150,11 @@ button.plain{background:transparent;color:var(--accent);border:1px solid var(--l
 <script>
 const $=id=>document.getElementById(id),f=$('f');
 const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
-const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop'];
+const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','photos','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop'];
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
-function show(s){NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
+function show(s){$('password').value='';$('password_clear').checked=false;$('password').placeholder=s.password_set?'A password is set':'None';
+ NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.color).join('\n');
  $('q').value=s.place||'';
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
@@ -171,6 +187,7 @@ async function load(){const r=await fetch('api/settings');show(await r.json())}
 f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value!=='')s[k]=Number($(k).value)});
  BOOL.forEach(k=>s[k]=$(k).checked);TXT.forEach(k=>s[k]=$(k).value);s.metric=$('metric').value==='true';
  s.watch=$('watch').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const p=l.split(/\s+/);return{id:p[0],color:(p[1]||'red').toLowerCase()}});
+ if($('password_clear').checked)s.password='';else if($('password').value)s.password=$('password').value;
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
@@ -327,6 +344,23 @@ async function firmware(body){clearTimeout(fw_timer);let next=5000;
  fw_timer=setTimeout(firmware,next)}
 $('fw_check').onclick=()=>{$('fw_text').textContent='Asking the update server...';firmware({check:true})};
 $('fw_install').onclick=()=>{if(confirm('Install '+$('fw_install').textContent.slice(8)+'? The screen restarts when it is done.')){fw_was=fw_now;firmware({install:true})}};
-load();status();setInterval(status,5000);firmware();
+// What the screen has seen today (/api/stats), in words.
+function nm(v,metric){return metric?(v*1.852).toFixed(1)+' km':v.toFixed(1)+' NM'}
+function stats_words(j,metric){if(!j.date)return'Nothing seen yet.';
+ let t=j.planes+(j.planes===1?' plane':' planes')+' in range on '+j.date+' ('+j.visits+(j.visits===1?' visit':' visits')+'), '+j.in_range+' now, '+j.busiest+' at once at most.';
+ if(j.watched)t+=' '+j.watched+' watched.';if(j.emergencies)t+=' '+j.emergencies+(j.emergencies===1?' emergency.':' emergencies.');return t}
+function records_words(j,metric){const r=[];
+ if(j.closest_nm)r.push('Nearest: '+j.closest_nm.name+', '+nm(j.closest_nm.value,metric));
+ if(j.highest_ft)r.push('highest: '+j.highest_ft.name+', '+(metric?Math.round(j.highest_ft.value*0.3048)+' m':Math.round(j.highest_ft.value)+' ft'));
+ if(j.fastest_kt)r.push('fastest: '+j.fastest_kt.name+', '+(metric?Math.round(j.fastest_kt.value*1.852)+' km/h':Math.round(j.fastest_kt.value)+' kt'));
+ return r.length?r.join('; ')+'.':''}
+function list_into(el,items){el.textContent='';items.forEach(c=>{const li=document.createElement('li');li.textContent=c.name+' ('+c.count+')';el.appendChild(li)})}
+async function stats(){try{const j=await(await fetch('api/stats')).json(),metric=$('metric').value==='true';
+ $('stats_text').textContent=stats_words(j,metric);$('stats_records').textContent=records_words(j,metric);
+ const most=Math.max(1,...j.hours);$('hours').textContent='';j.hours.forEach((n,h)=>{const d=document.createElement('div');
+  d.style.height=Math.round(100*n/most)+'%';d.title=h+':00, '+n+(n===1?' plane':' planes');$('hours').appendChild(d)});
+ list_into($('stats_types'),j.types);list_into($('stats_operators'),j.operators);
+ $('stats_days').textContent=j.days.length>1?'The days before: '+j.days.slice(0,-1).reverse().map(d=>d.date+' '+d.planes).join(', ')+'.':''}catch(e){}}
+load();status();setInterval(status,5000);firmware();stats();setInterval(stats,60000);
 </script></body></html>)HTML";
 }  // namespace esphome::skyscope

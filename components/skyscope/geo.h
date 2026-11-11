@@ -44,6 +44,55 @@ inline Place destination(double lat, double lon, double bearing, double meters) 
   return {degrees(p2), std::remainder(degrees(l2), 360.0)};
 }
 
+// The bearing from one place to another as a great circle sets off, degrees from true north (0 to 360).
+inline double bearing(double lat1, double lon1, double lat2, double lon2) {
+  const double p1 = radians(lat1), p2 = radians(lat2), dl = radians(lon2 - lon1);
+  const double y = std::sin(dl) * std::cos(p2);
+  const double x = std::cos(p1) * std::sin(p2) - std::sin(p1) * std::cos(p2) * std::cos(dl);
+  const double b = std::atan2(y, x);
+  return std::fmod(degrees(b) + 360.0, 360.0);
+}
+// The nearest of the eight compass points to a bearing: "N", "NE", ... "NW".
+inline const char *compass_point(double bearing) {
+  static const char *const POINTS[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+  const int i = (int) std::floor(std::fmod(bearing + 360.0 + 22.5, 360.0) / 45.0);
+  return POINTS[i % 8];
+}
+
+// Where to look for a plane from a spot on the ground: which way, how high above the horizon and how far; and, for one
+// moving, how near it comes and when. The ground is taken at sea level, as the planes' altitudes are, and the earth's
+// curve is allowed for (a plane at 35,000 ft 150 NM away is below the horizon).
+struct Sight {
+  double bearing = 0;    // degrees from true north
+  double elevation = 0;  // degrees above the horizon; below 0 behind it
+  double meters = 0;     // along the ground
+  // Coming nearer: how near it passes (along the ground) and in how many seconds, from its course and speed as they
+  // are; false for one going away, or whose course and speed are not known.
+  bool nearing = false;
+  double closest_meters = 0, closest_s = 0;
+};
+inline Sight sight(double lat, double lon, double plane_lat, double plane_lon, double height_m, bool moving = false,
+                   double speed_mps = 0, double track = 0) {
+  Sight s;
+  s.meters = meters_between(lat, lon, plane_lat, plane_lon);
+  s.bearing = bearing(lat, lon, plane_lat, plane_lon);
+  // Above the spot, less what the earth's curve drops away over the distance.
+  const double rise = height_m - s.meters * s.meters / (2 * EARTH_METERS);
+  s.elevation = s.meters < 1 ? 90.0 : degrees(std::atan2(rise, s.meters));
+  if (moving && speed_mps > 0) {
+    // On a flat map around the spot: near enough for any plane that can be seen.
+    const double x = s.meters * std::sin(radians(s.bearing)), y = s.meters * std::cos(radians(s.bearing));
+    const double vx = speed_mps * std::sin(radians(track)), vy = speed_mps * std::cos(radians(track));
+    const double t = -(x * vx + y * vy) / (vx * vx + vy * vy);
+    if (t > 0) {
+      s.nearing = true;
+      s.closest_s = t;
+      s.closest_meters = std::hypot(x + vx * t, y + vy * t);
+    }
+  }
+  return s;
+}
+
 // The place `f` of the way (0 to 1) along the great circle from one place to another.
 inline Place between(double lat1, double lon1, double lat2, double lon2, double f) {
   const double p1 = radians(lat1), l1 = radians(lon1), p2 = radians(lat2), l2 = radians(lon2);

@@ -9,7 +9,9 @@
 // They meet in `Shared` under `lock_`, and the base frame under `frame_lock_`. The web page and its API (web.cpp) run
 // in the HTTP server's task and only ever read a copy of the settings or hand a new one to the loop. The worker also
 // finds the places typed in the menu (places.h), and the plane followed (follow.h), whose view the loop moves with it.
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/font/font.h"
 #include "esphome/components/lvgl/lvgl_esphome.h"
@@ -51,10 +53,12 @@
 #include "overlay.h"
 #include "pinch.h"
 #include "radar.h"
+#include "photos.h"
 #include "places.h"
 #include "providers.h"
 #include "touch.h"
 #include "settings.h"
+#include "sightings.h"
 #include "tiles.h"
 #include "view.h"
 #include "weather.h"
@@ -64,6 +68,19 @@
 
 namespace esphome::skyscope {
 using namespace ::sky;
+
+// A plane's photo as the card shows it (photos.h): what the API said, and its pixels, decoded in PSRAM and freed with
+// it. Held only while the card shows it, as Planespotters.net's terms ask.
+struct PhotoImage {
+  std::string hex;
+  photos::Photo photo;
+  uint16_t *pixels = nullptr;
+  int width = 0, height = 0;
+  PhotoImage() = default;
+  PhotoImage(const PhotoImage &) = delete;
+  PhotoImage &operator=(const PhotoImage &) = delete;
+  ~PhotoImage();
+};
 
 // The screen's own IPv4 address on its network, "" while it has none.
 std::string own_address();
@@ -127,11 +144,29 @@ class Skyscope : public Component,
   void on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *component) override;
 #endif
 
+  // For Home Assistant, through ESPHome's own API (home-assistant.yaml): what the screen sees, and the screen itself.
+  // Each alert as it comes: its kind ("watched", "emergency"), the plane's name and the words.
+  void add_on_alert_callback(std::function<void(std::string, std::string, std::string)> &&f) {
+    alert_callbacks_.add(std::move(f));
+  }
+  const std::string &last_alert() const { return last_alert_; }
+  uint32_t planes_in_range();   // in the last report around the place
+  uint32_t planes_today();      // told apart by their address, since local midnight
+  std::string nearest_plane();  // its name, "" for none
+  float nearest_nm();           // NAN for none
+  float nearest_altitude_ft();  // NAN for none, or on the ground
+  std::string followed_state();  // "" while none is followed; else looking, live, lost, landed or gave_up
+  bool screen_on() const { return !asleep_; }
+  void set_screen_on(bool on);
+  int brightness() const { return settings_.brightness; }
+  void set_brightness(int percent);
+
   void setup() override;
   // A change still waiting its few seconds to be saved is saved before any restart (the API's, a network joined, new
   // firmware): it would be lost otherwise. The radio is stopped too: a restart mid-stream hangs (radio.h).
   void on_safe_shutdown() override {
     if (save_pending_) save_settings_();
+    save_stats_();
 #ifdef USE_SKYSCOPE_RADIO
     if (radio_) radio_->stop();
 #endif
@@ -219,7 +254,21 @@ class Skyscope : public Component,
     follow::Follower follower;
     std::string follower_for;
     uint32_t follower_rev = 0;
-    follow::Route route;  // where it flies from and to, in a build with routes (follow.h)
+    follow::Route route;  // where it flies from and to (follow.h)
+    // loop -> worker: the plane picked on the glass, for the route on its card; worker -> loop: that route.
+    follow::RouteAsk route_ask;
+    uint32_t route_ask_rev = 0;
+    follow::Route picked_route;
+    uint32_t picked_route_rev = 0;
+    // loop -> worker: the plane whose photo the card wants ("" for none: the one held is let go); worker -> loop: it.
+    std::string photo_ask;
+    uint32_t photo_ask_rev = 0;
+    std::shared_ptr<const PhotoImage> photo;
+    uint32_t photo_rev = 0;
+    // worker -> loop and web: what the screen has seen in its range (sightings.h), and the alerts not shown yet.
+    sightings::Book book;
+    uint32_t book_rev = 0;
+    std::vector<sightings::Alert> alerts;
     // loop -> worker: a place to find, typed in the menu; worker -> loop: what was found for the search found_rev.
     std::string search;
     uint32_t search_rev = 0, found_rev = 0;
@@ -319,6 +368,13 @@ class Skyscope : public Component,
   // and shifted as they move, the view planned once they have been still for a while, and kept or dropped by the bar's
   // Save and Cancel (or dropped when its countdown ends).
   bool can_pinch_() const;
+  bool touch_locked_() const {
+#ifdef SKYSCOPE_TEST_API
+    return touch_locked_until_ != 0;
+#else
+    return false;
+#endif
+  }
   void begin_preview_();
   bool freeze_();       // the picture taken, the live planes hidden
   void draw_frozen_();  // the picture into the canvas, as the view previewed shows it
@@ -357,6 +413,15 @@ class Skyscope : public Component,
   void send_screenshot_(AsyncWebServerRequest *request);  // GET /api/screenshot, in the web server's task
   touch::Player probe_touch_;
   lv_indev_t *probe_input_{nullptr};
+  // Fingers on the glass taken no notice of while a test runs (/api/test {"lock_touch_s": N}), so one cannot upset
+  // it: LVGL's touch input off, two fingers ignored, and a touch does not wake the screen. The test's own touches
+  // (the probe's) go on. Kept over a restart, as the divert is, and over by itself N seconds after it was asked.
+  uint32_t touch_locked_until_{0};
+  lv_obj_t *touch_lock_note_{nullptr};
+  static uint32_t kept_touch_lock_s_();
+  static void keep_touch_lock_(uint32_t seconds);
+  void lock_touch_(uint32_t seconds);  // 0 unlocks; on the loop
+  void touch_lock_tick_(uint32_t now);
   uint32_t probe_busy_until_{0};  // the web server's task: the touch under way ends then
 #endif
   // The colors of what lies over the map: the radar's phosphor on a scope, else the screen's own.
@@ -367,6 +432,7 @@ class Skyscope : public Component,
   void set_status_color_(uint32_t color);
   // The map card's state for the API (web.cpp), from a copy of Shared::Card.
   void card_json_(JsonObject out, const Shared::Card &c) const;
+  void stats_json_(JsonObject out) const;  // what the screen has seen today, lock_ held (web.cpp)
   // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
   // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
   // Following a plane (follow.h) moves the view's middle with it, and so shown_ is follow::shown of them too.
@@ -485,6 +551,7 @@ class Skyscope : public Component,
   uint32_t status_color_{0xFFFFFFFF};
   uint32_t address_until_{0}, last_tick_{0}, last_status_{0};
   bool asleep_{false};
+  bool wake_asked_{false};  // the screen woken by something but a finger: the probe, the clock, Home Assistant
   // An install: the screen says so, and the worker rests, until the screen restarts or the install fails.
   firmware::Tracker install_;
 #ifdef USE_UPDATE
@@ -547,7 +614,37 @@ class Skyscope : public Component,
   uint32_t firmware_reports_{0};  // the update entity's reports so far
   bool long_pressed_{false};  // the click that ends a long press (which opened the menu) is no tap
   lv_point_t pressed_at_{};   // where the finger on the map came down
-  lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[3]{};
+  // The card of the plane picked: its title, and rows of its type, its motion, its operator and route, and which way to
+  // look for it from the place (overlay.h sight_text).
+  lv_obj_t *card_{nullptr}, *card_title_{nullptr}, *card_rows_[4]{};
+  // The picked plane's route (follow.h), as the worker found it, and the plane it was asked for.
+  follow::Route picked_route_;
+  uint32_t picked_route_rev_{0};
+  std::string route_asked_hex_, route_asked_callsign_;
+  void ask_picked_route_(const feed::Flight &f);
+  // The picked plane's photo (photos.h): beside the QR code of its page, with its photographer under them.
+  lv_obj_t *card_photo_{nullptr}, *card_photo_image_{nullptr}, *card_qr_{nullptr}, *card_photo_credit_{nullptr};
+  std::shared_ptr<const PhotoImage> photo_;
+  lv_image_dsc_t photo_dsc_{};
+  std::string photo_asked_hex_;
+  uint32_t photo_rev_{0};
+  void ask_photo_(const std::string &hex);  // "" lets the one held go
+  void show_photo_();
+  // An alert (sightings.h) along the top of the glass for a while: a watched plane come into range, or an emergency.
+  // A tap picks the plane; Home Assistant hears of each one (on_alert).
+  lv_obj_t *alert_{nullptr}, *alert_text_{nullptr};
+  uint32_t alert_until_{0};
+  std::string alert_hex_;
+  void take_alerts_(uint32_t now);
+  void show_alert_(const sightings::Alert &a);
+  CallbackManager<void(std::string, std::string, std::string)> alert_callbacks_;
+  std::string last_alert_;
+  uint32_t alerts_seen_{0};
+  // The day's tally kept over a restart (sightings.h pack): read at the start, stored every so often.
+  ESPPreferenceObject stats_pref_;
+  uint32_t stats_saved_at_{0}, stats_saved_rev_{0};
+  void load_stats_();
+  void save_stats_();
   lv_obj_t *setup_{nullptr}, *setup_title_{nullptr}, *setup_body_{nullptr};
   lv_obj_t *setup_wifi_{nullptr};  // the setup page's way to the networks in reach, while it has none
   uint16_t *canvas_buffer_{nullptr};
@@ -599,6 +696,15 @@ class Skyscope : public Component,
 
   // The body of a POST on its way in (the HTTP server's task).
   std::string body_;
+};
+
+// Each alert as it comes (__init__.py on_alert): its kind, the plane's name, and the words.
+class AlertTrigger : public Trigger<std::string, std::string, std::string> {
+ public:
+  explicit AlertTrigger(Skyscope *parent) {
+    parent->add_on_alert_callback(
+        [this](std::string kind, std::string name, std::string text) { this->trigger(kind, name, text); });
+  }
 };
 
 }  // namespace esphome::skyscope

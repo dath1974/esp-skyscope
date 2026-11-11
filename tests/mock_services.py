@@ -12,6 +12,7 @@ and the ADS-B exchanges' planes. What each is is known, so a test can say exactl
 Anything else is 404, noted as "unknown" so a test can say nothing went unanswered. Python's standard library only.
 """
 
+import base64
 import json
 import re
 import math
@@ -206,15 +207,13 @@ def answer(path: str, lat: float, lon: float, now: float, aircraft):
                 return as_json("radar-latest", radar_latest(now))
             if rest.startswith("cache/tile.py/"):
                 return 200, "image/png", tile_png(*tile_numbers(parts, True), layer=True), "radar-tile"
-        if server == "api.adsbdb.com" and rest.startswith("v0/callsign/"):
-            # A flight's route (follow.h, a build with routes): the mock's own flight from its airport, else none.
-            if rest.removeprefix("v0/callsign/").upper() != "MOCK1":
-                return 404, "application/json", b'{"response":"unknown callsign"}', "route"
-            far = offset(lat, lon, 300, 45)
-            airport = lambda code, la, lo: {"icao_code": code, "latitude": round(la, 4), "longitude": round(lo, 4)}
-            return as_json("route", {"response": {"flightroute": {"callsign": "MOCK1",
-                                                                  "origin": airport(STATION, lat, lon),
-                                                                  "destination": airport("KFAR", *far)}}})
+        if server == "hexdb.io" and rest.startswith("api/v2/routes/"):
+            status, found = hexdb_route(urllib.parse.unquote(rest.removeprefix("api/v2/routes/")), lat, lon)
+            return status, "application/json", json.dumps(found).encode(), "hexdb-route"
+        if server == "api.planespotters.net" and rest.startswith("pub/photos/hex/"):
+            return as_json("photo", photo(rest.removeprefix("pub/photos/hex/")))
+        if server == "cdn.planespotters.net" and rest.endswith(".jpg"):
+            return 200, "image/jpeg", PHOTO_JPEG, "photo-image"
         if server in ("opendata.adsb.fi", "api.adsb.lol"):
             # A plane looked up worldwide (follow.h): by callsign, registration or hex, only the planes that match.
             lookup = re.match(r"(?:api/)?v2/(callsign|reg|registration|hex)/([^/]+)$", rest)
@@ -226,6 +225,88 @@ def answer(path: str, lat: float, lon: float, now: float, aircraft):
             return as_json("exchange", {"now": now, "ac": aircraft()})
     except (ValueError, IndexError):
         pass
+    return 404, "application/json", b'{"msg":"the mock has nothing here"}', "unknown"
+
+
+# A plane's photo as Planespotters.net's CDN serves it (photos.h): a progressive JPEG, as theirs are, the size of their
+# regular thumbnail (200 x 133), of a made-up plane.
+PHOTO_JPEG = base64.b64decode(
+    "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"
+)
+
+
+def photo(hex_code: str) -> dict:
+    """Planespotters.net's answer for a plane: one photo, the same for every plane, with its page and photographer."""
+    hex_code = hex_code.strip().upper()
+    return {"photos": [{"id": "000001",
+                        "thumbnail": {"src": f"https://cdn.planespotters.net/mock/{hex_code}_t.jpg",
+                                      "size": {"width": 200, "height": 133}},
+                        "thumbnail_large": {"src": f"https://cdn.planespotters.net/mock/{hex_code}_280.jpg",
+                                            "size": {"width": 420, "height": 280}},
+                        "link": f"https://www.planespotters.net/photo/000001/mock-{hex_code.lower()}",
+                        "photographer": "A. Mock"}]}
+
+
+def routeset(body: bytes, lat: float, lon: float) -> list:
+    """adsb.lol's routes for the planes asked: the mock's own flight from its airport to one 300 NM away, the others
+    unknown."""
+    planes = (json.loads(body or b"{}") or {}).get("planes") or []
+    out = []
+    for p in planes:
+        callsign = str(p.get("callsign", "")).strip().upper()
+        if callsign != "MOCK1":
+            out.append({"callsign": callsign, "airport_codes": "unknown", "_airports": []})
+            continue
+        far = offset(lat, lon, 300, 45)
+        airport = lambda code, la, lo: {"icao": code, "iata": code[1:], "name": code, "lat": round(la, 4),
+                                        "lon": round(lo, 4)}
+        out.append({"callsign": callsign, "airport_codes": f"{STATION}-KFAR", "plausible": True,
+                    "_airports": [airport(STATION, lat, lon), airport("KFAR", *far)]})
+    return out
+
+
+def hexdb_route(callsign: str, lat: float, lon: float):
+    """hexdb.io's route for a callsign: the mock's own flight from its airport to one 300 NM away, else a 404."""
+    if callsign.strip().upper() != "MOCK1":
+        return 404, {"error": {"status": 404, "code": "route_not_found", "message": f"No route for callsign {callsign}."}}
+    far = offset(lat, lon, 300, 45)
+    airport = lambda code, la, lo: {"icao": code, "iata": code[1:], "name": code, "country_code": "US",
+                                    "region": "Test", "latitude": round(la, 4), "longitude": round(lo, 4)}
+    a, b = airport(STATION, lat, lon), airport("KFAR", *far)
+    return 200, {"callsign": "MOCK1", "origin": a, "destination": b, "airports": [a, b],
+                 "updated_at": "2026-01-01T00:00:00Z"}
+
+
+def post_answer(path: str, body: bytes, lat: float, lon: float):
+    """(status, content type, body, what it was) for a POST to `path` (/<server>/<rest>), or None for a path that names
+    no server (the mock's own)."""
+    parts = urllib.parse.urlsplit(path).path.strip("/").split("/")
+    if "." not in parts[0]:
+        return None
+    if parts[0] == "api.adsb.lol" and "/".join(parts[1:]) == "api/0/routeset":
+        try:
+            return 200, "application/json", json.dumps(routeset(body, lat, lon)).encode(), "routeset"
+        except ValueError:
+            return 400, "application/json", b"", "routeset"
     return 404, "application/json", b'{"msg":"the mock has nothing here"}', "unknown"
 
 
@@ -249,12 +330,18 @@ def write_fixtures(folder: str, lat: float = 40.6413, lon: float = -73.7781, now
              "radar-latest": "/mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.json",
              "exchange": "/opendata.adsb.fi/api/v2/lat/40.6/lon/-73.7/dist/25",
              "lookup": "/api.adsb.lol/v2/callsign/MOCK1",
-             "route": "/api.adsbdb.com/v0/callsign/MOCK1"}
+             "photo": "/api.planespotters.net/pub/photos/hex/E00001",
+             "hexdb-route": "/hexdb.io/api/v2/routes/MOCK1"}
     for name, path in paths.items():
         status, _, body, what = answer(path, lat, lon, now, lambda: plane)
         assert status == 200 and what == name, (name, status, what)
         with open(os.path.join(folder, name + ".json"), "wb") as f:
             f.write(body)
+    status, _, body, what = post_answer("/api.adsb.lol/api/0/routeset", json.dumps(
+        {"planes": [{"callsign": "MOCK1", "lat": lat, "lng": lon}]}).encode(), lat, lon)
+    assert status == 200 and what == "routeset", (status, what)
+    with open(os.path.join(folder, "routeset.json"), "wb") as f:
+        f.write(body)
 
 
 if __name__ == "__main__":

@@ -22,8 +22,13 @@ More pictures, each map and page with a word on it: [docs/screens.md](docs/scree
 - **Aircraft** from adsb.fi or adsb.lol, a receiver of your own (readsb, tar1090, dump1090-fa), or on the P4 board an
   RTL-SDR stick plugged into the screen. Each plane is drawn as what it is (airliner, helicopter, glider and so on),
   colored by altitude, with labels up to a controller's full data block.
+- **A plane's card**: its type, altitude and speed, its photo from Planespotters.net, its route where adsb.lol knows
+  one, and which way to look for it from your place (`NE, 25° up, 8.4 NM, passes 1.2 NM off in 3 min`).
 - **Follow a plane** anywhere in the world by its registration, callsign or flight number. The map moves with it, and
   over an ocean the screen shows where it is likely to be until it is heard again.
+- **Alerts** along the top of the glass when a watched plane comes into range or one squawks an emergency, and **the
+  day's tally** on the web page: planes by the hour, the commonest types, the day's records, and a log to download.
+- **Home Assistant** finds the screen by itself: the planes in range, each alert, the screen on or off.
 - **Aviation weather**: the nearest station's METAR, TAF and MOS, the SIGMETs, G-AIRMETs and pilot reports nearby, and
   the NEXRAD radar over any map.
 - **On the glass**: tap a plane for its card, pinch to zoom, swipe to change the map, long-press for a menu with every
@@ -90,7 +95,7 @@ curl -X POST http://<screen>/api/settings -H 'Content-Type: application/json' \
 ```
 
 Every request is listed in [docs/api.md](docs/api.md). The page and the API are open to anyone on your network, as an
-ESPHome device's own web server is.
+ESPHome device's own web server is, unless you set a password for them on the page (the user name is `admin`).
 
 ## Data sources
 
@@ -100,7 +105,9 @@ Everything the screen shows comes from free public services. Please keep to thei
 |---|---|---|
 | [adsb.fi](https://adsb.fi) | aircraft (the default), and a plane followed looked up | free for personal, non-commercial use; at most one request a second |
 | [adsb.lol](https://adsb.lol) | aircraft, and a plane followed looked up | open data, ODbL; limits that change with its load |
-| [adsbdb](https://www.adsbdb.com) | a followed plane's route, only in a build with `routes: true` | free; its route data (David Taylor, Jim Mason) may not be copied or published without their leave, so it is left out of the releases |
+| [hexdb.io](https://hexdb.io) | a plane's route where adsb.lol has none, in a build with `hexdb_routes: true` (the default for now) | free, no key; it publishes no terms, and credits route data (PlaneBase/PlanePlotter, Jim Mason) whose owners ask that it is not copied without their leave: set `hexdb_routes: false` in the `skyscope:` block before giving firmware to others |
+| [Planespotters.net](https://www.planespotters.net/photo/api) | a plane's photo on its card (optional) | free; each photo shown with its photographer and a QR code to its page there, fetched by the screen as it is shown and never stored |
+| [adsb.lol routes](https://api.adsb.lol/docs) | a plane's route, for its card and a plane followed | ODbL, credited here; built from [Virtual Radar Server's standing data](https://github.com/vradarserver/standing-data) (CC0) |
 | [Esri gray canvas](https://www.esri.com) | dark and light gray streets | Esri's terms of use |
 | [OpenStreetMap](https://operations.osmfoundation.org/policies/tiles/) | streets | light use only, with a User-Agent and caching (both done) |
 | [Esri World Imagery](https://www.esri.com) | satellite | Esri's terms of use |
@@ -112,7 +119,9 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [Aviation Weather Center](https://aviationweather.gov/data/api/) | METARs, TAFs, SIGMETs, G-AIRMETs, pilot reports | US government; at most 100 requests a minute, with a User-Agent |
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu) | the GFS MOS, and the NEXRAD radar (optional) | Iowa State University; free, credited on the glass |
 
-The screen asks for planes every 10 seconds by default. It keeps to the limits each exchange announces, waits as long
+A plane's route and photo are asked once, when its card is opened (or it is followed); the route is kept for 20
+minutes, the photo only while its card is open. The screen asks
+for planes every 10 seconds by default. It keeps to the limits each exchange announces, waits as long
 as it is told after a refusal, and meanwhile asks the other exchange. Tiles are cached in memory and on the map card,
 and asked for only when a map needs one it does not have.
 

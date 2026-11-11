@@ -35,7 +35,9 @@ Node 18 or newer.
 ## Tests against a real screen
 
 These need a screen on the network running a firmware with the test API (`test_api: true`, the default). Every setting
-they change is put back, and they never print the screen's place.
+they change is put back, and they never print the screen's place. While a run goes on, fingers on the glass do nothing
+(it says `Test running: touch is off`), so a touch cannot upset it; the run's own touches go through the test API.
+The lock ends with the run, or by itself 15 minutes after it was last renewed if the run dies.
 
 All but `test-esp32-public` run against a mock this machine serves (`tests/mock_feed.py`, port 8095, or `PORT=`; each
 screen tested at once needs its own). The screen is sent to the mock (it restarts), every request it makes of a public

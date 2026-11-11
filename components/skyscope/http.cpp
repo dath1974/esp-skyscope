@@ -136,7 +136,21 @@ void close_idle(uint32_t now, uint32_t idle_ms) {
 static std::string divert_origin;
 void divert_to(const std::string &origin) { divert_origin = origin; }
 
+namespace {
+Result request(const std::string &asked, Body &body, size_t most, const std::string &agent, const char *accept,
+               const std::string *json);
+}
+
 Result get(const std::string &asked, Body &body, size_t most, const std::string &agent, const char *accept) {
+  return request(asked, body, most, agent, accept, nullptr);
+}
+Result post_json(const std::string &url, const std::string &json, Body &body, size_t most, const std::string &agent) {
+  return request(url, body, most, agent, "application/json", &json);
+}
+
+namespace {
+Result request(const std::string &asked, Body &body, size_t most, const std::string &agent, const char *accept,
+               const std::string *json) {
   const std::string url = diverted(asked, divert_origin);
   Result r;
   for (int attempt = 0; attempt < 2; ++attempt) {
@@ -151,9 +165,20 @@ Result get(const std::string &asked, Body &body, size_t most, const std::string 
     c->used = (uint32_t) (esp_timer_get_time() / 1000);
     esp_http_client_set_url(c->handle, url.c_str());
     esp_http_client_set_header(c->handle, "Accept", accept ? accept : "*/*");
+    // A kept client goes on with whatever its last request set: a POST's method and body are set back after it.
+    if (json) {
+      esp_http_client_set_method(c->handle, HTTP_METHOD_POST);
+      esp_http_client_set_header(c->handle, "Content-Type", "application/json");
+      esp_http_client_set_post_field(c->handle, json->data(), (int) json->size());
+    }
     const int64_t started = esp_timer_get_time();
     const esp_err_t err = esp_http_client_perform(c->handle);
     c->fill.body = nullptr;
+    if (json) {
+      esp_http_client_set_post_field(c->handle, nullptr, 0);
+      esp_http_client_delete_header(c->handle, "Content-Type");
+      esp_http_client_set_method(c->handle, HTTP_METHOD_GET);
+    }
     if (err != ESP_OK) {
       // What the reply was when it broke off: how much came of how much, how long it took, on which connection.
       ESP_LOGW(TAG, "%s: %s on try %d, %s connection: %u of %lld bytes, HTTP %d, %lld ms", server_of(url).c_str(),
@@ -185,4 +210,5 @@ Result get(const std::string &asked, Body &body, size_t most, const std::string 
   if (r.status != 200 && r.error.empty()) r.error = "HTTP " + std::to_string(r.status);
   return r;
 }
+}  // namespace
 }  // namespace sky::http

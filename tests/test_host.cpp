@@ -26,11 +26,13 @@
 #include "../components/skyscope/offline.h"
 #include "../components/skyscope/overlay.h"
 #include "../components/skyscope/pixels.h"
+#include "../components/skyscope/photos.h"
 #include "../components/skyscope/places.h"
 #include "../components/skyscope/plan.h"
 #include "../components/skyscope/providers.h"
 #include "../components/skyscope/radar.h"
 #include "../components/skyscope/schedule.h"
+#include "../components/skyscope/sightings.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/swipe.h"
@@ -1403,18 +1405,57 @@ static void test_follow() {
   CHECK(apply(own.as<JsonObjectConst>(), labels, error) && labels.own_range_nm == 40);
   own["own_range_nm"] = MAX_RANGE_NM + 1;
   CHECK(!apply(own.as<JsonObjectConst>(), labels, error) && error == "own_range_nm");
-  // The route: adsbdb's answer read, its great circle, the line on the frame, and a view that holds it all.
+  // The route: adsb.lol's routeset asked and read, the leg the plane is on, its great circle, the line on the frame,
+  // and a view that holds it all.
   JsonDocument doc;
   Route route;
-  const std::string answer = R"({"response":{"flightroute":{"callsign":"BAW266","origin":{"icao_code":"KPDX",
-      "latitude":45.5887,"longitude":-122.5975},"destination":{"icao_code":"EGLL","latitude":51.4706,"longitude":-0.461941}}}})";
-  CHECK(read_route(answer.c_str(), answer.size(), doc, route, error) && route.known && route.from == "KPDX" &&
-        route.to == "EGLL" && near(route.to_lon, -0.461941, 1e-6));
+  RouteAsk over_canada{"baw 266", 58.0, -60.0, true, 60};
+  CHECK(routeset_body(over_canada) == R"({"planes":[{"callsign":"BAW266","lat":58,"lng":-60}]})");
+  const std::string answer = R"([{"callsign":"BAW266","airport_codes":"KPDX-EGLL","plausible":true,
+      "_airports":[{"icao":"KPDX","iata":"PDX","lat":45.5887,"lon":-122.5975},{"icao":"EGLL","iata":"LHR","lat":51.4706,
+      "lon":-0.461941}]}])";
+  CHECK(read_routeset(answer.c_str(), answer.size(), doc, over_canada, route, error) && route.known &&
+        route.from == "KPDX" && route.to == "EGLL" && near(route.to_lon, -0.461941, 1e-6) &&
+        route.callsign == "baw 266");
+  // The same callsign over Spain is on no leg of it: the flight number has moved on.
+  Route moved;
+  RouteAsk over_spain{"BAW266", 40.4, -3.7};
+  CHECK(read_routeset(answer.c_str(), answer.size(), doc, over_spain, moved, error) && !moved.known);
+  // Over Canada but flying back west: no leg of it either.
+  RouteAsk back{"BAW266", 58.0, -60.0, true, 250};
+  CHECK(read_routeset(answer.c_str(), answer.size(), doc, back, moved, error) && !moved.known);
+  // adsb.lol's own check said no, an unknown callsign, and a reply that is no list.
+  const std::string implausible = R"([{"callsign":"BAW266","plausible":false,"_airports":[{"icao":"KPDX","lat":45.6,
+      "lon":-122.6},{"icao":"EGLL","lat":51.5,"lon":-0.46}]}])";
+  CHECK(read_routeset(implausible.c_str(), implausible.size(), doc, over_canada, moved, error) && !moved.known);
   Route nothing;
-  const std::string unknown = R"({"response":"unknown callsign"})";
-  CHECK(read_route(unknown.c_str(), unknown.size(), doc, nothing, error) && !nothing.known);
-  CHECK(!read_route("{", 1, doc, nothing, error));
-  CHECK(route_url("baw 266") == "https://api.adsbdb.com/v0/callsign/BAW266");
+  const std::string unknown = R"([{"callsign":"BAW266","airport_codes":"unknown","_airports":[]}])";
+  CHECK(read_routeset(unknown.c_str(), unknown.size(), doc, over_canada, nothing, error) && !nothing.known);
+  CHECK(!read_routeset("{", 1, doc, over_canada, nothing, error));
+  CHECK(!read_routeset("{}", 2, doc, over_canada, nothing, error));
+  // A route of two legs: the second for a plane between its middle airport and its last.
+  const std::string two_legs = R"([{"callsign":"UAE2","plausible":true,"_airports":[
+      {"icao":"EGLL","lat":51.47,"lon":-0.46},{"icao":"OMDB","lat":25.25,"lon":55.36},{"icao":"YSSY","lat":-33.95,"lon":151.18}]}])";
+  Route second;
+  RouteAsk indian_ocean{"UAE2", -5.0, 95.0};
+  CHECK(read_routeset(two_legs.c_str(), two_legs.size(), doc, indian_ocean, second, error) && second.known &&
+        second.from == "OMDB" && second.to == "YSSY");
+  CHECK(route_leg({{51.47, -0.46}, {25.25, 55.36}}, 40, 25) == 0);
+  // hexdb.io's answer: its airports in the order flown, the plane on the leg; none known is no error.
+  CHECK(hexdb_url("baw 266") == "https://hexdb.io/api/v2/routes/BAW266");
+  const std::string hexdb = R"({"callsign":"BAW266","origin":{"icao":"KPDX"},"destination":{"icao":"EGLL"},
+      "airports":[{"icao":"KPDX","iata":"PDX","latitude":45.5887,"longitude":-122.5975},
+      {"icao":"EGLL","iata":"LHR","latitude":51.4706,"longitude":-0.461941}],"updated_at":"2014-04-20T11:02:19Z"})";
+  Route from_hexdb;
+  CHECK(read_hexdb(hexdb.c_str(), hexdb.size(), doc, over_canada, from_hexdb, error) && from_hexdb.known &&
+        from_hexdb.from == "KPDX" && from_hexdb.to == "EGLL");
+  CHECK(read_hexdb(hexdb.c_str(), hexdb.size(), doc, over_spain, from_hexdb, error) && !from_hexdb.known);
+  const std::string no_route = R"({"error":{"status":404,"code":"route_not_found","message":"No route."}})";
+  CHECK(read_hexdb(no_route.c_str(), no_route.size(), doc, over_canada, from_hexdb, error) && !from_hexdb.known);
+  const std::string busy = R"({"error":{"status":500,"code":"oops","message":"Busy"}})";
+  CHECK(!read_hexdb(busy.c_str(), busy.size(), doc, over_canada, from_hexdb, error) && error == "hexdb.io: Busy");
+  CHECK(!read_hexdb("{", 1, doc, over_canada, from_hexdb, error));
+  CHECK(route_leg({{51.47, -0.46}}, 40, 25) == -1);
   const auto circle = route_places(route, 32);
   CHECK(circle.size() == 32 && near(circle.front().lat, 45.5887, 1e-6) && near(circle.back().lon, -0.461941, 1e-6));
   // Portland to London goes up past Hudson Bay and southern Greenland: far north of both ends.
@@ -2557,6 +2598,165 @@ static void test_firmware() {
 
 // What tests/mock_services.py answers in place of each public service (tests/run.sh writes it to $MOCK_ANSWERS), read
 // with the screen's own parsers: what a test against the mock expects is what the screen makes of it.
+// Which way to look for a plane, and when it passes near.
+static void test_sight() {
+  CHECK(near(geo::bearing(0, 0, 1, 0), 0, 1e-9) && near(geo::bearing(0, 0, 0, 1), 90, 1e-9));
+  CHECK(near(geo::bearing(0, 0, -1, 0), 180, 1e-9) && near(geo::bearing(0, 0, 0, -1), 270, 1e-9));
+  CHECK(std::string(geo::compass_point(0)) == "N" && std::string(geo::compass_point(44)) == "NE" &&
+        std::string(geo::compass_point(350)) == "N" && std::string(geo::compass_point(225)) == "SW");
+  // 10 NM east at 10,000 ft: about 9.4 degrees up (curve and all).
+  const double lat = 40.0, lon = -74.0;
+  const geo::Place east = geo::destination(lat, lon, 90, 10 * geo::NM);
+  geo::Sight s = geo::sight(lat, lon, east.lat, east.lon, 10000 * 0.3048);
+  CHECK(near(s.bearing, 90, 0.1) && near(s.meters, 10 * geo::NM, 1) && near(s.elevation, 9.3, 0.2) && !s.nearing);
+  // 35,000 ft 250 NM off is below the horizon.
+  const geo::Place far = geo::destination(lat, lon, 0, 250 * geo::NM);
+  CHECK(geo::sight(lat, lon, far.lat, far.lon, 35000 * 0.3048).elevation < 0);
+  // Flying west at 240 kt, 1 NM north of the line: it passes 1 NM off in 2.5 minutes; flying east, it goes away.
+  const geo::Place off = geo::destination(east.lat, east.lon, 0, geo::NM);
+  s = geo::sight(lat, lon, off.lat, off.lon, 3000, true, 240 * geo::NM / 3600, 270);
+  CHECK(s.nearing && near(s.closest_meters, geo::NM, 30) && near(s.closest_s, 150, 3));
+  CHECK(!geo::sight(lat, lon, off.lat, off.lon, 3000, true, 240 * geo::NM / 3600, 90).nearing);
+  // The card's words.
+  feed::Flight f;
+  f.lat = off.lat;
+  f.lon = off.lon;
+  f.has_altitude = true;
+  f.altitude = 3000;
+  f.has_speed = f.has_heading = true;
+  f.speed = 200;  // 10 NM in 3 minutes
+  f.heading = 270;
+  auto said = [&](bool metric) { return overlay::sight_text(overlay::sight_of(f, lat, lon), metric); };
+  CHECK(said(false) == "E, 3\xC2\xB0 up, 10 NM, passes 1.0 NM off in 3 min");
+  CHECK(said(true) == "E, 3\xC2\xB0 up, 19 km, passes 1.9 km off in 3 min");
+  f.lat = east.lat;
+  f.lon = east.lon;
+  CHECK(overlay::sight_text(overlay::sight_of(f, lat, lon), false) == "E, 3\xC2\xB0 up, 10 NM, overhead in 3 min");
+  f.heading = 90;
+  CHECK(overlay::sight_text(overlay::sight_of(f, lat, lon), false) == "E, 3\xC2\xB0 up, 10 NM");
+  f.lat = lat + 0.001;
+  f.lon = lon;
+  CHECK(overlay::sight_text(overlay::sight_of(f, lat, lon), false) == "Overhead");
+  CHECK(overlay::distance_text(12.4 * geo::NM, false) == "12 NM" && overlay::distance_text(950, true) == "0.9 km");
+}
+
+// A plane's photo from Planespotters.net: one that can be shown as its terms ask, or none.
+static void test_photos() {
+  CHECK(photos::url_for("a1b2c3") == "https://api.planespotters.net/pub/photos/hex/A1B2C3");
+  JsonDocument doc;
+  std::string error;
+  photos::Photo p;
+  const std::string one = R"({"photos":[{"id":"000001","thumbnail":{"src":"https://cdn.planespotters.net/1_t.jpg",
+      "size":{"width":200,"height":133}},"thumbnail_large":{"src":"https://cdn.planespotters.net/1_280.jpg",
+      "size":{"width":420,"height":280}},"link":"https://www.planespotters.net/photo/000001/b-hoy",
+      "photographer":"Thomas Noack"}]})";
+  CHECK(photos::read(one.c_str(), one.size(), doc, p, error) && p.known &&
+        p.src == "https://cdn.planespotters.net/1_t.jpg" &&
+        p.link == "https://www.planespotters.net/photo/000001/b-hoy" && p.width == 200 && p.height == 133);
+  CHECK(photos::credit(p) == "Photo: Thomas Noack, planespotters.net");
+  // None, and one without its photographer or its page (it could not be credited or linked): no photo, no error.
+  const std::string none = R"({"photos":[]})";
+  CHECK(photos::read(none.c_str(), none.size(), doc, p, error) && !p.known);
+  const std::string uncredited = R"({"photos":[{"thumbnail":{"src":"https://cdn.planespotters.net/1_t.jpg"},
+      "link":"https://www.planespotters.net/photo/1"}]})";
+  CHECK(photos::read(uncredited.c_str(), uncredited.size(), doc, p, error) && !p.known);
+  // An error, and an answer that is none.
+  const std::string refused = R"({"error":"Too many requests"})";
+  CHECK(!photos::read(refused.c_str(), refused.size(), doc, p, error) && error == "Planespotters: Too many requests");
+  CHECK(!photos::read("{}", 2, doc, p, error) && !photos::read("<html>", 6, doc, p, error));
+}
+
+// What the screen has seen in range: visits, the day's tally, the log and the alerts.
+static void test_sightings() {
+  using namespace sightings;
+  Settings s;
+  s.located = true;
+  s.lat = 40.0;
+  s.lon = -74.0;
+  s.range_nm = 20;
+  s.watch = {{"N12345", 4}};
+  auto plane = [&](const char *hex, double north_nm, const char *callsign = "", const char *type = "B738") {
+    feed::Flight f;
+    f.hex = hex;
+    f.callsign = callsign;
+    f.type = type;
+    f.operator_name = "Test Air";
+    const geo::Place p = geo::destination(s.lat, s.lon, 0, north_nm * geo::NM);
+    f.lat = p.lat;
+    f.lon = p.lon;
+    f.has_altitude = true;
+    f.altitude = 12000;
+    f.has_speed = true;
+    f.speed = 300;
+    return f;
+  };
+  Book book;
+  std::vector<Alert> alerts;
+  std::vector<Visit> ended;
+  const int64_t t0 = 1793347800;
+  // Two in range, one beyond it, and a vehicle on the ground (not counted).
+  feed::Flight truck = plane("e00009", 1, "", "");
+  truck.category = "C1";
+  std::vector<feed::Flight> report = {plane("a00001", 5, "UAL1"), plane("a00002", 12, "N12345", "C172"),
+                                      plane("a00003", 40, "DAL3"), truck};
+  book.see(report, s, t0, 20261110, 14, alerts, ended);
+  CHECK(book.today().planes == 2 && book.today().hours[14] == 2 && book.in_range() == 2 && book.today().busiest == 2);
+  CHECK(alerts.size() == 1 && alerts[0].kind == WATCHED && alerts[0].name == "N12345" && alerts[0].color == 5 &&
+        alerts[0].text == "N12345 is in range, 12 NM N");
+  CHECK(book.today().closest.set && std::string(book.today().closest.name) == "UAL1" &&
+        near(book.today().closest.value, 5 * geo::NM, 1));
+  // The same planes again: no new count, no new alert; one squawks 7700.
+  alerts.clear();
+  report[0].squawk = "7700";
+  report[0].emergency = true;
+  report[0].lat = geo::destination(s.lat, s.lon, 0, 2 * geo::NM).lat;
+  book.see(report, s, t0 + 10, 20261110, 14, alerts, ended);
+  CHECK(book.today().planes == 2 && alerts.size() == 1 && alerts[0].kind == EMERGENCY &&
+        alerts[0].text == "UAL1 squawks 7700, 2.0 NM N" && book.today().emergencies == 1);
+  alerts.clear();
+  book.see(report, s, t0 + 20, 20261110, 14, alerts, ended);
+  CHECK(alerts.empty());
+  // Both gone for longer than a visit's gap: their visits end, into the log; then one comes back, counted once still.
+  book.see({}, s, t0 + 20 + VISIT_GAP_S + 1, 20261110, 15, alerts, ended);
+  CHECK(ended.size() == 2 && book.open_visits() == 0 && book.log().size() == 2);
+  CHECK(near(ended[0].closest_m, 2 * geo::NM, 1) && ended[0].emergency && std::string(ended[0].squawk) == "7700" &&
+        ended[0].lowest_ft == 12000 && ended[1].watched);
+  ended.clear();
+  book.see({report[1]}, s, t0 + 2000, 20261110, 15, alerts, ended);
+  CHECK(book.today().planes == 2 && book.today().visits == 3 && alerts.size() == 1 && alerts[0].kind == WATCHED);
+  const auto types = book.top_types();
+  CHECK(types.size() == 2 && types[0].n == 1);
+  // Two planes known by made-up addresses ("~", TIS-B) are two planes, and neither is the transponder at that address.
+  {
+    Book apart;
+    std::vector<Alert> none;
+    std::vector<Visit> over;
+    feed::Flight radar1 = plane("~2ba403", 3, "", ""), radar2 = plane("~2ba404", 4, "", ""), real = plane("2ba403", 6);
+    apart.see({radar1, radar2, real}, s, t0, 20261110, 15, none, over);
+    CHECK(apart.today().planes == 3);
+    CHECK(feed::made_up_address(radar1) && !feed::made_up_address(real) && overlay::name_of(radar1) == "No ID");
+  }
+  // Kept over a restart, and read back the same.
+  const std::vector<uint8_t> bytes = book.pack();
+  Book again;
+  CHECK(again.unpack(bytes.data(), bytes.size()) && again.today().planes == 2 && again.today().hours[14] == 2 &&
+        std::string(again.today().closest.name) == "UAL1" && again.top_operators().size() == 1 &&
+        again.top_operators()[0].n == 2 && again.days().size() == 1 && again.days()[0].planes == 2);
+  alerts.clear();
+  again.see({report[0]}, s, t0 + 3000, 20261110, 15, alerts, ended);
+  CHECK(again.today().planes == 2);  // told apart over the restart
+  CHECK(!again.unpack(bytes.data(), bytes.size() - 1) && !again.unpack(bytes.data(), 3));
+  // A new day starts a new tally, and the days before are kept.
+  again.see({report[0]}, s, t0 + 86400, 20261111, 9, alerts, ended);
+  CHECK(again.today().planes == 1 && again.today().date == 20261111 && again.days().size() == 2 &&
+        again.days()[0].planes == 2 && again.days()[1].planes == 1);
+  // The log as CSV.
+  auto local = [](int64_t t) { return std::to_string(t); };
+  CHECK(csv_header(false).rfind("first,last,hex,callsign", 0) == 0);
+  CHECK(csv_line(book.log()[0], false, local) ==
+        std::to_string(t0) + "," + std::to_string(t0 + 20) + ",a00001,UAL1,,B738,Test Air,2.0,12000,12000,,7700\n");
+}
+
 static void test_mock_answers() {
   const char *folder = std::getenv("MOCK_ANSWERS");
   if (!folder) {
@@ -2614,11 +2814,23 @@ static void test_mock_answers() {
   const std::string lookup = read("lookup");
   CHECK(feed::parse(lookup.c_str(), lookup.size(), doc, flights, error) && flights.size() == 1 &&
         follow::pick(flights) && follow::pick(flights)->callsign == "MOCK1");
-  // Its route (a build with routes): from the mock's airport.
+  // The same route from hexdb.io.
+  follow::Route hexdb_route;
+  const std::string hexdb_answer = read("hexdb-route");
+  CHECK(follow::read_hexdb(hexdb_answer.c_str(), hexdb_answer.size(), doc, follow::RouteAsk{"MOCK1", lat, lon},
+                           hexdb_route, error) &&
+        hexdb_route.known && hexdb_route.from == "KTST" && hexdb_route.to == "KFAR");
+  // A plane's photo, as Planespotters.net answers: its thumbnail, its page and its photographer.
+  photos::Photo photo;
+  const std::string photo_answer = read("photo");
+  CHECK(photos::read(photo_answer.c_str(), photo_answer.size(), doc, photo, error) && photo.known &&
+        photo.src.rfind("https://cdn.planespotters.net/", 0) == 0 && photo.width == 200 &&
+        photo.photographer == "A. Mock");
+  // Its route, from adsb.lol's routeset: from the mock's airport.
   follow::Route route;
-  const std::string route_answer = read("route");
-  CHECK(follow::read_route(route_answer.c_str(), route_answer.size(), doc, route, error) && route.known &&
-        route.from == "KTST" && route.to == "KFAR");
+  const std::string route_answer = read("routeset");
+  const follow::RouteAsk mock{"MOCK1", lat, lon};
+  CHECK(follow::read_routeset(route_answer.c_str(), route_answer.size(), doc, mock, route, error) && route.known && route.from == "KTST" && route.to == "KFAR");
 }
 
 int main(int argc, char **argv) {
@@ -2656,6 +2868,9 @@ int main(int argc, char **argv) {
   test_touch();
   test_pixels();
   test_pngrow();
+  test_photos();
+  test_sight();
+  test_sightings();
   test_mock_answers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);

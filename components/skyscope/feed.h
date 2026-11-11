@@ -39,6 +39,11 @@ struct Flight {
   bool estimated = false;    // no report: where a plane followed and out of reach is likely to be (follow.h)
 };
 
+// A plane known only by an address the exchange made up, not its transponder's: readsb writes it with a `~` in front.
+// Most are TIS-B in the United States, a plane without ADS-B that the FAA's radar sees and broadcasts by a track number
+// of its own; such a plane sends no callsign, and its "address" names no aircraft (no photo, nothing to follow).
+inline bool made_up_address(const Flight &f) { return !f.hex.empty() && f.hex[0] == '~'; }
+
 // The URL of `feed` for planes within `radius_nm` of a place. Every one of them caps the radius at 250 nm.
 inline std::string url(Feed feed, double lat, double lon, int radius_nm, const std::string &receiver = "") {
   radius_nm = std::max(1, std::min(250, radius_nm));

@@ -15,6 +15,7 @@
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <nvs.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cstring>
@@ -35,6 +36,15 @@ constexpr uint32_t TILE_TTL_MS = 24 * 3600 * 1000;
 constexpr size_t MOST_TILE_BYTES = 512 * 1024, MOST_FEED_BYTES = 768 * 1024;
 // Of a report, the planes beyond the most shown that are kept (overlay.h keep_showable).
 constexpr int KEEP_EXTRA = 20;
+// A route asked of adsb.lol is kept this long for a plane picked again (adsb.lol keeps its own for 20 minutes), and
+// this many of them.
+constexpr uint32_t ROUTE_KEPT_MS = 20 * 60 * 1000;
+constexpr size_t MOST_KNOWN_ROUTES = 24;
+// After a route asked of adsb.lol that did not come, no more are asked for this long.
+constexpr uint32_t ROUTES_DOWN_MS = 10 * 60 * 1000;
+// The photo API's answers kept (photos.h), and the largest a photo is decoded at (the regular thumbnail, 200 wide).
+constexpr size_t MOST_KNOWN_PHOTOS = 32;
+constexpr int PHOTO_MOST_PX = 256;
 // The radio's planes are in memory: taken every second while it listens; one with no stick is looked at again soon.
 constexpr uint32_t RADIO_EVERY_MS = 1000;
 constexpr int RADIO_RETRY_S = 5;
@@ -346,9 +356,30 @@ void Skyscope::worker_() {
   std::vector<follow::Ask> follow_asks;
   size_t follow_next = 0;
   uint32_t follow_due = 0, exchange_at = 0;
-  // Its route (follow.h, a build with routes): the callsign it was asked for, and when it may be asked again.
+  // Its route (follow.h): the callsign it was asked for, and when it may be asked again.
   std::string route_for;
   uint32_t route_due = 0;
+  // The plane picked on the glass, whose route its card shows: asked, and answered.
+  follow::RouteAsk picked_ask;
+  uint32_t picked_ask_rev = 0, picked_done_rev = 0;
+  // Routes asked lately, by callsign (none known among them too), so a plane picked again is not asked again.
+  struct KnownRoute {
+    follow::Route route;
+    std::string callsign;
+    uint32_t at = 0;
+  };
+  std::vector<KnownRoute> known_routes;
+  // The photo of the plane picked (photos.h): asked, and the API's answers kept lately by hex (none among them too).
+  std::string photo_ask;
+  uint32_t photo_ask_rev = 0, photo_done_rev = 0;
+  struct KnownPhoto {
+    std::string hex;
+    photos::Photo photo;
+    uint32_t at = 0;
+  };
+  std::vector<KnownPhoto> known_photos;
+  // What the screen has seen in range (sightings.h): visits that ended, for the card's log.
+  std::vector<sightings::Visit> ended;
   auto publish_follower = [&]() {
     std::lock_guard<std::mutex> guard(lock_);
     shared_.follower = follower;
@@ -359,6 +390,70 @@ void Skyscope::worker_() {
   auto space_out = [&]() {
     const uint32_t since = millis() - exchange_at;
     if (exchange_at && since < follow::ASK_GAP_MS) vTaskDelay(pdMS_TO_TICKS(follow::ASK_GAP_MS - since));
+  };
+  // A route from adsb.lol's routeset (follow.h), from those asked lately or asked now; false when it did not answer.
+  uint32_t routes_down_until = 0, hexdb_down_until = 0;
+  (void) hexdb_down_until;  // a build without hexdb.io's routes has no use for it
+  auto route_of = [&](const follow::RouteAsk &plane, follow::Route &route) {
+    const std::string id = follow::route_callsign(plane.callsign);
+    const uint32_t now = millis();
+    for (auto it = known_routes.begin(); it != known_routes.end(); ++it) {
+      if (now - it->at > ROUTE_KEPT_MS) continue;
+      if (it->callsign == id) {
+        route = it->route;
+        route.callsign = plane.callsign;
+        return true;
+      }
+    }
+    // adsb.lol first (its route data may be shared), left alone a while after it does not answer, not asked again
+    // at every tap.
+    bool answered = false;
+    std::string error;
+    if (!routes_down_until || (int32_t) (now - routes_down_until) >= 0) {
+      space_out();
+      body.clear();
+      const http::Result r = http::post_json(follow::ROUTESET_URL, follow::routeset_body(plane), body, 32 * 1024,
+                                             agent_);
+      exchange_at = millis() | 1;
+      JsonDocument doc;
+      error = r.error;
+      // adsb.lol has answered the routeset with 201 Created, and of late with 201 and nothing at all.
+      const char *text = reinterpret_cast<const char *>(body.data);
+      answered = (r.status == 200 || r.status == 201) && follow::read_routeset(text, body.size, doc, plane, route, error);
+      body.clear();
+      if (!answered) {
+        routes_down_until = (millis() + ROUTES_DOWN_MS) | 1;
+        ESP_LOGW(TAG, "Route of %s from adsb.lol: %s; not asked for %u min", id.c_str(), error.c_str(),
+                 (unsigned) (ROUTES_DOWN_MS / 60000));
+      }
+    }
+#ifdef SKYSCOPE_HEXDB_ROUTES
+    // Then hexdb.io (a build with hexdb_routes), where adsb.lol knows none or does not answer.
+    if ((!answered || !route.known) && (!hexdb_down_until || (int32_t) (now - hexdb_down_until) >= 0)) {
+      body.clear();
+      const http::Result r = http::get(follow::hexdb_url(plane.callsign), body, 16 * 1024, agent_, "application/json");
+      JsonDocument doc;
+      error = r.error;
+      const char *text = reinterpret_cast<const char *>(body.data);
+      const bool read = (r.status == 200 || r.status == 404) &&
+                        follow::read_hexdb(text, body.size, doc, plane, route, error);
+      body.clear();
+      if (read) {
+        answered = true;
+      } else {
+        hexdb_down_until = (millis() + ROUTES_DOWN_MS) | 1;
+        ESP_LOGW(TAG, "Route of %s from hexdb.io: %s; not asked for %u min", id.c_str(), error.c_str(),
+                 (unsigned) (ROUTES_DOWN_MS / 60000));
+      }
+    }
+#endif
+    if (!answered) return false;
+    ESP_LOGI(TAG, "Route of %s: %s", id.c_str(), route.known ? (route.from + " to " + route.to).c_str() : "none known");
+    auto stale = [&](const KnownRoute &k) { return now - k.at > ROUTE_KEPT_MS || k.callsign == id; };
+    known_routes.erase(std::remove_if(known_routes.begin(), known_routes.end(), stale), known_routes.end());
+    if (known_routes.size() >= MOST_KNOWN_ROUTES) known_routes.erase(known_routes.begin());
+    known_routes.push_back({route, id, now});
+    return true;
   };
 
   // ---- The map card: mounted at the start, and a download left unfinished (by a restart) carried on.
@@ -490,6 +585,19 @@ void Skyscope::worker_() {
       if (shared_.weather_ask != weather_ask) {
         weather_ask = shared_.weather_ask;
         wants_weather = true;
+      }
+      if (shared_.photo_ask_rev != photo_ask_rev) {
+        photo_ask = shared_.photo_ask;
+        photo_ask_rev = shared_.photo_ask_rev;
+        // A card closed, or another plane picked: the photo held goes at once, as it is no longer shown.
+        if (shared_.photo && shared_.photo->hex != photo_ask) {
+          shared_.photo.reset();
+          shared_.photo_rev++;
+        }
+      }
+      if (shared_.route_ask_rev != picked_ask_rev) {
+        picked_ask = shared_.route_ask;
+        picked_ask_rev = shared_.route_ask_rev;
       }
       bool reshow = false;
       if (shared_.settings_rev != settings_rev) {
@@ -763,29 +871,18 @@ void Skyscope::worker_() {
       }
     }
 
-#ifdef SKYSCOPE_ROUTES
     // ---- Its route: asked once for each callsign it flies under, once it is found; again ten minutes after a failure.
     if (follower.known() && !follower.last().callsign.empty() && follower.last().callsign != route_for && online &&
         connected && !was_offline && (int32_t) (millis() - route_due) >= 0) {
+      const feed::Flight &last = follower.last();
       follow::Route route;
-      std::string error;
-      body.clear();
-      const http::Result r = http::get(follow::route_url(follower.last().callsign), body, 16 * 1024, agent_,
-                                       "application/json");
-      JsonDocument doc;
-      const bool ok = (r.status == 200 || r.status == 404) &&
-                      follow::read_route(reinterpret_cast<const char *>(body.data), body.size, doc, route, error);
-      body.clear();
-      if (ok) {
-        route.callsign = route_for = follower.last().callsign;
-        ESP_LOGI(TAG, "Following %s: %s", route_for.c_str(),
-                 route.known ? (route.from + " to " + route.to).c_str() : "no route known");
+      if (route_of({last.callsign, last.lat, last.lon, last.has_heading, last.heading}, route)) {
+        route_for = last.callsign;
         std::lock_guard<std::mutex> guard(lock_);
         shared_.route = route;
         shared_.follower_rev++;
       } else {
         route_due = millis() + 10 * 60 * 1000;
-        ESP_LOGW(TAG, "Route: %s", (r.error.empty() ? error : r.error).c_str());
       }
     }
     if (follow_for.empty() && !route_for.empty()) {
@@ -793,7 +890,70 @@ void Skyscope::worker_() {
       std::lock_guard<std::mutex> guard(lock_);
       shared_.route = follow::Route{};
     }
-#endif
+    // ---- The photo of the plane picked, for its card: the API asked (or its answer kept), then the image itself.
+    if (photo_ask_rev != photo_done_rev && connected && !was_offline) {
+      photo_done_rev = photo_ask_rev;
+      std::shared_ptr<PhotoImage> image;
+      if (!photo_ask.empty()) {
+        const uint32_t now = millis();
+        known_photos.erase(std::remove_if(known_photos.begin(), known_photos.end(),
+                                          [&](const KnownPhoto &k) { return now - k.at > photos::ANSWER_KEPT_MS; }),
+                           known_photos.end());
+        photos::Photo photo;
+        bool answered = false;
+        for (const auto &k : known_photos)
+          if (k.hex == photo_ask) {
+            photo = k.photo;
+            answered = true;
+          }
+        if (!answered) {
+          body.clear();
+          const http::Result r = http::get(photos::url_for(photo_ask), body, 16 * 1024, agent_, "application/json");
+          JsonDocument doc;
+          std::string error = r.error;
+          answered = r.status == 200 &&
+                     photos::read(reinterpret_cast<const char *>(body.data), body.size, doc, photo, error);
+          body.clear();
+          if (answered) {
+            if (known_photos.size() >= MOST_KNOWN_PHOTOS) known_photos.erase(known_photos.begin());
+            known_photos.push_back({photo_ask, photo, now});
+          } else {
+            ESP_LOGW(TAG, "Photo of %s: %s", photo_ask.c_str(), error.c_str());
+          }
+        }
+        if (answered && photo.known) {
+          // The image straight from the address given, decoded into memory, never kept on the card.
+          const http::Result r = http::get(photo.src, body, photos::MOST_IMAGE_BYTES, agent_, "image/jpeg");
+          std::string error = r.error;
+          if (r.status == 200) {
+            image = std::make_shared<PhotoImage>();
+            image->hex = photo_ask;
+            image->photo = photo;
+            image->pixels = decode::picture(body.data, body.size, PHOTO_MOST_PX, PHOTO_MOST_PX, image->width,
+                                            image->height, error);
+            if (!image->pixels) image.reset();
+          }
+          body.clear();
+          if (!image) ESP_LOGW(TAG, "Photo of %s: %s", photo_ask.c_str(), error.c_str());
+        }
+      }
+      std::lock_guard<std::mutex> guard(lock_);
+      // Still the plane asked for (another may have been picked meanwhile).
+      if (shared_.photo_ask == photo_ask) {
+        shared_.photo = std::move(image);
+        shared_.photo_rev++;
+      }
+    }
+    // ---- The route of the plane picked on the glass, for its card: asked once.
+    if (picked_ask_rev != picked_done_rev && connected && !was_offline) {
+      picked_done_rev = picked_ask_rev;
+      follow::Route route;
+      if (!picked_ask.callsign.empty() && route_of(picked_ask, route)) {
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.picked_route = route;
+        shared_.picked_route_rev++;
+      }
+    }
 
     const uint32_t now = millis();
     if (!online || !settings.located || plan.view.width == 0) {
@@ -813,6 +973,26 @@ void Skyscope::worker_() {
           publish_follower();
           return;
         }
+    };
+    // Every plane of a report around the place, before the ones not shown are let go: what the screen has seen in its
+    // range (sightings.h), and the alerts that raises. A report around a plane followed is none of the screen's own.
+    auto sight = [&](const std::vector<feed::Flight> &flights, bool elsewhere) {
+      const int64_t unix_s = unix_now();
+      if (elsewhere || !unix_s) return;
+      const time_t t = (time_t) unix_s;
+      struct tm local {};
+      localtime_r(&t, &local);
+      const uint32_t date = (uint32_t) ((local.tm_year + 1900) * 10000 + (local.tm_mon + 1) * 100 + local.tm_mday);
+      std::vector<sightings::Alert> alerts;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.book.see(flights, saved, unix_s, date, local.tm_hour, alerts, ended);
+        shared_.book_rev++;
+        for (auto &a : alerts) {
+          ESP_LOGI(TAG, "Alert: %s", a.text.c_str());
+          if (shared_.alerts.size() < 16) shared_.alerts.push_back(std::move(a));
+        }
+      }
     };
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_meters() / geo::NM * 1.05));
     char place[64];
@@ -851,6 +1031,7 @@ void Skyscope::worker_() {
         const uint32_t done = millis();
         if (ok) {
           see_followed(flights);
+          sight(flights, false);
           overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
           const uint32_t every = providers.succeeded(RADIO, done, RADIO_EVERY_MS, answer);
           feed_due = done + every;
@@ -895,6 +1076,7 @@ void Skyscope::worker_() {
           ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room, &simulated);
           if (ok && flights.size() == room) ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
           if (ok) see_followed(flights);
+          if (ok) sight(flights, center.on && follower.known());
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
         }
         const uint32_t done = millis();
@@ -926,6 +1108,39 @@ void Skyscope::worker_() {
       }
       std::lock_guard<std::mutex> guard(lock_);
       shared_.providers = providers;
+    }
+
+    // ---- Visits over, to the card's log: a file a day, by the screen's local date (sightings.h csv_line).
+    if (!ended.empty()) {
+      if (card_io::mounted()) {
+        const bool metric = saved.metric;
+        auto local = [](int64_t unix_s) {
+          const time_t t = (time_t) unix_s;
+          struct tm l {};
+          localtime_r(&t, &l);
+          char out[24];
+          std::strftime(out, sizeof(out), "%Y-%m-%d %H:%M:%S", &l);
+          return std::string(out);
+        };
+        const std::string folder = std::string(card::ROOT) + "/log";
+        if (card_io::make_folder(folder)) {
+          std::string file, text;
+          for (const sightings::Visit &v : ended) {
+            const std::string day = local(v.first).substr(0, 10);
+            const std::string path = folder + "/" + day + ".csv";
+            if (path != file) {
+              if (!file.empty() && !card_io::append_text(file, text)) ESP_LOGW(TAG, "The log could not be written");
+              file = path;
+              text.clear();
+              struct stat st {};
+              if (::stat(path.c_str(), &st) != 0) text = sightings::csv_header(metric);
+            }
+            text += sightings::csv_line(v, metric, local);
+          }
+          if (!file.empty() && !card_io::append_text(file, text)) ESP_LOGW(TAG, "The log could not be written");
+        }
+      }
+      ended.clear();
     }
 
     // ---- The airspace and runways (airspace.h), once for each place and range while they are shown.

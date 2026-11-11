@@ -36,6 +36,16 @@ struct Stored {
   char json[1800];
 };
 constexpr uint32_t SAVE_DELAY_MS = 4000;
+// The farthest a plane's card says which way to look for it: past this it is a speck at best.
+constexpr double SIGHT_MOST_NM = 60;
+// An alert stays on the glass this long, unless tapped; the day's tally is stored at most this often.
+constexpr uint32_t ALERT_MS = 20000, STATS_SAVE_MS = 30 * 60 * 1000;
+// The day's tally as stored (sightings.h pack), with its size.
+struct StoredStats {
+  uint32_t size;
+  uint8_t bytes[30000];
+};
+constexpr uint32_t STATS_PREF_HASH = 0x5D57A751;
 // A tap on the map shows the screen's address and range in the status line for this long.
 constexpr uint32_t ADDRESS_MS = 6000;
 // A finger picks the plane nearest it within this many reference pixels.
@@ -202,7 +212,7 @@ void Skyscope::save_settings_() {
     kept.range_nm = held_.range_nm;
     kept.place = held_.place;
   }
-  to_json(kept, doc.to<JsonObject>());
+  to_json(kept, doc.to<JsonObject>(), true);
   const size_t n = serializeJson(doc, stored.json, sizeof(stored.json) - 1);
   if (n == 0 || n >= sizeof(stored.json) - 1) {
     ESP_LOGE(TAG, "The settings are too long to store");
@@ -292,6 +302,7 @@ void Skyscope::restyle_() {
   lv_obj_set_style_bg_color(level_fill_, lv_color_hex(radar ? colors::tint(settings_.tint).glow : colors::ACCENT), 0);
   lv_obj_set_style_text_color(level_text_, lv_color_hex(c.ink), 0);
   for (auto *row : card_rows_) lv_obj_set_style_text_color(row, lv_color_hex(c.muted), 0);
+  lv_obj_set_style_text_color(card_photo_credit_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_text_color(card_after_, lv_color_hex(c.muted), 0);
   lv_obj_set_style_line_color(card_arrow_, lv_color_hex(c.muted), 0);
   for (lv_obj_t *key : {route_key_, own_key_, plane_key_}) {
@@ -306,6 +317,8 @@ void Skyscope::restyle_() {
       lv_obj_set_style_bg_color(part, lv_color_hex(c.ink), 0);
     }
   }
+  lv_obj_set_style_bg_color(alert_, lv_color_hex(c.card), 0);
+  lv_obj_set_style_text_color(alert_text_, lv_color_hex(c.ink), 0);
   lv_obj_set_style_bg_color(card_follow_, lv_color_hex(c.accent), 0);
   lv_obj_set_style_text_color(lv_obj_get_child(card_follow_, 0), lv_color_hex(c.card), 0);
   last_status_ = 0;
@@ -397,6 +410,40 @@ uint32_t divert_sum(const KeptDivert &k) {
 }
 }  // namespace
 
+// The touch lock (skyscope.h), kept over a restart the same way: its seconds, from the restart on.
+struct KeptTouchLock {
+  uint32_t mark, seconds, sum;
+};
+__NOINIT_ATTR KeptTouchLock kept_touch_lock;
+constexpr uint32_t TOUCH_LOCK_MARK = 0x70C4ED11;
+
+uint32_t Skyscope::kept_touch_lock_s_() {
+  const KeptTouchLock &k = kept_touch_lock;
+  if (k.mark != TOUCH_LOCK_MARK || k.sum != (k.seconds ^ TOUCH_LOCK_MARK)) return 0;
+  return std::min<uint32_t>(k.seconds, 24 * 3600);
+}
+void Skyscope::keep_touch_lock_(uint32_t seconds) {
+  kept_touch_lock = {seconds ? TOUCH_LOCK_MARK : 0, seconds, seconds ^ TOUCH_LOCK_MARK};
+}
+
+void Skyscope::lock_touch_(uint32_t seconds) {
+  seconds = std::min<uint32_t>(seconds, 24 * 3600);
+  keep_touch_lock_(seconds);
+  const bool was = touch_locked_until_ != 0;
+  touch_locked_until_ = seconds ? (millis() + seconds * 1000) | 1 : 0;
+  // LVGL's own touch input on or off: every input but the probe's.
+  for (lv_indev_t *i = lv_indev_get_next(nullptr); i; i = lv_indev_get_next(i))
+    if (i != probe_input_) lv_indev_enable(i, seconds == 0);
+  if (seconds && fingers_.active) end_pinch_();
+  if (touch_lock_note_) set_shown(touch_lock_note_, seconds != 0);
+  if (was != (seconds != 0))
+    ESP_LOGI(TAG, seconds ? "A test runs: touches are off for %u s" : "Touches are on again", (unsigned) seconds);
+}
+
+void Skyscope::touch_lock_tick_(uint32_t now) {
+  if (touch_locked_until_ && (int32_t) (now - touch_locked_until_) >= 0) lock_touch_(0);
+}
+
 std::string Skyscope::kept_divert_() {
   const KeptDivert &k = kept_divert;
   if (k.mark != DIVERT_MARK || k.origin[sizeof(k.origin) - 1] != 0 || k.sum != divert_sum(k)) return "";
@@ -436,6 +483,7 @@ void Skyscope::setup() {
   ui::fonts.label = font_label_ ? font_label_->get_lv_font() : ui::fonts.small;
   ui::fonts.title = font_title_ ? font_title_->get_lv_font() : ui::fonts.label;
   load_settings_();
+  load_stats_();
   reshow_();
   use_timezone_();
   {
@@ -505,6 +553,9 @@ void Skyscope::loop() {
   // Offline, the map card found (or lost) since: the map from it, or the radar.
   if (radio_only != offline_ || (offline_ && card_mounted != offline_card_)) go_offline_(radio_only);
   if (save_pending_ && (int32_t) (now - save_at_) >= 0) save_settings_();
+#ifdef SKYSCOPE_TEST_API
+  touch_lock_tick_(now);
+#endif
   sleep_or_wake_(now);
   // The brightness set, or the one a finger is dragging to; none while the screen is off.
   const float level = (drag_level_ >= 0 ? drag_level_ : settings_.brightness) / 100.0f;
@@ -535,6 +586,8 @@ void Skyscope::loop() {
     refresh_menu_wifi_();
     refresh_picker_();  // a search answered, a scan given up
     refresh_weather_();
+    take_alerts_(now);
+    if (now - stats_saved_at_ >= STATS_SAVE_MS) save_stats_();
   }
 }
 
@@ -661,7 +714,7 @@ void Skyscope::build_ui_() {
   ui::hug_edge(card_, LV_ALIGN_BOTTOM_MID, 0, -ui::px(8));
   lv_obj_set_style_bg_opa(card_, LV_OPA_90, 0);
   card_title_ = label(card_, ui::fonts.title, colors::INK);
-  for (size_t i = 0; i < 3; ++i) {
+  for (size_t i = 0; i < 4; ++i) {
     lv_obj_t *parent = card_;
     if (i == 1) {
       // Altitude, then an arrow drawn for a climb or descent, then its rate, the speed and the heading.
@@ -674,7 +727,8 @@ void Skyscope::build_ui_() {
       parent = card_motion_;
     }
     card_rows_[i] = label(parent, ui::fonts.label, colors::MUTED);
-    lv_label_set_long_mode(card_rows_[i], LV_LABEL_LONG_DOT);
+    // Which way to look takes a second line where it needs one.
+    lv_label_set_long_mode(card_rows_[i], i == 3 ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
     if (i != 1) lv_obj_set_width(card_rows_[i], lv_pct(100));
   }
   {
@@ -697,6 +751,27 @@ void Skyscope::build_ui_() {
     lv_label_set_long_mode(card_after_, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(card_after_, 1);
   }
+  // Its photo (photos.h), beside the QR code of the photo's page, with its photographer under them: shown once it has
+  // come, as Planespotters.net's terms ask.
+  card_photo_ = widgets::plain(card_);
+  lv_obj_set_size(card_photo_, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(card_photo_, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(card_photo_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(card_photo_, ui::px(6), 0);
+  lv_obj_remove_flag(card_photo_, LV_OBJ_FLAG_CLICKABLE);
+  card_photo_image_ = lv_image_create(card_photo_);
+  lv_obj_remove_flag(card_photo_image_, LV_OBJ_FLAG_CLICKABLE);
+  card_qr_ = lv_qrcode_create(card_photo_);
+  lv_qrcode_set_dark_color(card_qr_, lv_color_black());
+  lv_qrcode_set_light_color(card_qr_, lv_color_white());
+  // The quiet margin a reader needs around the code, white.
+  lv_obj_set_style_border_color(card_qr_, lv_color_white(), 0);
+  lv_obj_remove_flag(card_qr_, LV_OBJ_FLAG_CLICKABLE);
+  card_photo_credit_ = label(card_, ui::fonts.small, colors::MUTED);
+  lv_label_set_long_mode(card_photo_credit_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(card_photo_credit_, lv_pct(100));
+  lv_obj_add_flag(card_photo_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(card_photo_credit_, LV_OBJ_FLAG_HIDDEN);
   // Follow the plane wherever it flies (follow.h), or stop following it.
   menu_settings_ = settings_;  // the key's colors (menu.cpp button_); restyle_ keeps them after
   card_follow_ = button_(card_, "Follow", LV_SIZE_CONTENT, ui::mm(7), -1, true);
@@ -757,6 +832,28 @@ void Skyscope::build_ui_() {
     self->update_card_();
   }, LV_EVENT_CLICKED, this);
 
+  // An alert along the top, under the status line: a tap picks its plane and shows its card.
+  alert_ = panel(screen);
+  lv_obj_set_width(alert_, std::min(glass::page_width(ui::shape, ui::px(8)), ui::mm(60)));
+  lv_obj_set_height(alert_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(alert_, LV_OPA_90, 0);
+  lv_obj_set_style_border_width(alert_, std::max(2, ui::px(2)), 0);
+  ui::hug_edge(alert_, LV_ALIGN_TOP_MID, 0, ui::mm(7));
+  alert_text_ = label(alert_, ui::fonts.label, colors::INK);
+  lv_label_set_long_mode(alert_text_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(alert_text_, lv_pct(100));
+  lv_obj_add_flag(alert_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(alert_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(alert_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    set_shown(self->alert_, false);
+    self->alert_until_ = 0;
+    if (self->alert_hex_.empty()) return;
+    self->picked_ = self->alert_hex_;
+    view::set_picked(self->view_, self->picked_);
+    self->update_card_();
+  }, LV_EVENT_CLICKED, this);
+
   // What to do before there is anything to show: join a Wi-Fi network, or set the place.
   setup_ = lv_obj_create(screen);
   lv_obj_remove_style_all(setup_);
@@ -798,6 +895,17 @@ void Skyscope::build_ui_() {
   lv_display_add_event_cb(display, flush_finish, LV_EVENT_FLUSH_FINISH, nullptr);
 #ifdef SKYSCOPE_TEST_API
   make_probe_input_();
+  // A note while a test has the fingers locked out, and a lock kept over the restart.
+  touch_lock_note_ = label(screen, ui::fonts.small, colors::WARNING);
+  lv_label_set_text(touch_lock_note_, "Test running: touch is off");
+  lv_obj_set_style_bg_color(touch_lock_note_, lv_color_hex(colors::CARD), 0);
+  lv_obj_set_style_bg_opa(touch_lock_note_, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(touch_lock_note_, ui::px(6), 0);
+  lv_obj_set_style_radius(touch_lock_note_, ui::px(6), 0);
+  ui::hug_edge(touch_lock_note_, LV_ALIGN_BOTTOM_MID, 0, -ui::mm(swipe::STRIP_MM + 1));
+  lv_obj_remove_flag(touch_lock_note_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(touch_lock_note_, LV_OBJ_FLAG_HIDDEN);
+  if (const uint32_t s = kept_touch_lock_s_()) lock_touch_(s);
 #endif
   replan_();
 #ifdef USE_SKYSCOPE_RADIO
@@ -850,6 +958,12 @@ void Skyscope::sleep_or_wake_(uint32_t now) {
       wake_by_clock_();
       if (lvgl_->is_paused()) return;
     }
+    // Woken by a finger while a test has them locked out: dark again.
+    if (touch_locked_() && !wake_asked_) {
+      lvgl_->set_paused(true, false);
+      return;
+    }
+    wake_asked_ = false;
     asleep_ = false;
     taps_from_ = now + WAKE_DEAF_MS;
     applied_brightness_ = -1;  // the brightness again, at once
@@ -899,6 +1013,7 @@ void Skyscope::wake_by_clock_() {
   bed_minute_ = minute;
   if (minute != schedule::minutes(settings_.bed_on)) return;
   ESP_LOGI(TAG, "Bedtime over");
+  wake_asked_ = true;
   lvgl_->set_paused(false, false);  // sleep_or_wake_ turns the rest on, as at a touch
 #endif
 }
@@ -1078,6 +1193,9 @@ void Skyscope::update_planes_(uint32_t now) {
   // The plane followed: its route under everything, and its track from its trail, the whole flight or as many minutes
   // as chosen.
   if (following_() && route_.known) o.route = follow::route_on(route_, plan_.view);
+  // Else the plane picked: its route under everything too, while its card shows it.
+  else if (!following_() && picked_route_.known && !picked_.empty() && picked_ == route_asked_hex_)
+    o.route = follow::route_on(picked_route_, plan_.view);
   if (following_()) o.followed = follower_.hex();
   route_points_ = o.route.size() / 2;
   if (following_())
@@ -1109,6 +1227,7 @@ void Skyscope::update_card_() {
   for (const auto &x : flights_) if (x.hex == picked_) f = &x;
   if (picked_.empty() || !f) {
     set_shown(card_, false);
+    ask_photo_("");  // no card: its photo goes
     return;
   }
   const bool metric = settings_.metric;
@@ -1123,7 +1242,10 @@ void Skyscope::update_card_() {
     }
     return out;
   };
-  const std::string kind = !f->description.empty() ? f->description : f->type;
+  const std::string kind = !f->description.empty() ? f->description
+                           : !f->type.empty()        ? f->type
+                           : feed::made_up_address(*f) ? std::string("seen by radar, sends no ID")
+                                                     : std::string();
   set_text(card_rows_[0], join({kind, f->registration != overlay::name_of(*f) ? f->registration : ""}));
   char heading[16] = "";
   if (f->has_heading) std::snprintf(heading, sizeof(heading), "%03d\xC2\xB0", (int) std::lround(f->heading) % 360);
@@ -1143,14 +1265,245 @@ void Skyscope::update_card_() {
   }
   set_text(card_after_, join({overlay::climb_rate(*f, metric), overlay::speed_text(*f, metric), heading}));
   const bool followed = !settings_.follow.empty() && follower_.known() && follower_.hex() == f->hex;
-  // The followed plane's route, where the build has them: its airports.
-  const std::string route = followed && route_.known ? route_.from + " to " + route_.to : "";
+  // Its route, where adsb.lol knows one that fits where it is: its airports.
+  if (!followed) ask_picked_route_(*f);
+  const follow::Route &r = followed ? route_ : picked_route_;
+  const bool asked = f->hex == route_asked_hex_ && f->callsign == route_asked_callsign_;
+  const bool route_known = r.known && (followed || asked);
+  const std::string route = route_known ? r.from + " to " + r.to : "";
   set_text(card_rows_[2], join({f->operator_name, f->squawk.empty() ? "" : "squawk " + f->squawk, route,
                                 f->estimated ? "estimated, out of reach" : ""}));
+  // Which way to look for it from the place, while the view is the place's own (not a plane followed far away) and the
+  // plane is near enough to be seen.
+  const geo::Sight sight = overlay::sight_of(*f, settings_.lat, settings_.lon);
+  const bool near_enough =
+      settings_.located && !following_() && !f->estimated && sight.meters < SIGHT_MOST_NM * geo::NM;
+  set_text(card_rows_[3], near_enough ? overlay::sight_text(sight, metric) : std::string());
+  set_shown(card_rows_[3], near_enough);
+  // Its photo, where photos are wanted and there is a network to ask.
+  ask_photo_(settings_.photos && !offline_ && !f->estimated && !feed::made_up_address(*f) ? f->hex : std::string());
+  show_photo_();
   set_text(lv_obj_get_child(card_follow_, 0), followed ? "Stop following" : "Follow");
-  // Off a network nothing can be followed: the radio hears only what is near.
-  set_shown(card_follow_, !offline_);
+  // Off a network nothing can be followed: the radio hears only what is near. Nor can a plane known by a made-up
+  // address: it names no aircraft to look up.
+  set_shown(card_follow_, !offline_ && !feed::made_up_address(*f));
   set_shown(card_, true);
+}
+
+// The route of the plane picked, asked of the worker once for each plane and callsign; a new pick drops the last one's.
+void Skyscope::ask_picked_route_(const feed::Flight &f) {
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    // The worker's answer, if it is for the plane asked last (one picked before may answer after another is).
+    if (shared_.picked_route_rev != picked_route_rev_) {
+      picked_route_rev_ = shared_.picked_route_rev;
+      if (shared_.picked_route.callsign == route_asked_callsign_) {
+        picked_route_ = shared_.picked_route;
+        seen_flights_rev_ = AGAIN;  // its line on the map
+      }
+    }
+    if (f.hex == route_asked_hex_ && f.callsign == route_asked_callsign_) return;
+    route_asked_hex_ = f.hex;
+    route_asked_callsign_ = f.callsign;
+    picked_route_ = follow::Route{};
+    if (f.callsign.empty() || f.on_ground) return;
+    shared_.route_ask = {f.callsign, f.lat, f.lon, f.has_heading, f.heading};
+    shared_.route_ask_rev++;
+  }
+}
+
+PhotoImage::~PhotoImage() { heap_caps_free(pixels); }
+
+// The photo of the plane `hex` asked of the worker, once a plane; "" lets the one held go, at once, as the terms ask
+// that a photo is kept no longer than it is shown.
+void Skyscope::ask_photo_(const std::string &hex) {
+  if (hex == photo_asked_hex_) return;
+  photo_asked_hex_ = hex;
+  if (photo_) {
+    lv_image_set_src(card_photo_image_, nullptr);
+    photo_.reset();
+  }
+  set_shown(card_photo_, false);
+  set_shown(card_photo_credit_, false);
+  std::lock_guard<std::mutex> guard(lock_);
+  shared_.photo_ask = hex;
+  shared_.photo_ask_rev++;
+  if (hex.empty() && shared_.photo) {
+    shared_.photo.reset();
+    shared_.photo_rev++;
+  }
+}
+
+// The photo the worker brought, if it is the plane's on the card: the picture fitted beside its QR code, which is as
+// tall as the picture (at least 12 mm, to be read from arm's length) and gets a white margin of two of its modules.
+void Skyscope::show_photo_() {
+  std::shared_ptr<const PhotoImage> got;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (shared_.photo_rev == photo_rev_) return;
+    photo_rev_ = shared_.photo_rev;
+    got = shared_.photo;
+  }
+  if (!got || got->hex != photo_asked_hex_ || !got->pixels) return;
+  photo_ = std::move(got);
+  photo_dsc_ = {};
+  photo_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+  photo_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+  photo_dsc_.header.w = photo_->width;
+  photo_dsc_.header.h = photo_->height;
+  photo_dsc_.header.stride = photo_->width * 2;
+  photo_dsc_.data = reinterpret_cast<const uint8_t *>(photo_->pixels);
+  photo_dsc_.data_size = (uint32_t) photo_->width * photo_->height * 2;
+  lv_obj_update_layout(card_);
+  const int room = std::max(ui::mm(20), (int) lv_obj_get_content_width(card_));
+  const int gap = ui::px(6);
+  int qr = std::max(ui::mm(12), photo_->height);
+  qr = std::min(qr, room * 2 / 5);
+  // The picture as large as it is, or smaller to fit beside the code.
+  const int fit = std::max(1, room - qr - gap);
+  const int scale = std::min(256, 256 * fit / std::max(1, photo_->width));
+  lv_image_set_src(card_photo_image_, &photo_dsc_);
+  lv_image_set_scale(card_photo_image_, scale);
+  lv_obj_set_size(card_photo_image_, photo_->width * scale / 256, photo_->height * scale / 256);
+  lv_image_set_inner_align(card_photo_image_, LV_IMAGE_ALIGN_CENTER);
+  const std::string &link = photo_->photo.link;
+  const int margin = std::max(2, qr / 20);
+  lv_obj_set_style_border_width(card_qr_, margin, 0);
+  lv_qrcode_set_size(card_qr_, qr - 2 * margin);
+  lv_qrcode_update(card_qr_, link.data(), link.size());
+  set_text(card_photo_credit_, photos::credit(photo_->photo));
+  set_shown(card_photo_, true);
+  set_shown(card_photo_credit_, true);
+}
+
+// The alerts the worker raised since the last look: each told to Home Assistant, and the latest shown on the glass.
+void Skyscope::take_alerts_(uint32_t now) {
+  std::vector<sightings::Alert> alerts;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    alerts.swap(shared_.alerts);
+    // The picked plane's route may have come meanwhile: its card again.
+    if (shared_.picked_route_rev != picked_route_rev_ && !picked_.empty()) seen_flights_rev_ = AGAIN;
+    if (shared_.photo_rev != photo_rev_ && !picked_.empty()) seen_flights_rev_ = AGAIN;
+  }
+  for (const auto &a : alerts) {
+    ++alerts_seen_;
+    last_alert_ = a.text;
+    alert_callbacks_.call(sightings::KINDS[a.kind], a.name, a.text);
+  }
+  if (!alerts.empty() && !asleep_) {
+    // An emergency before a watched plane, when both came at once.
+    const auto *shown = &alerts.back();
+    for (const auto &a : alerts)
+      if (a.kind == sightings::EMERGENCY) shown = &a;
+    show_alert_(*shown);
+    alert_until_ = now + ALERT_MS;
+  }
+  if (alert_until_ && (int32_t) (now - alert_until_) >= 0) {
+    alert_until_ = 0;
+    set_shown(alert_, false);
+  }
+}
+
+void Skyscope::show_alert_(const sightings::Alert &a) {
+  if (!ui_built_) return;
+  alert_hex_ = a.hex;
+  set_text(alert_text_, a.text);
+  const uint32_t edge = a.kind == sightings::EMERGENCY ? colors::EMERGENCY
+                        : a.color > 0                  ? colors::WATCH[(a.color - 1) % 6]
+                                                       : chrome_().accent;
+  lv_obj_set_style_border_color(alert_, lv_color_hex(edge), 0);
+  set_shown(alert_, true);
+  lv_obj_move_foreground(alert_);
+}
+
+void Skyscope::load_stats_() {
+  stats_pref_ = global_preferences->make_preference<StoredStats>(STATS_PREF_HASH);
+  auto stored = std::make_unique<StoredStats>();
+  if (!stats_pref_.load(stored.get()) || stored->size > sizeof(stored->bytes)) return;
+  std::lock_guard<std::mutex> guard(lock_);
+  if (shared_.book.unpack(stored->bytes, stored->size)) {
+    stats_saved_rev_ = shared_.book_rev;
+    ESP_LOGI(TAG, "The day's tally kept: %u planes", (unsigned) shared_.book.today().planes);
+  }
+}
+
+void Skyscope::save_stats_() {
+  stats_saved_at_ = millis();
+  std::vector<uint8_t> bytes;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (shared_.book_rev == stats_saved_rev_) return;
+    stats_saved_rev_ = shared_.book_rev;
+    bytes = shared_.book.pack();
+  }
+  auto stored = std::make_unique<StoredStats>();
+  if (bytes.size() > sizeof(stored->bytes)) {
+    ESP_LOGW(TAG, "The day's tally is too large to keep (%u bytes)", (unsigned) bytes.size());
+    return;
+  }
+  stored->size = bytes.size();
+  std::memcpy(stored->bytes, bytes.data(), bytes.size());
+  stats_pref_.save(stored.get());
+  global_preferences->sync();
+}
+
+// ---- For Home Assistant (home-assistant.yaml), on the loop.
+uint32_t Skyscope::planes_in_range() {
+  std::lock_guard<std::mutex> guard(lock_);
+  return shared_.book.in_range();
+}
+uint32_t Skyscope::planes_today() {
+  std::lock_guard<std::mutex> guard(lock_);
+  return shared_.book.today().planes;
+}
+namespace {
+// The nearest plane to the place in the last report, or nullptr: none while a plane far away is followed.
+const feed::Flight *nearest_of(const std::vector<feed::Flight> &flights, const Settings &s, bool following) {
+  if (following || !s.located) return nullptr;
+  const feed::Flight *best = nullptr;
+  double best_m = std::min(s.range_nm, FEED_REACH_NM) * geo::NM;
+  for (const auto &f : flights) {
+    if (f.estimated || !sightings::counts(f)) continue;
+    const double m = geo::meters_between(s.lat, s.lon, f.lat, f.lon);
+    if (m <= best_m) {
+      best = &f;
+      best_m = m;
+    }
+  }
+  return best;
+}
+}  // namespace
+std::string Skyscope::nearest_plane() {
+  const feed::Flight *f = nearest_of(flights_, settings_, following_());
+  return f ? overlay::name_of(*f) : "";
+}
+float Skyscope::nearest_nm() {
+  const feed::Flight *f = nearest_of(flights_, settings_, following_());
+  return f ? (float) (geo::meters_between(settings_.lat, settings_.lon, f->lat, f->lon) / geo::NM) : NAN;
+}
+float Skyscope::nearest_altitude_ft() {
+  const feed::Flight *f = nearest_of(flights_, settings_, following_());
+  return f && f->has_altitude && !f->on_ground ? (float) f->altitude : NAN;
+}
+std::string Skyscope::followed_state() {
+  if (settings_.follow.empty()) return "";
+  if (follower_for_ != settings_.follow) return "looking";
+  return follow::PHASES[follower_.phase(millis())];
+}
+void Skyscope::set_screen_on(bool on) {
+  if (on == !asleep_ || !lvgl_) return;
+  // On as at a touch: sleep_or_wake_ turns the rest on, and the screen-off timer starts again.
+  if (on) {
+    wake_asked_ = true;
+    lvgl_->set_paused(false, false);
+  }
+  else go_to_sleep_("Home Assistant");
+}
+void Skyscope::set_brightness(int percent) {
+  Settings s = settings_;
+  s.brightness = std::max(0, std::min(100, percent));
+  if (s.brightness != settings_.brightness) use_settings_(s);
 }
 
 // A Wi-Fi chip (an ESP-Hosted coprocessor) running other firmware than the one this firmware carries is brought in line

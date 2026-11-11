@@ -12,6 +12,13 @@
 
 #include <JPEGDEC.h>
 #include <PNGdec.h>
+// stb_image (copied here, NOTICE) for a plane's photo alone, when it is a progressive JPEG: JPEG only, from memory.
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_JPEG
+#define STBI_NO_STDIO
+#define STBI_NO_LINEAR
+#define STBI_NO_HDR
+#include "stb_image.h"
 #include <pngle.h>
 
 #include <new>
@@ -298,4 +305,111 @@ bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int heig
   }
   return true;
 }
+namespace {
+struct Picture {
+  uint16_t *pixels;
+  int width, height;
+};
+int picture_block(JPEGDRAW *j) {
+  auto *p = static_cast<Picture *>(j->pUser);
+  const auto *from = reinterpret_cast<const uint16_t *>(j->pPixels);
+  for (int y = 0; y < j->iHeight; ++y) {
+    const int row = j->y + y;
+    if (row < 0 || row >= p->height) continue;
+    for (int x = 0; x < j->iWidth; ++x) {
+      const int col = j->x + x;
+      if (col >= 0 && col < p->width) p->pixels[row * p->width + col] = from[y * j->iWidth + x];
+    }
+  }
+  return 1;
+}
+
+// A progressive JPEG by stb_image (its memory from malloc: a thumbnail's coefficients and pixels are well over 4 KB,
+// so in PSRAM), made smaller by a whole step until it fits, each pixel the mean of those it stands for.
+uint16_t *progressive_picture(const uint8_t *data, size_t size, int most_width, int most_height, int &width,
+                              int &height, std::string &error) {
+  int w = 0, h = 0, channels = 0;
+  uint8_t *rgb = stbi_load_from_memory(data, (int) size, &w, &h, &channels, 3);
+  if (!rgb) {
+    const char *why = stbi_failure_reason();
+    error = std::string("the photo could not be read: ") + (why ? why : "unknown");
+    return nullptr;
+  }
+  int step = 1;
+  while (step < 8 && (w / step > most_width || h / step > most_height)) ++step;
+  const int ow = std::max(1, w / step), oh = std::max(1, h / step);
+  auto *out = static_cast<uint16_t *>(heap_caps_malloc((size_t) ow * oh * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!out) {
+    stbi_image_free(rgb);
+    error = "no memory for the photo";
+    return nullptr;
+  }
+  for (int y = 0; y < oh; ++y)
+    for (int x = 0; x < ow; ++x) {
+      int r = 0, g = 0, b = 0;
+      for (int dy = 0; dy < step; ++dy)
+        for (int dx = 0; dx < step; ++dx) {
+          const uint8_t *p = rgb + ((size_t) (y * step + dy) * w + (x * step + dx)) * 3;
+          r += p[0];
+          g += p[1];
+          b += p[2];
+        }
+      const int n = step * step;
+      r /= n;
+      g /= n;
+      b /= n;
+      out[y * ow + x] = (uint16_t) (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+    }
+  stbi_image_free(rgb);
+  width = ow;
+  height = oh;
+  return out;
+}
+}  // namespace
+
+uint16_t *picture(const uint8_t *data, size_t size, int most_width, int most_height, int &width, int &height,
+                  std::string &error) {
+  JPEGDEC *jpeg = jpegs.get(false);
+  if (!jpeg) {
+    error = "no memory for JPEG";
+    return nullptr;
+  }
+  if (!jpeg->openRAM(const_cast<uint8_t *>(data), (int) size, picture_block)) {
+    error = "not a JPEG";
+    return nullptr;
+  }
+  if (jpeg->getJPEGType() == JPEG_MODE_PROGRESSIVE) {
+    // Planespotters.net's thumbnails are progressive, which JPEGDEC does not read: stb_image does.
+    jpeg->close();
+    return progressive_picture(data, size, most_width, most_height, width, height, error);
+  }
+  // Halved, quartered or an eighth, as JPEGDEC scales as it decodes, until it fits.
+  int scale = 0, shift = 0;
+  const int w = jpeg->getWidth(), h = jpeg->getHeight();
+  while (shift < 3 && ((w >> shift) > most_width || (h >> shift) > most_height)) ++shift;
+  if (shift == 1) scale = JPEG_SCALE_HALF;
+  if (shift == 2) scale = JPEG_SCALE_QUARTER;
+  if (shift == 3) scale = JPEG_SCALE_EIGHTH;
+  Picture p{nullptr, std::max(1, w >> shift), std::max(1, h >> shift)};
+  const size_t count = (size_t) p.width * p.height;
+  p.pixels = static_cast<uint16_t *>(heap_caps_calloc(count, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!p.pixels) {
+    jpeg->close();
+    error = "no memory for the photo";
+    return nullptr;
+  }
+  jpeg->setUserPointer(&p);
+  jpeg->setPixelType(RGB565_LITTLE_ENDIAN);
+  const bool ok = jpeg->decode(0, 0, scale);
+  if (!ok) error = "JPEG error " + std::to_string(jpeg->getLastError());
+  jpeg->close();
+  if (!ok) {
+    heap_caps_free(p.pixels);
+    return nullptr;
+  }
+  width = p.width;
+  height = p.height;
+  return p.pixels;
+}
+
 }  // namespace sky::decode

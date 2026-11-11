@@ -259,6 +259,14 @@ bool write_text(const std::string &path, const std::string &text) {
   return ::rename(tmp.c_str(), path.c_str()) == 0;
 }
 
+bool append_text(const std::string &path, const std::string &text) {
+  if (!card_) return false;
+  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0664);
+  if (fd < 0) return false;
+  const bool ok = write_all(fd, reinterpret_cast<const uint8_t *>(text.data()), text.size());
+  return ::close(fd) == 0 && ok;
+}
+
 void remove(const std::string &path) {
   if (card_) ::unlink(path.c_str());
 }
@@ -313,6 +321,7 @@ bool format(std::string &error) {
 }
 bool rename(const std::string &, const std::string &) { return false; }
 bool make_folder(const std::string &) { return false; }
+bool append_text(const std::string &, const std::string &) { return false; }
 bool unformatted() { return false; }
 int remove_some(const std::string &, int) { return -1; }
 bool mounted() { return false; }

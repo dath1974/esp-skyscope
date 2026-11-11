@@ -27,6 +27,11 @@ struct Options {
 };
 bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int height, const geo::TileOrigin &at,
           const tiles::Filter &filter, std::string &error, Times *times = nullptr, const Options &options = {});
+// A picture of its own (a plane's photo, photos.h): a JPEG decoded whole into RGB565 pixels in PSRAM, made smaller by
+// halves until it is no wider than `most_width` and no taller than `most_height`. Freed with heap_caps_free. Null, with
+// `error` set, for bytes it cannot read.
+uint16_t *picture(const uint8_t *data, size_t size, int most_width, int most_height, int &width, int &height,
+                  std::string &error);
 // The bytes of a decoder's state (PNGdec's, else JPEGDEC's), and letting go of any made in internal RAM.
 size_t state_bytes(bool png);
 void release_internal();

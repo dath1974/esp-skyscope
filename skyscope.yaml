@@ -19,9 +19,6 @@ substitutions:
   # (ESP32-S3, 2.8-inch LCD) or waveshare-p4-lcd-4c (ESP32-P4, round 4-inch LCD). Build another with
   # `esphome -s board <name> ...` or `make firmware BOARD=<name>`.
   board: waveshare-amoled-241
-  # The followed plane's route from adsbdb (follow.h): off in published firmware, as adsbdb's route data may not be
-  # copied without its owner's leave. `make firmware ROUTES=true` builds it in for a screen of your own.
-  routes: "false"
 
 esphome:
   name: ${name}
@@ -41,6 +38,9 @@ external_components:
 
 packages:
   board: !include boards/${board}.yaml
+  # Home Assistant (ESPHome's API): sensors of the planes, each alert, and the screen on or off. Remove this line for
+  # a firmware without it.
+  home_assistant: !include home-assistant.yaml
 
 logger:
   level: INFO
@@ -85,6 +85,7 @@ time:
     timezone: UTC0
 
 skyscope:
+  id: skyscope_screen
   setup_network: "Skyscope Setup"
   time_id: sntp_clock
   update_id: firmware

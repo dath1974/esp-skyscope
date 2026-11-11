@@ -460,10 +460,18 @@ def handler_for(feed: Feed, firmware: Firmware):
 
         def do_POST(self):
             self.arrived = time.time()
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             if self.path != "/control":
-                self.answer(404, b"{}")
+                with feed.lock:
+                    lat, lon = feed.lat, feed.lon
+                service = mock_services.post_answer(self.path, body, lat, lon)
+                if not service:
+                    self.answer(404, b"{}")
+                    return
+                status, _, reply, what = service
+                self.answer(status, reply, what=what)
                 return
-            change = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            change = json.loads(body or b"{}")
             feed.set(change.get("scenario"), change.get("fault"), change.get("times"), change.get("lat"),
                      change.get("lon"))
             if "firmware" in change:

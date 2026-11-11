@@ -35,7 +35,7 @@ constexpr int PICK_OTHER = -1;       // the networks' last item: one typed by it
 constexpr int PICK_KNOWN = 1000;     // a network the screen knows: PICK_KNOWN + its place in the list
 constexpr int KNOWN_KEYS = 2000;     // its keys: KNOWN_KEYS + its place * 3 + one of these
 enum { KEY_UP, KEY_DOWN, KEY_FORGET };
-constexpr uint32_t FORGET_MS = 4000;  // Forget's second tap, within this
+constexpr uint32_t FORGET_MS = 6000;  // Forget's second tap, within this
 constexpr size_t MOST_NETWORKS = 12;
 
 // A finger on the glass (or the test API's touch): a list built again under it loses the key it is on, and its tap.
@@ -445,15 +445,20 @@ void Skyscope::known_key_(int code) {
   const int i = (code - KNOWN_KEYS) / 3, action = (code - KNOWN_KEYS) % 3;
   bool changed = false;
   if (action == KEY_FORGET) {
-    // The first tap asks for a second; the second forgets it.
-    const bool armed = forget_armed_ == i && forget_armed_until_ && (int32_t) (millis() - forget_armed_until_) < 0;
+    // The first tap asks for a second (the key reads Sure?); the second forgets it. The key reads Forget again once
+    // the wait is over (refresh_picker_), so a key that reads Sure? always forgets.
+    const uint32_t now = millis();
+    const int32_t left = forget_armed_until_ ? (int32_t) (forget_armed_until_ - now) : 0;
+    const bool armed = forget_armed_ == i && forget_armed_until_ && left > 0;
     if (!armed) {
       forget_armed_ = i;
-      forget_armed_until_ = (millis() + FORGET_MS) | 1;
+      forget_armed_until_ = (now + FORGET_MS) | 1;
+      ESP_LOGI(TAG, "Forget network %d: tap again to forget it", i + 1);
     } else {
       changed = known_networks_->forget(i);
       forget_armed_ = -1;
       forget_armed_until_ = 0;
+      ESP_LOGI(TAG, "Forget network %d: %s, %d ms of the wait left", i + 1, changed ? "forgotten" : "refused", (int) left);
     }
   } else {
     changed = known_networks_->move(i, action == KEY_UP ? -1 : 1);
@@ -465,6 +470,12 @@ void Skyscope::known_key_(int code) {
 
 void Skyscope::refresh_picker_() {
   if (!picker_) return;
+  // Forget's wait over: the key reads Forget again (built again once no finger is on the glass).
+  if (forget_armed_until_ && (int32_t) (millis() - forget_armed_until_) >= 0) {
+    forget_armed_ = -1;
+    forget_armed_until_ = 0;
+    picker_stale_ = true;
+  }
   if (picker_stale_ && !pressed()) {
     picker_stale_ = false;
     fill_picker_();
@@ -499,9 +510,14 @@ void Skyscope::refresh_picker_() {
     const std::string address = own_address();
     line += address.empty() ? "." : ", " + address + ".";
   }
-  if (scanning_until_) line += " Looking for networks...";
-  else if (networks_.empty()) line += " No networks found yet.";
+  // A scan under way shows on its key, not in the line: the line's lines changing would move the list under a finger
+  // (a tap on Forget's Sure? missed it). For the same reason the line never grows shorter while the list is open.
+  if (!scanning_until_ && networks_.empty()) line += " No networks found yet.";
   set_label(picker_line_, line);
+  if (picker_scan_) set_label(lv_obj_get_child(picker_scan_, 0), scanning_until_ ? "Looking..." : "Scan");
+  lv_obj_update_layout(picker_line_);
+  const int32_t tall = lv_obj_get_height(picker_line_);
+  if (tall > lv_obj_get_style_min_height(picker_line_, LV_PART_MAIN)) lv_obj_set_style_min_height(picker_line_, tall, 0);
 }
 
 void Skyscope::picker_pick_(int index) {

@@ -100,6 +100,9 @@ struct Settings {
   bool by_altitude = true;
   bool glide = true;
   int track_s = 60;
+  // A photo of the plane picked on its card, from Planespotters.net (photos.h), with its photographer and a QR code
+  // to its page.
+  bool photos = true;
   std::vector<Watch> watch;
   // The plane followed (follow.h), as it was asked for: a registration (N12345, G-EUPT), a callsign (BAW286), a flight
   // number (BA286) or an ICAO hex; "" for none. follow_hex is its transponder's address once found, kept so a restart
@@ -127,7 +130,12 @@ struct Settings {
   std::string weather_station;
   bool radar_overlay = false;
   bool radar_loop = false;
+  // The web page's and the API's password (HTTP Basic, the user "admin"), "" for none. Never written out but to the
+  // stored copy: the API says only whether there is one (`password_set`).
+  std::string password;
 };
+constexpr size_t MOST_PASSWORD = 32;
+constexpr const char *WEB_USER = "admin";
 
 // Whether the radar's scope is drawn, and whether its beam turns: the beam goes around the scope's rose, so not without
 // it.
@@ -158,7 +166,8 @@ inline std::string follow_id(const char *s) {
   return out;
 }
 
-inline void to_json(const Settings &s, JsonObject o) {
+// The settings as JSON. `secrets` only for the stored copy: with it the password, else whether there is one.
+inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["located"] = s.located;
   o["lat"] = s.lat;
   o["lon"] = s.lon;
@@ -188,6 +197,7 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["by_altitude"] = s.by_altitude;
   o["glide"] = s.glide;
   o["track_s"] = s.track_s;
+  o["photos"] = s.photos;
   JsonArray w = o["watch"].to<JsonArray>();
   for (const auto &item : s.watch) {
     JsonObject e = w.add<JsonObject>();
@@ -211,6 +221,8 @@ inline void to_json(const Settings &s, JsonObject o) {
   o["weather_station"] = s.weather_station;
   o["radar_overlay"] = s.radar_overlay;
   o["radar_loop"] = s.radar_loop;
+  if (secrets) o["password"] = s.password;
+  else o["password_set"] = !s.password.empty();
 }
 
 // Applies the keys `o` has to `s`, leaving the others as they are. Nothing changes and `error` names the first key that
@@ -307,6 +319,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!flag("by_altitude", n.by_altitude)) return fail("by_altitude");
   if (!flag("glide", n.glide)) return fail("glide");
   if (!number("track_s", n.track_s, 0, 300)) return fail("track_s");
+  if (!flag("photos", n.photos)) return fail("photos");
   if (!o["watch"].isNull()) {
     JsonArrayConst list = o["watch"].as<JsonArrayConst>();
     if (list.isNull() || list.size() > MOST_WATCHED) return fail("watch");
@@ -374,6 +387,13 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   }
   if (!flag("radar_overlay", n.radar_overlay)) return fail("radar_overlay");
   if (!flag("radar_loop", n.radar_loop)) return fail("radar_loop");
+  if (!o["password"].isNull()) {
+    const char *p = o["password"].as<const char *>();
+    if (!p || std::strlen(p) > MOST_PASSWORD) return fail("password");
+    for (const char *c = p; *c; ++c)
+      if ((unsigned char) *c < 0x20 || (unsigned char) *c > 0x7E) return fail("password");
+    n.password = p;
+  }
   s = std::move(n);
   return true;
 }

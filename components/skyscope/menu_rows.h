@@ -108,6 +108,7 @@ inline const std::vector<Row> &rows() {
       {"by_altitude", "Color by altitude", FLAG, {}},
       {"glide", "Glide", FLAG, {}},
       {"ground", "On the ground", FLAG, {}},
+      {"photos", "Photos", FLAG, {}},
       {.key = "watch", .name = "Watched", .kind = TEXT, .pad = WORDS,
        .hint = "A registration, callsign or ICAO hex and a color (red, orange, amber, green, blue, purple), with a "
                "comma between: N12345 red, BAW123 blue",
@@ -143,6 +144,10 @@ inline const std::vector<Row> &rows() {
         {"JST-9", "Japan, Korea"}, {"AEST-10AEDT,M10.1.0,M4.1.0/3", "Sydney"},
         {"NZST-12NZDT,M9.5.0,M4.1.0/3", "New Zealand"}},
        ALL, WORDS, "", "Another zone as a POSIX TZ string: CET-1CEST,M3.5.0,M10.5.0/3", {"bedtime"}},
+      // The web page's password: never shown, only whether there is one; typed anew, or left empty for none.
+      {.key = "password", .name = "Web password", .kind = TEXT, .pad = WORDS,
+       .hint = "The web page's and the API's password (the user is admin), up to 32 characters; empty for none",
+       .most = 32},
       // Another way up restarts the screen when the menu is saved.
       {"rotation", "Rotation", NUMBER,
        {{"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
@@ -228,6 +233,7 @@ inline std::string shown(const Row &row, const Settings &s) {
     return text;
   }
   if (key == "watch") return s.watch.empty() ? "None" : std::to_string(s.watch.size()) + " aircraft";
+  if (key == "password") return s.password.empty() ? "None" : "Set";
   const std::string now = text_of(row, s);
   if (row.kind == FLAG) {
     // Units is the one flag that is not on or off.

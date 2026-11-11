@@ -5,7 +5,6 @@
 #
 # Firmware, for BOARD=<one of boards/*.yaml> [waveshare-amoled-241]
 #   make firmware         compile skyscope.yaml with ESPHOME_VERSION
-#                         (ROUTES=true: with the followed plane's route from adsbdb, for your own screen)
 #   make firmware-all     compile it for every board, as a release does
 #   make firmware-flash   compile it and install it on DEVICE=<address or
 #                         serial port>; without DEVICE, ESPHome asks which
@@ -56,8 +55,6 @@ DEVICE ?=
 PORT ?= 8095
 # The board a firmware is built for (boards/<BOARD>.yaml), and every board.
 BOARD ?= waveshare-amoled-241
-# true builds in the followed plane's route from adsbdb (follow.h), for a screen of your own; never in a release.
-ROUTES ?= false
 BOARDS := $(basename $(notdir $(wildcard boards/*.yaml)))
 SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to
@@ -96,14 +93,14 @@ firmware:
 	    { echo "boards/$(BOARD).yaml carries ESP-Hosted $$want for its" \
 	      "Wi-Fi chip; this ESPHome builds $$have:" \
 	      "boards/esp-hosted/README.md"; exit 2; }; }
-	esphome -s board $(BOARD) -s routes $(ROUTES) compile skyscope.yaml
+	esphome -s board $(BOARD) compile skyscope.yaml
 
 firmware-all:
 	for b in $(BOARDS); do $(MAKE) firmware BOARD=$$b || exit 1; done
 
 # Over Wi-Fi to an address, or over USB to a serial port (/dev/ttyACM0).
 firmware-flash: firmware
-	esphome -s board $(BOARD) -s routes $(ROUTES) upload skyscope.yaml $(if $(DEVICE),--device $(DEVICE))
+	esphome -s board $(BOARD) upload skyscope.yaml $(if $(DEVICE),--device $(DEVICE))
 
 # With pipx where there is one (as ESPHome suggests), else with pip.
 firmware-esphome:

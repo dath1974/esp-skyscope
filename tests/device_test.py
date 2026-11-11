@@ -80,11 +80,28 @@ HEAP_LEAST = 60_000  # internal RAM free, below which TLS connections start to f
 LARGEST_LEAST = 20_000
 
 
+# The fingers locked out of the glass while a run goes on (/api/test {"lock_touch_s": N}), so a touch cannot upset it;
+# asked again whenever half of it has gone, and over by itself if the run dies.
+TOUCH_LOCK_S = 900
+
+
 class Screen:
     def __init__(self, address: str):
         self.base = "http://" + address.removeprefix("http://").rstrip("/")
+        self.locked_at = 0.0  # when touches were last locked out, 0 while they are not
 
-    def call(self, path: str, body=None, timeout: float = 10):
+    def lock_touch(self, on: bool) -> bool:
+        """Touches on the glass off (on) or back on; true when the screen took it."""
+        try:
+            ok = self.call("/api/test", {"lock_touch_s": TOUCH_LOCK_S if on else 0}, renew=False)[0] == 200
+        except OSError:
+            ok = False
+        self.locked_at = time.time() if on and ok else 0.0
+        return ok
+
+    def call(self, path: str, body=None, timeout: float = 10, renew: bool = True):
+        if renew and self.locked_at and time.time() - self.locked_at > TOUCH_LOCK_S / 2:
+            self.lock_touch(True)
         data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode())
         request = urllib.request.Request(self.base + path, data=data, method="POST" if data is not None else "GET")
         if data is not None:
@@ -423,7 +440,7 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
             run.check(row is not None and row["name"].startswith("2. ") and len(row.get("keys", [])) == 2,
                       "a second known network, with keys up and Forget")
             if row:
-                # The second tap within Forget's 4 s, as a finger gives it: nothing waited for between the two but
+                # The second tap within Forget's 6 s, as a finger gives it: nothing waited for between the two but
                 # the first tap itself, and the menu once (a slow screen answers it slowly).
                 first = time.monotonic()
                 glass.tap_key(row["keys"][-1])
@@ -735,6 +752,11 @@ def test_mock(screen: Screen, run: Run, original: dict, server, install: str = N
                       json.dumps(card))
             if card:
                 run.check(any("7700" in r for r in card["rows"]), "with its squawk")
+                # Its photo, as Planespotters.net asks it shown: credited, with a QR code to its page.
+                shown = wait_for(lambda: (glass.ui().get("card") or {}).get("photo"), 15, 1)
+                run.check(shown == "Photo: A. Mock, planespotters.net", "and its photo, credited", str(shown))
+                qr = (glass.ui().get("card") or {}).get("qr") or {}
+                run.check(qr.get("reachable") and qr.get("size", 0) > 0, "with a QR code to its page", json.dumps(qr))
                 feet = card["rows"][1]
                 screen.json("/api/settings", {"metric": True})
                 time.sleep(1.5)
@@ -850,7 +872,8 @@ def test_mock(screen: Screen, run: Run, original: dict, server, install: str = N
                       f"({mine.get('error', '')}, {mine.get('retry_in_s', '-')} s)")
             if words:
                 run.check(words in glass.ui()["status"], f"{name}: the status line says so")
-            nxt = wait_for(lambda: [r for r in feed.log(at + 0.1)], wait_most + 15, 0.5)
+            # The receiver's own requests: a plane's photo or route asked of the mock meanwhile is none of them.
+            nxt = wait_for(lambda: [r for r in feed.log(at + 0.1) if "aircraft" in r[1]], wait_most + 15, 0.5)
             gap = (nxt[0][0] - at) if nxt else None
             # Not asked: what the screen says of its receiver then, to know why.
             now = screen.json("/api/status")[1]
@@ -1462,6 +1485,9 @@ def main():
         raise SystemExit("The screen gave no settings")
     saved.parent.mkdir(parents=True, exist_ok=True)
     saved.write_text(json.dumps(original))
+    # No finger on the glass upsets the run (a firmware without the test API has no lock: a --public run goes on).
+    if screen.json("/api/status")[1].get("divert") is not None:
+        print("Touches on the screen:", "off while the tests run" if screen.lock_touch(True) else "could not be turned off")
     try:
         if args.public:
             test_public(screen, run)
@@ -1471,6 +1497,8 @@ def main():
         print(f"STOPPED: {e}; what came after it means nothing. Run it again with this machine kept awake.")
         run.failed += 1
     finally:
+        if screen.locked_at and not screen.lock_touch(False):
+            print(f"Touches stay off for up to {TOUCH_LOCK_S // 60} minutes: the screen did not take the unlock")
         changed = not screen.up() or screen.json("/api/settings")[1] != original
         if not changed or put_back(screen, original):
             saved.unlink()

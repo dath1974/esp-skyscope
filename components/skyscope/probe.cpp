@@ -98,7 +98,10 @@ void Skyscope::make_probe_input_() {
 void Skyscope::probe_touch_start_(const touch::Script &s) {
   if (!probe_input_) return;
   // Asleep, LVGL reads no input: woken as a finger wakes it, and this touch is the one that wakes it.
-  if (lvgl_ && lvgl_->is_paused()) lvgl_->set_paused(false, false);
+  if (lvgl_ && lvgl_->is_paused()) {
+    wake_asked_ = true;
+    lvgl_->set_paused(false, false);
+  }
   probe_touch_.play(s);
   ESP_LOGD(TAG, "Touch of %u ms", (unsigned) touch::length(s));
 }
@@ -137,7 +140,21 @@ void Skyscope::describe_ui_(JsonObject out) {
     rows.add(text_of(card_rows_[0]));
     rows.add(text_of(card_rows_[1]) + arrow + text_of(card_after_));
     rows.add(text_of(card_rows_[2]));
+    rows.add(text_of(card_rows_[3]));
+    // Its photo, as shown: its credit, and the QR code's place.
+    if (shown(card_photo_)) {
+      card["photo"] = text_of(card_photo_credit_);
+      JsonObject qr = card["qr"].to<JsonObject>();
+      place(qr, card_qr_);
+      qr["size"] = lv_obj_get_width(card_qr_);
+    }
     if (shown(card_follow_)) place(card["follow"].to<JsonObject>(), card_follow_);
+  }
+  // An alert along the top (sightings.h), and where to tap it.
+  if (alert_ && shown(alert_)) {
+    JsonObject alert = out["alert"].to<JsonObject>();
+    alert["text"] = text_of(alert_text_);
+    place(alert, alert_);
   }
   out["route_points"] = route_points_;  // the followed plane's route as drawn (follow.h route_on), 0 for none
   // The keys down the left edge while a plane is followed.

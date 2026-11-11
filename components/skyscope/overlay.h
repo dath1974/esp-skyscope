@@ -142,6 +142,48 @@ inline std::string altitude_text(const feed::Flight &f, bool metric) {
   else std::snprintf(out, sizeof(out), "%ld ft", std::lround(f.altitude / 100.0) * 100);
   return out;
 }
+// A distance for a plane's card: tenths below 10 ("8.4 NM", "3.1 km"), whole ones above.
+inline std::string distance_text(double meters, bool metric) {
+  const double v = metric ? meters / 1000.0 : meters / geo::NM;
+  char out[24];
+  std::snprintf(out, sizeof(out), v < 9.95 ? "%.1f %s" : "%.0f %s", v, metric ? "km" : "NM");
+  return out;
+}
+// A pass counts as overhead within this much of the spot, and a nearing plane is told of when it passes within
+// SIGHT_PASS_NM in the next SIGHT_PASS_S.
+constexpr double SIGHT_OVERHEAD_NM = 0.5, SIGHT_PASS_NM = 5, SIGHT_PASS_S = 30 * 60;
+// Which way to look for a plane from the place, for its card: "NE, 25° up, 8.4 NM", "overhead", or "NE, below the
+// horizon, 160 NM"; then, for one that passes near in the next half hour, "passes 1.2 NM off in 3 min" (or "overhead
+// in 3 min").
+inline std::string sight_text(const geo::Sight &s, bool metric) {
+  std::string out;
+  char part[48];
+  if (s.meters < SIGHT_OVERHEAD_NM * geo::NM) {
+    out = "Overhead";
+  } else {
+    if (s.elevation < 0) std::snprintf(part, sizeof(part), "%s, below the horizon, ", geo::compass_point(s.bearing));
+    else
+      std::snprintf(part, sizeof(part), "%s, %ld\xC2\xB0 up, ", geo::compass_point(s.bearing), std::lround(s.elevation));
+    out = part + distance_text(s.meters, metric);
+  }
+  if (s.nearing && s.closest_meters < SIGHT_PASS_NM * geo::NM && s.closest_s < SIGHT_PASS_S && s.closest_s >= 30 &&
+      s.meters >= SIGHT_OVERHEAD_NM * geo::NM) {
+    const long minutes = std::max(1L, std::lround(s.closest_s / 60));
+    if (s.closest_meters < SIGHT_OVERHEAD_NM * geo::NM)
+      std::snprintf(part, sizeof(part), "overhead in %ld min", minutes);
+    else
+      std::snprintf(part, sizeof(part), "passes %s off in %ld min", distance_text(s.closest_meters, metric).c_str(),
+                    minutes);
+    out += std::string(", ") + part;
+  }
+  return out;
+}
+// Where to look for a plane from the place (geo.h sight).
+inline geo::Sight sight_of(const feed::Flight &f, double lat, double lon) {
+  const double height = f.on_ground || !f.has_altitude ? 0 : f.altitude * 0.3048;
+  const bool moving = f.has_speed && f.has_heading && !f.on_ground;
+  return geo::sight(lat, lon, f.lat, f.lon, height, moving, f.speed * geo::NM / 3600, f.heading);
+}
 // The altitude in a label, as a controller's scope writes it: three digits of hundreds of feet ("025", "350"),
 // and below the sea a minus and three digits more ("-001"), as at an airfield below sea level. Metric stays in meters.
 inline std::string block_altitude(const feed::Flight &f, bool metric) {
@@ -204,6 +246,8 @@ inline std::string wake_of(const feed::Flight &f) {
 inline std::string name_of(const feed::Flight &f) {
   if (!f.callsign.empty()) return f.callsign;
   if (!f.registration.empty()) return f.registration;
+  // A track number of the exchange's own (feed.h made_up_address) is no name: "No ID".
+  if (feed::made_up_address(f)) return "No ID";
   std::string hex = f.hex;
   for (auto &c : hex) if (c >= 'a' && c <= 'z') c -= 32;
   return hex;

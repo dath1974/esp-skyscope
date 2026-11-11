@@ -12,6 +12,9 @@ Libraries the firmware is built with (fetched at build time, not copied here):
   ArduinoJson (https://arduinojson.org): MIT.
   pngle (https://github.com/kikuchan/pngle): MIT.
   JPEGDEC (https://github.com/bitbank2/JPEGDEC): Apache-2.0.
+
+Copied here: components/skyscope/stb_image.h, stb_image v2.30 (https://github.com/nothings/stb), public domain or MIT,
+for a plane's photo (Planespotters.net's are progressive JPEGs, which JPEGDEC does not read).
   Roboto and Roboto Condensed (Google Fonts): SIL Open Font License 1.1.
 
 The RTL-SDR stick's registers and their values (components/skyscope/rtlsdr.cpp) are those the osmocom rtl-sdr project

@@ -11,6 +11,8 @@ the [README](../README.md).
 - [Changing the map with a swipe](#changing-the-map-with-a-swipe)
 - [Following a plane](#following-a-plane)
 - [Aviation weather](#aviation-weather)
+- [Alerts and the day's tally](#alerts-and-the-days-tally)
+- [Home Assistant](#home-assistant)
 - [The map card](#the-map-card)
 
 ## Maps
@@ -49,13 +51,26 @@ simulated is credited as **simulated**, so made-up planes are never mistaken for
   are in hundreds of feet, as on a controller's scope (`025`, `350`), with an arrow for a climb or descent of 200 ft a
   minute or more.
 - **Tracks** of the last few seconds, planes gliding smoothly between reports (optional), and the radar beam.
+- **No ID**: a plane the exchange knows only by an address it made up (written `~2ba403` in its data), not by its
+  transponder. In the United States these are mostly TIS-B: a plane without ADS-B that the FAA's radar sees and
+  broadcasts by a track number. It sends no callsign, so its card has no photo and no Follow key.
 - **Watched aircraft** (by registration, callsign or ICAO address) always show, in a color of their own.
 - **Filters**: altitude limits, ground traffic on or off, and the most planes shown.
 
 ## On the glass
 
 - **Tap a plane** for its card: type, registration, altitude with its climb or descent rate, speed, heading,
-  operator and squawk. Its **Follow** key follows it.
+  operator and squawk, and its route where [adsb.lol](https://adsb.lol) knows one (`KJFK to EGLL`, drawn on the map as
+  a great circle). A route is shown only when the plane is where it would be on that route, since a flight number is
+  sometimes moved to another. Where adsb.lol has none, the route comes from [hexdb.io](https://hexdb.io), in a build
+  with `hexdb_routes: true` (the default for now; see the README's data sources). Within 60 NM the card says which way to look for it from your place: `NE, 25° up, 8.4 NM`,
+  and for one that will pass within 5 NM in the next half hour, `passes 1.2 NM off in 3 min` (or `overhead in 3 min`).
+  The angle takes the ground at sea level, as the planes' altitudes are. Its **Follow** key follows it.
+
+  With **Photos** on (the menu's Aircraft group, or the web page), the card also shows the plane's latest photo from
+  [Planespotters.net](https://www.planespotters.net), with its photographer under it and a QR code beside it: scan it
+  with a phone to open the photo's page, full size. That is what Planespotters.net asks of a screen that shows its
+  photos. The photo is fetched as the card opens and let go when it closes; it is never kept on the map card.
 - **Tap the map** to see the screen's address and range in the status line.
 - **Drag up or down along the right edge** to set the brightness.
 - **Long-press the map** for [the menu](#the-menu).
@@ -125,7 +140,7 @@ restart or the screen going to sleep.
   place is not changed, and the view goes back to it when following stops.
 - **Its range** is chosen from its speed, so the map steps on about once a minute: 1 NM for a plane at 60 kt, 4 NM at
   250 kt, 7 or 8 NM for an airliner at cruise. Keys down the left edge put it back at that range (**Plane**), at the
-  range the screen had before (**Own range**), or show the whole route (**Route**, in a build with routes).
+  range the screen had before (**Own range**), or show the whole route (**Route**, once its route is known).
 - **The planes around it** are shown instead of those around your place. The followed plane is ringed (in blue,
   unless it is watched in another color) and has a label setting of its own (**Its label**, a data block by default).
 - **Its track** is its whole flight since it was found, or as many minutes as **Its track** is set to, up to a day.
@@ -134,10 +149,8 @@ restart or the screen going to sleep.
 - **Out of reach**: the exchanges hear only what volunteers' receivers on the ground hear, so a plane over an ocean is
   lost to them. After a minute without a report the screen carries it on along its course at its last speed, drawn
   faint and labeled `estimated`, until it is heard again.
-- **Its route**, in a build with routes only (`make firmware ROUTES=true`, or `routes: true` in the `skyscope:` block):
-  the airports it flies from and to, from [adsbdb](https://www.adsbdb.com), with the great circle between them. This
-  is not a filed flight plan, only the rough way a long flight goes. adsbdb's route data may not be published without
-  its authors' leave, which is why the releases leave it out.
+- **Its route**: the airports it flies from and to, from adsb.lol (or hexdb.io), with the great circle between them. This is not a
+  filed flight plan, only the rough way a long flight goes.
 - **Following stops by itself** once the plane has been on the ground for ten minutes after flying, or out of reach for
   twelve hours. A plane at its gate before it flies is waited for.
 
@@ -157,12 +170,40 @@ The page fetches the weather only while it is open: every ten minutes, and at **
 **Radar** (in the menu's Weather group, or on the web page) draws the NWS's NEXRAD composite over any map of tiles,
 United States only, refreshed every five minutes. **Radar loop** plays the last hour.
 
+## Alerts and the day's tally
+
+A watched plane coming into range, or a plane in range squawking an emergency (7500, 7600 or 7700), shows along the top
+of the glass for 20 seconds: `N12345 is in range, 8.4 NM NE`. A tap on it opens the plane's card. A watched plane is
+told of again once it has been out of range for ten minutes.
+
+The screen counts the planes within the range of the place (up to 250 NM), from midnight by its clock: how many, by
+the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
+planes around the place count, so none are counted while a plane is followed elsewhere. The web page shows the day
+under **Today in range**, with the days before, and keeps the latest 400 visits as a log to download (CSV). The tally
+is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to it, a file a day in its
+`log` folder.
+
+## Home Assistant
+
+The firmware carries ESPHome's API, so Home Assistant finds the screen on the network by itself. Add it there and Home
+Assistant gives it a key of its own. It then has:
+
+- **Planes in range**, **Planes today**, **Nearest plane** (its name), **Nearest plane distance** and **altitude**,
+  and **Followed plane** (looking, live, lost, landed or gave_up).
+- **Alert**, an event of type `watched` or `emergency` for each alert, with its words in **Last alert**: an
+  automation can send them to a phone.
+- **Screen**, to turn the screen off and on, and **Brightness**.
+- **Firmware**, the update the web page offers.
+
+A screen never added to Home Assistant carries on as before. A firmware of your own without any of this: remove the
+`home_assistant:` line from `skyscope.yaml`'s packages.
+
 ## The map card
 
 Every board has a microSD slot. With a FAT32 card in it, every map tile the screen fetches is kept on the card, so a
 map seen once comes back without downloading it again, even after a restart. Each map's tiles are kept as long as its
-terms allow, and fetched again after that. The screen keeps its tiles in a `tiles` folder and leaves everything else on
-the card alone.
+terms allow, and fetched again after that. The screen keeps its tiles in a `tiles` folder and its
+[log](#alerts-and-the-days-tally) in a `log` folder, and leaves everything else on the card alone.
 
 On the web page, **Map card** shows the card's free space and can **download an area ahead of time**: the sectional,
 the IFR charts or the USGS map, around the place, up to 250 NM, every zoom down to the one chosen. The page estimates

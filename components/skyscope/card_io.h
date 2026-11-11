@@ -42,6 +42,8 @@ bool write(const sky::tiles::Key &k, const sky::card::Header &h, const uint8_t *
 // A small text file at `path` (a download's record).
 bool read_text(const std::string &path, std::string &text);
 bool write_text(const std::string &path, const std::string &text);
+// `text` added to the end of the file at `path`, made if it is not there (the spotting log, sightings.h).
+bool append_text(const std::string &path, const std::string &text);
 void remove(const std::string &path);
 // Moves a file or folder; makes a folder (true when it is there already).
 bool rename(const std::string &from, const std::string &to);

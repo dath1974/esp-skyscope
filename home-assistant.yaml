@@ -1,0 +1,104 @@
+# The screen in Home Assistant, through ESPHome's own API: what it sees (the planes in range now and today, the nearest,
+# the plane followed, each alert as it comes), and the screen itself (on or off, its brightness). Home Assistant finds
+# the screen on the network by itself; add it there, and Home Assistant gives it a key of its own (no key is written
+# in here, as every screen runs the same firmware). A screen that is never added carries on as before.
+#
+# Left out of skyscope.yaml's packages, the firmware has none of this.
+api:
+  encryption: {}
+  # No client is no reason to restart: ESPHome would otherwise restart the screen every 15 minutes without one.
+  reboot_timeout: 0s
+  # Home Assistant, and one more (the ESPHome dashboard's logs); each takes internal RAM, which is scarce.
+  max_connections: 2
+
+sensor:
+  - platform: template
+    name: Planes in range
+    icon: mdi:airplane
+    accuracy_decimals: 0
+    state_class: measurement
+    update_interval: 30s
+    lambda: return id(skyscope_screen).planes_in_range();
+  - platform: template
+    name: Planes today
+    icon: mdi:counter
+    accuracy_decimals: 0
+    state_class: total
+    update_interval: 60s
+    lambda: return id(skyscope_screen).planes_today();
+  - platform: template
+    name: Nearest plane distance
+    icon: mdi:map-marker-distance
+    unit_of_measurement: NM
+    accuracy_decimals: 1
+    update_interval: 30s
+    lambda: return id(skyscope_screen).nearest_nm();
+  - platform: template
+    name: Nearest plane altitude
+    icon: mdi:altimeter
+    unit_of_measurement: ft
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: return id(skyscope_screen).nearest_altitude_ft();
+
+text_sensor:
+  - platform: template
+    name: Nearest plane
+    icon: mdi:airplane-marker
+    update_interval: 30s
+    lambda: return id(skyscope_screen).nearest_plane();
+  - platform: template
+    name: Followed plane
+    icon: mdi:airplane-search
+    update_interval: 30s
+    lambda: return id(skyscope_screen).followed_state();
+  # The words of the latest alert, set as each one comes (below).
+  - platform: template
+    id: last_alert
+    name: Last alert
+    icon: mdi:alert-circle-outline
+
+# Each alert as an event, for an automation to send it on (a phone's notification): its type is "watched" or
+# "emergency", and Last alert has its words.
+event:
+  - platform: template
+    id: alert_event
+    name: Alert
+    icon: mdi:airplane-alert
+    event_types: [watched, emergency]
+
+skyscope:
+  on_alert:
+    then:
+      - text_sensor.template.publish:
+          id: last_alert
+          state: !lambda return text;
+      - event.trigger:
+          id: alert_event
+          event_type: !lambda return kind;
+
+switch:
+  - platform: template
+    name: Screen
+    icon: mdi:monitor
+    # Left as it is when the screen starts: ESPHome's default turns a switch off at the start, which would turn the
+    # screen off at every restart.
+    restore_mode: DISABLED
+    lambda: return id(skyscope_screen).screen_on();
+    turn_on_action:
+      - lambda: id(skyscope_screen).set_screen_on(true);
+    turn_off_action:
+      - lambda: id(skyscope_screen).set_screen_on(false);
+
+number:
+  - platform: template
+    name: Brightness
+    icon: mdi:brightness-6
+    mode: slider
+    min_value: 0
+    max_value: 100
+    step: 5
+    unit_of_measurement: "%"
+    lambda: return id(skyscope_screen).brightness();
+    set_action:
+      - lambda: id(skyscope_screen).set_brightness((int) x);

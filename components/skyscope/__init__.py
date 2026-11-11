@@ -1,15 +1,20 @@
 """Skyscope: live aircraft over a map, fetched and drawn by an ESP32-S3 screen on its own."""
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import esp32, font, ota, output, time, wifi
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, CONF_TRIGGER_ID
 from esphome.core import CORE
 
 CODEOWNERS = []
 DEPENDENCIES = ["esp32", "lvgl", "wifi", "psram"]
 AUTO_LOAD = ["json", "web_server_base", "font"]
+
+# Where the project can be reached, in the User-Agent: services ask a client that is no browser to say who it is and
+# how to reach its makers (Planespotters.net's photos refuse one that does not).
+PROJECT_URL = "https://github.com/dath1974/esp-skyscope"
 
 # A build without `esphome: project: version:` (skyscope.yaml sets it, and the update check compares it).
 DEV_VERSION = "dev"
@@ -32,7 +37,8 @@ CONF_RADIO = "radio"
 CONF_GAIN = "gain"
 CONF_PPM = "ppm"
 CONF_TEST_API = "test_api"
-CONF_ROUTES = "routes"
+CONF_ON_ALERT = "on_alert"
+CONF_HEXDB_ROUTES = "hexdb_routes"
 CONF_CARD = "card"
 CONF_SLOT = "slot"
 CONF_WIDTH = "width"
@@ -45,6 +51,11 @@ CONF_FREQUENCY = "frequency"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
+# An alert (sightings.h): a watched plane come into range, or a plane squawking an emergency. Its variables: `kind`
+# ("watched" or "emergency"), `name` (the plane's callsign or registration) and `text` (in words).
+AlertTrigger = skyscope_ns.class_(
+    "AlertTrigger", automation.Trigger.template(cg.std_string, cg.std_string, cg.std_string)
+)
 # The Wi-Fi networks the screen knows, first choice first (networks.h): a component of its own, started just after
 # Wi-Fi.
 Networks = skyscope_ns.class_("Networks", cg.Component)
@@ -93,7 +104,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_FONT_SMALL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_LABEL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_TITLE): cv.use_id(font.Font),
-        # Tile servers and ADS-B exchanges ask that a client says who it is; esp-skyscope/<version> unless set.
+        # Tile servers and ADS-B exchanges ask that a client says who it is; esp-skyscope/<version> (+<the project's
+        # page>) unless set.
         cv.Optional(CONF_USER_AGENT): cv.string_strict,
         # The name of the Wi-Fi network the screen opens to be set up (wifi: ap: ssid), for the screen to show.
         cv.Optional(CONF_SETUP_NETWORK, default=""): cv.string,
@@ -155,9 +167,14 @@ CONFIG_SCHEMA = cv.Schema(
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
         cv.Optional(CONF_TEST_API, default=True): cv.boolean,
-        # The followed plane's route from adsbdb (follow.h). Off unless asked for: adsbdb's route data may not be copied
-        # without its owner's leave, so it stays out of the published firmware.
-        cv.Optional(CONF_ROUTES, default=False): cv.boolean,
+        # A plane's route from hexdb.io where adsb.lol has none (follow.h). hexdb.io publishes no terms, and credits
+        # route data its owners ask is not copied without their leave: turn it off in firmware given to others until
+        # hexdb.io says it may be used so.
+        cv.Optional(CONF_HEXDB_ROUTES, default=True): cv.boolean,
+        # Each alert as it comes (home-assistant.yaml tells Home Assistant of it).
+        cv.Optional(CONF_ON_ALERT): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(AlertTrigger)}
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -167,7 +184,7 @@ def _final_validate(config):
     # while validating, before LVGL writes its configuration.
     from esphome.components.lvgl import defines as lvgl_defines
 
-    lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj", "line")
+    lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj", "line", "qrcode")
     # A picture of the glass as two fingers land on it, which they then zoom and pan (preview.cpp).
     lvgl_defines.add_define("LV_USE_SNAPSHOT", "1")
     for key in (CONF_FONT_SMALL, CONF_FONT_LABEL, CONF_FONT_TITLE):
@@ -198,7 +215,7 @@ async def to_code(config):
     cg.add(var.set_fonts(small, label, title))
     cg.add(var.set_dpi(config[CONF_DPI]))
     cg.add(var.set_tile_scale(config[CONF_TILE_SCALE]))
-    cg.add(var.set_user_agent(config.get(CONF_USER_AGENT, f"esp-skyscope/{version}")))
+    cg.add(var.set_user_agent(config.get(CONF_USER_AGENT, f"esp-skyscope/{version} (+{PROJECT_URL})")))
     cg.add(var.set_setup_network(config[CONF_SETUP_NETWORK]))
     cg.add(var.set_version(version))
     cg.add(var.set_panel_te_pin(config[CONF_PANEL_TE_PIN]))
@@ -209,8 +226,16 @@ async def to_code(config):
         cg.add(var.set_clock(await cg.get_variable(config[CONF_TIME_ID])))
     if config[CONF_TEST_API]:
         cg.add_define("SKYSCOPE_TEST_API")
-    if config[CONF_ROUTES]:
-        cg.add_define("SKYSCOPE_ROUTES")
+    if config[CONF_HEXDB_ROUTES]:
+        cg.add_define("SKYSCOPE_HEXDB_ROUTES")
+    for conf in config.get(CONF_ON_ALERT, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(
+            trigger, [(cg.std_string, "kind"), (cg.std_string, "name"), (cg.std_string, "text")], conf
+        )
+    # The page's password (settings.h), which the web server's own Basic authentication checks; ESPHome's own
+    # credentials stay unset, so nothing else asks for one.
+    cg.add_define("USE_WEBSERVER_AUTH")
     if CONF_UPDATE_ID in config:
         cg.add(var.set_firmware(await cg.get_variable(config[CONF_UPDATE_ID])))
     # Told when firmware comes in by ESPHome's own ways too (sent from a computer), to say it is updating.

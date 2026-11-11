@@ -1,5 +1,6 @@
 #pragma once
-// HTTPS GETs from the worker task: the whole body into PSRAM, checked against the certificate bundle.
+// HTTPS GETs (and the odd POST) from the worker task: the whole body into PSRAM, checked against the certificate
+// bundle.
 #include <cstddef>
 #include <algorithm>
 #include <cstdint>
@@ -70,4 +71,6 @@ void divert_to(const std::string &origin);
 void close_idle(uint32_t now, uint32_t idle_ms);
 // GETs `url` into `body`, at most `most` bytes, sending `agent` as its User-Agent.
 Result get(const std::string &url, Body &body, size_t most, const std::string &agent, const char *accept = nullptr);
+// POSTs `json` to `url`, its answer into `body` as get() does.
+Result post_json(const std::string &url, const std::string &json, Body &body, size_t most, const std::string &agent);
 }  // namespace sky::http

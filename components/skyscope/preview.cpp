@@ -48,7 +48,7 @@ constexpr float PAN_MM = 3;               // one finger moved this far on the ma
 
 #ifdef USE_TOUCHSCREEN
 void Skyscope::update(const touchscreen::TouchPoints_t &points) {
-  if (points.empty()) return;
+  if (points.empty() || touch_locked_()) return;
   const uint32_t now = millis();
   // The panel's own coordinates turned the way LVGL turns the first finger's.
   auto turned = [this](const touchscreen::TouchPoint &tp) {

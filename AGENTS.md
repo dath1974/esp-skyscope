@@ -6,17 +6,17 @@ are the user guide; read them for what the screen does and how it is set up.
 
 ## Layout
 
-- `skyscope.yaml`: the device config (version, update server, packages). `boards/`: one file per board, chosen by the
-  `board` substitution (`make firmware BOARD=<name>`, `make firmware-all`); each builds in
-  `.esphome/build/skyscope-<board>`, and a release publishes each board's firmware with its own manifest
-  (`<board>/manifest.json`).
+- `skyscope.yaml`: the device config (version, update server, packages); `home-assistant.yaml`, its package of
+  ESPHome's API and the entities Home Assistant sees. `boards/`: one file per board, chosen by the `board`
+  substitution (`make firmware BOARD=<name>`, `make firmware-all`); each builds in `.esphome/build/skyscope-<board>`,
+  and a release publishes each board's firmware with its own manifest (`<board>/manifest.json`).
 - `components/rgb_panel/`: the LCD 2.8B's display driver (an RGB panel fed from a frame in PSRAM), the project's own.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`, `wake.h`,
-    `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h` (namespace `sky`). Keep them that way; logic that can be
-    tested on a PC belongs here.
+    `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h` (namespace `sky`). Keep them that way;
+    logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, `card.cpp` (the map card), and the P4's radio,
     `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
@@ -47,9 +47,9 @@ are the user guide; read them for what the screen does and how it is set up.
 - **Memory.** Internal RAM is scarce and has run out before (black screens, broken replies). Large buffers and TLS go
   in PSRAM (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`). Watch for leaks: the soak test exists
   because of one.
-- **Public services.** adsb.fi, adsb.lol, Esri, OSM, USGS, FAA, the Aviation Weather Center and the Iowa Environmental
-  Mesonet have terms; keep to them. Respect rate-limit headers and backoff in `feed.h`, keep the User-Agent and tile
-  caching, and keep attribution as each source requires.
+- **Public services.** adsb.fi, adsb.lol (its planes and its routes), Esri, OSM, USGS, FAA, the Aviation Weather
+  Center and the Iowa Environmental Mesonet have terms; keep to them. Respect rate-limit headers and backoff in
+  `feed.h`, keep the User-Agent and tile caching, and keep attribution as each source requires.
 - **Test endpoints** (`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`) are compiled out with `test_api: false`; keep them behind
   that flag.
 - **Tests against the mock.** The device tests (all but `--public`) send the screen to `tests/mock_feed.py`, which
@@ -72,8 +72,14 @@ are the user guide; read them for what the screen does and how it is set up.
   Match the surrounding file.
 - Comments and docs are plain English in the project's own voice: say what the screen does in everyday words ("the
   glass", "a plane's card", "the screen keeps them") rather than jargon. Explain why, not what the code says.
-- Commit messages are one descriptive line saying what changed, no prefixes, no trailing period, e.g.
-  "Test touches that a slow frame cannot lose" or "Fix the internal RAM leak behind the black screens".
+- Commit messages: a first line that sums up the change, up to about 72 characters, no prefixes, no trailing period,
+  e.g. "Test touches that a slow frame cannot lose" or "Fix the internal RAM leak behind the black screens". Then a
+  blank line and a list of the changes, one `- ` item each (wrapped at 72 columns, continued lines indented two
+  spaces), each saying what changed and why, led by its kind in brackets: `[feature]`, `[fix]`, `[tests]`, `[docs]`,
+  `[terms]` (a service's terms or a license), `[memory]`, `[cleanup]`. A fix says what went wrong and how it showed
+  ("both screens went dark at every restart"); a change made for a service's terms names the service and the rule.
+  Close with anything a reader must know before building or releasing it (an option to turn off, a step still to
+  take). Plain English in the project's voice, as the comments are.
 
 ## Releases
 

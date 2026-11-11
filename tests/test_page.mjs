@@ -160,3 +160,14 @@ test("an area's estimate says what it takes of the card, and warns when it does 
     /2\.1 GB of the card \(1\.5 GB to download\).* More than the card has free \(900 MB\): it stops when the card is full\.$/);
   assert.doesNotMatch(estimate_words({ tiles: 1, mb: 1, card_mb: 1, z_min: 8, z_max: 8 }), /free/);
 });
+
+test("the day's tally is told in words", () => {
+  const { stats_words, records_words } = load('nm', 'stats_words', 'records_words');
+  assert.equal(stats_words({}, false), 'Nothing seen yet.');
+  const day = { date: '2026-11-10', planes: 41, visits: 44, in_range: 3, busiest: 9, watched: 1, emergencies: 0,
+    closest_nm: { name: 'UAL1', value: 1.2 }, highest_ft: { name: 'N1', value: 41000 }, fastest_kt: { name: 'N2', value: 512 } };
+  assert.equal(stats_words(day, false), '41 planes in range on 2026-11-10 (44 visits), 3 now, 9 at once at most. 1 watched.');
+  assert.equal(records_words(day, false), 'Nearest: UAL1, 1.2 NM; highest: N1, 41000 ft; fastest: N2, 512 kt.');
+  assert.equal(records_words(day, true), 'Nearest: UAL1, 2.2 km; highest: N1, 12497 m; fastest: N2, 948 km/h.');
+  assert.equal(records_words({}, false), '');
+});

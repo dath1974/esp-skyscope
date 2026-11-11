@@ -427,44 +427,157 @@ inline std::vector<int16_t> track_on(const std::vector<Trail::Point> &points, co
   return out;
 }
 
-// ---- The route: where a flight is going, from adsbdb (a build with `routes: true` only, __init__.py). Its terms: the
-// route data is David Taylor's and Jim Mason's and may not be copied into other databases, so it is asked for each
-// flight followed, shown, and kept nowhere. Only the airports it flies from and to: no filed flight plan (those are
-// not free), so the screen draws the great circle between them, as a long flight roughly flies.
+// ---- The route: where a flight is going, from adsb.lol's routeset (its route data is Virtual Radar Server's standing
+// data, CC0; adsb.lol publishes it under the ODbL, which asks that it is credited). A route is only the airports a
+// callsign is scheduled between: no filed flight plan (those are not free), so the screen draws the great circle
+// between them, as a long flight roughly flies. A callsign's route can be out of date (a flight number moved to
+// another route), so a route is only believed when the plane is where that route would put it.
 struct Route {
   bool known = false;
   std::string callsign, from, to;  // the callsign it was asked for, the airports' ICAO codes
   double from_lat = 0, from_lon = 0, to_lat = 0, to_lon = 0;
 };
-inline std::string route_url(const std::string &callsign) {
+constexpr const char *ROUTESET_URL = "https://api.adsb.lol/api/0/routeset";
+// A plane to ask the route of: its callsign and where it is, which the routeset checks the route against too.
+struct RouteAsk {
+  std::string callsign;
+  double lat = 0, lon = 0;
+  bool has_heading = false;
+  float heading = 0;
+};
+inline std::string route_callsign(const std::string &callsign) {
   std::string id;
   for (char c : callsign)
     if (std::isalnum((unsigned char) c)) id += (char) std::toupper((unsigned char) c);
-  return "https://api.adsbdb.com/v0/callsign/" + id;
+  return id;
 }
-// adsbdb's answer: {"response": {"flightroute": {"origin": {"icao_code", "latitude", "longitude"}, "destination":
-// {...}}}}, or {"response": "unknown callsign"} (no route, and no error).
-inline bool read_route(const char *text, size_t length, JsonDocument &doc, Route &out, std::string &error) {
-  out.known = false;
+// The routeset's request: {"planes": [{"callsign", "lat", "lng"}]}.
+inline std::string routeset_body(const RouteAsk &a) {
+  JsonDocument doc;
+  JsonObject p = doc["planes"].to<JsonArray>().add<JsonObject>();
+  p["callsign"] = route_callsign(a.callsign);
+  p["lat"] = std::round(a.lat * 1e4) / 1e4;
+  p["lng"] = std::round(a.lon * 1e4) / 1e4;
+  std::string out;
+  serializeJson(doc, out);
+  return out;
+}
+// How far off a leg a plane may be for the leg to be believed: the distance it would go out of its way, over the
+// leg's own length (a quarter of it), but never less than 150 NM (a plane on a short hop, or circling to land).
+constexpr double ROUTE_DETOUR_NM = 150, ROUTE_DETOUR_SHARE = 0.25;
+// The leg of a route a plane at (lat, lon) is flying, from airports in the order flown: the one it is least out of
+// its way on, or -1 when it is on none of them. One heading away from the leg's far end (more than 120 degrees off,
+// well away from both ends) is no leg of this route either: the flight number has moved, and the plane is flying back.
+inline int route_leg(const std::vector<geo::Place> &airports, double lat, double lon, bool has_heading = false,
+                     float heading = 0) {
+  int best = -1;
+  double best_detour = 0;
+  for (size_t i = 0; i + 1 < airports.size(); ++i) {
+    const geo::Place &a = airports[i], &b = airports[i + 1];
+    const double leg = geo::meters_between(a.lat, a.lon, b.lat, b.lon) / geo::NM;
+    const double to_a = geo::meters_between(a.lat, a.lon, lat, lon) / geo::NM;
+    const double to_b = geo::meters_between(lat, lon, b.lat, b.lon) / geo::NM;
+    const double detour = to_a + to_b - leg;
+    if (detour > std::max(ROUTE_DETOUR_NM, leg * ROUTE_DETOUR_SHARE)) continue;
+    if (has_heading && to_a > 50 && to_b > 50) {
+      const double off = std::fabs(std::remainder(geo::bearing(lat, lon, b.lat, b.lon) - heading, 360.0));
+      if (off > 120) continue;
+    }
+    if (best < 0 || detour < best_detour) {
+      best = (int) i;
+      best_detour = detour;
+    }
+  }
+  return best;
+}
+// The routeset's answer: a list, one route for each callsign asked, with its airports in `_airports` ({"icao", "lat",
+// "lon"}) in the order flown and `plausible` (adsb.lol's own check against the position). An unknown callsign comes
+// back with "airport_codes": "unknown": no route, and no error. A route is known when it is plausible and the plane is
+// on one of its legs (route_leg); `out` is that leg.
+inline bool read_routeset(const char *text, size_t length, JsonDocument &doc, const RouteAsk &plane, Route &out,
+                          std::string &error) {
+  out = Route{};
   if (const DeserializationError e = deserializeJson(doc, text, length)) {
-    error = std::string("adsbdb's answer could not be read: ") + e.c_str();
+    error = std::string("adsb.lol's routes could not be read: ") + e.c_str();
     return false;
   }
-  JsonObjectConst r = doc["response"]["flightroute"];
-  if (r.isNull()) return true;
-  JsonObjectConst a = r["origin"], b = r["destination"];
-  if (!a["latitude"].is<double>() || !a["longitude"].is<double>() || !b["latitude"].is<double>() ||
-      !b["longitude"].is<double>())
+  if (!doc.is<JsonArrayConst>()) {
+    error = "adsb.lol's routes are not a list";
+    return false;
+  }
+  const std::string wanted = route_callsign(plane.callsign);
+  for (JsonObjectConst r : doc.as<JsonArrayConst>()) {
+    if (route_callsign(r["callsign"] | "") != wanted) continue;
+    if (r["plausible"].is<bool>() && !r["plausible"].as<bool>()) return true;
+    std::vector<geo::Place> places;
+    std::vector<std::string> codes;
+    for (JsonObjectConst a : r["_airports"].as<JsonArrayConst>()) {
+      if (!a["lat"].is<double>() || !a["lon"].is<double>()) continue;
+      places.push_back({a["lat"].as<double>(), a["lon"].as<double>()});
+      const char *icao = a["icao"] | "";
+      codes.push_back(*icao ? icao : (a["iata"] | "?"));
+    }
+    const int leg = route_leg(places, plane.lat, plane.lon, plane.has_heading, plane.heading);
+    if (leg < 0) return true;
+    out.known = true;
+    out.callsign = plane.callsign;
+    out.from = codes[leg];
+    out.to = codes[leg + 1];
+    out.from_lat = places[leg].lat;
+    out.from_lon = places[leg].lon;
+    out.to_lat = places[leg + 1].lat;
+    out.to_lon = places[leg + 1].lon;
     return true;
-  out.from = a["icao_code"] | "";
-  out.to = b["icao_code"] | "";
-  out.from_lat = a["latitude"];
-  out.from_lon = a["longitude"];
-  out.to_lat = b["latitude"];
-  out.to_lon = b["longitude"];
-  out.known = true;
+  }
   return true;
 }
+// ---- The route from hexdb.io, where adsb.lol gives none (a build with `hexdb_routes: true`, __init__.py). hexdb.io
+// is free and asks no key, but publishes no terms, and credits route data whose owners ask that it is not copied
+// without their leave: so it is a build option, to be left out of firmware given to others until hexdb.io says it may.
+inline std::string hexdb_url(const std::string &callsign) {
+  return "https://hexdb.io/api/v2/routes/" + route_callsign(callsign);
+}
+// hexdb.io's answer: {"callsign", "airports": [{"icao", "iata", "latitude", "longitude"}], ...} with every stop in
+// the order flown, or a 404 {"error": {"code": "route_not_found"}} (no route, and no error). A route is known when the
+// plane is on one of its legs (route_leg), as with adsb.lol's.
+inline bool read_hexdb(const char *text, size_t length, JsonDocument &doc, const RouteAsk &plane, Route &out,
+                       std::string &error) {
+  out = Route{};
+  if (const DeserializationError e = deserializeJson(doc, text, length)) {
+    error = std::string("hexdb.io's route could not be read: ") + e.c_str();
+    return false;
+  }
+  if (!doc["error"].isNull()) {
+    if (std::string(doc["error"]["code"] | "") == "route_not_found") return true;
+    error = std::string("hexdb.io: ") + (doc["error"]["message"] | "an error");
+    return false;
+  }
+  JsonArrayConst list = doc["airports"].as<JsonArrayConst>();
+  if (list.isNull()) {
+    error = "hexdb.io's route has no airports";
+    return false;
+  }
+  std::vector<geo::Place> places;
+  std::vector<std::string> codes;
+  for (JsonObjectConst a : list) {
+    if (!a["latitude"].is<double>() || !a["longitude"].is<double>()) continue;
+    places.push_back({a["latitude"].as<double>(), a["longitude"].as<double>()});
+    const char *icao = a["icao"] | "";
+    codes.push_back(*icao ? icao : (a["iata"] | "?"));
+  }
+  const int leg = route_leg(places, plane.lat, plane.lon, plane.has_heading, plane.heading);
+  if (leg < 0) return true;
+  out.known = true;
+  out.callsign = plane.callsign;
+  out.from = codes[leg];
+  out.to = codes[leg + 1];
+  out.from_lat = places[leg].lat;
+  out.from_lon = places[leg].lon;
+  out.to_lat = places[leg + 1].lat;
+  out.to_lon = places[leg + 1].lon;
+  return true;
+}
+
 // The route's great circle as places, `count` of them from end to end.
 inline std::vector<geo::Place> route_places(const Route &r, int count = 64) {
   std::vector<geo::Place> out;
