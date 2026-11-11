@@ -77,6 +77,11 @@ simulated is credited as **simulated**, so made-up planes are never mistaken for
 - **Pinch or drag** to [zoom and pan](#zoom-and-pan).
 - **Swipe along the bottom edge** to [change the map](#changing-the-map-with-a-swipe), or **up from it** for
   [the weather](#aviation-weather).
+- **Swipe down from the top edge** for [the day's tally](#alerts-and-the-days-tally).
+
+**At the start** the screen shows its emblem, a radar scope whose beam is a propeller, turning to rest over its name
+and version. On the round 4C the scope's rim is the edge of the glass. It lasts four seconds and holds nothing up:
+the screen joins its network and fetches its map under it, and a finger goes to whatever is there.
 
 **Sleep.** The screen can turn itself off after a while without a touch, and at a bedtime every night, coming back on
 at a set time or at a tap. While it is off it fetches nothing.
@@ -178,10 +183,13 @@ told of again once it has been out of range for ten minutes.
 
 The screen counts the planes within the range of the place (up to 250 NM), from midnight by its clock: how many, by
 the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
-planes around the place count, so none are counted while a plane is followed elsewhere. The web page shows the day
-under **Today in range**, with the days before, and keeps the latest 400 visits as a log to download (CSV). The tally
-is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to it, a file a day in its
-`log` folder.
+planes around the place count, so none are counted while a plane is followed elsewhere.
+
+A swipe down from the top edge of the map (or **Show the day's tally** in the menu) opens the day on the glass: how
+many planes and how many in range now, a bar for each hour, the day's records, the commonest types and operators, and
+the days before. The web page shows the same under **Today in range**, and keeps the latest 400 visits as a log to
+download (CSV). The tally is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to
+it, a file a day in its `log` folder.
 
 ## Home Assistant
 

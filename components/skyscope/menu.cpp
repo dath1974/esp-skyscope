@@ -28,7 +28,7 @@ using namespace widgets;
 namespace {
 // The menu's own keys, by negative ids in their user data.
 constexpr int MENU_SAVE = -1, MENU_CANCEL = -2, MENU_UP = -3, MENU_DOWN = -4, MENU_CHECK = -5, MENU_INSTALL = -6,
-              MENU_WIFI = -7, MENU_WEATHER = -8;
+              MENU_WIFI = -7, MENU_WEATHER = -8, MENU_TODAY = -9;
 // A row's keys, by row * 3 and one of these in their user data.
 enum { STEP_BACK, STEP_ON, EDIT };
 constexpr uint32_t ARMED_MS = 4000;     // Install's second tap, within this
@@ -165,6 +165,10 @@ void Skyscope::build_menu_() {
   // The last group is the weather's: its page (wxpage.cpp) from here too.
   set_label(lv_obj_get_child(field_of(row_of(card, "Page"), MENU_WEATHER, 0), 0), "Show the weather");
 
+  // The day's tally (todaypage.cpp), which a swipe down from the top edge opens too.
+  card = group("Today in range", box);
+  set_label(lv_obj_get_child(field_of(row_of(card, "Planes"), MENU_TODAY, 0), 0), "Show the day's tally");
+
   // The Wi-Fi network the screen is on; its field opens the networks in reach (editor.cpp).
   card = group("Wi-Fi", box);
   menu_wifi_ = field_of(row_of(card, "Network"), MENU_WIFI, 0);
@@ -290,6 +294,10 @@ void Skyscope::menu_action_(int action) {
     open_weather_();
     return;
   }
+  if (action == MENU_TODAY) {
+    open_today_();
+    return;
+  }
 #ifdef USE_UPDATE
   if (action == MENU_CHECK && firmware_) {
     menu_checking_from_ = firmware_reports_;
@@ -394,6 +402,7 @@ void Skyscope::close_menu_() {
   if (!menu_) return;
   close_picker_();
   close_editor_();
+  close_today_();
   lv_obj_delete(menu_);
   menu_ = nullptr;
   menu_list_ = nullptr;

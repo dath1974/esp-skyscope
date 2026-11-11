@@ -44,6 +44,7 @@
 #include "airspace.h"
 #include "beam.h"
 #include "card_io.h"
+#include "emblem.h"
 #include "feed.h"
 #include "firmware.h"
 #include "follow.h"
@@ -108,6 +109,8 @@ class Skyscope : public Component,
     font_label_ = label;
     font_title_ = title;
   }
+  // A large font for the screen's name on the splash (splash.cpp); without one, the title's.
+  void set_font_splash(font::Font *f) { font_splash_ = f; }
   void set_dpi(float dpi) { dpi_ = dpi; }
   void set_tile_scale(int scale) { tile_scale_ = scale; }
   void set_user_agent(const std::string &agent) { agent_ = agent; }
@@ -399,6 +402,15 @@ class Skyscope : public Component,
   void fill_weather_();
   void refresh_weather_();  // what the worker found, and another ask when it is old
   int64_t unix_now_() const;  // the clock's Unix seconds, 0 while it is not set
+  // The day's tally on the glass (todaypage.cpp): a swipe down from the top edge, or the menu, opens it.
+  void open_today_();
+  void refresh_today_();
+  void close_today_();
+  // The splash at the start (splash.cpp): the emblem turning to rest over the screen's name, then gone.
+  void start_splash_();
+  void splash_tick_(uint32_t now);
+  void stay_on_top_();
+  void end_splash_();
 #ifdef SKYSCOPE_TEST_API
   // A test's mock in place of every server (/api/test {"divert": origin}, http.h): kept through a restart, which is how
   // it starts and ends (every cache empty, the map card left out), and gone at power off. "" for none.
@@ -457,7 +469,7 @@ class Skyscope : public Component,
 #endif
   int bed_minute_{-1};  // the minute of the day bedtime was last looked at; -1 before the first
   int native_width_{0}, native_height_{0};  // the panel's own way up, rotation 0
-  font::Font *font_small_{nullptr}, *font_label_{nullptr}, *font_title_{nullptr};
+  font::Font *font_small_{nullptr}, *font_label_{nullptr}, *font_title_{nullptr}, *font_splash_{nullptr};
   output::FloatOutput *brightness_{nullptr};
   float dpi_{200};
   int tile_scale_{1};
@@ -682,7 +694,7 @@ class Skyscope : public Component,
   bool frozen_shown_{false}, frozen_dirty_{false};
   std::vector<int> frozen_columns_;
   lv_obj_t *preview_bar_{nullptr}, *preview_text_{nullptr};
-  bool touch_in_strip_{false};  // the finger came down in the swipe's strip: no pan
+  bool touch_in_strip_{false};  // the finger came down in a swipe's strip (the bottom's or the top's): no pan
   // The swipes: the settings with the map swiped to, and when it is planned; the name and dots shown meanwhile.
   Settings swiped_;
   bool swiping_{false};
@@ -693,6 +705,25 @@ class Skyscope : public Component,
   int wx_tab_{0};
   uint32_t wx_asked_{0}, wx_at_{0};
   std::shared_ptr<const weather::Report> wx_report_;
+
+  // The day's tally: its page, its line, the chart of the hours and its bars, the list under them, the tally shown
+  // (sightings.h's revision) and when it was last looked at.
+  lv_obj_t *today_{nullptr}, *today_line_{nullptr}, *today_chart_{nullptr}, *today_list_{nullptr};
+  lv_obj_t *today_bars_[24]{};
+  uint32_t today_rev_{0}, today_at_{0};
+  // The splash: its page, the emblem and the pixels it is drawn into (freed with it), when it began, and its frames.
+  lv_obj_t *splash_{nullptr}, *splash_canvas_{nullptr}, *splash_name_{nullptr}, *splash_line_{nullptr};
+  std::unique_ptr<emblem::Emblem> splash_emblem_;
+  uint16_t *splash_pixels_{nullptr};
+  uint32_t splash_from_{0}, splash_drawn_at_{0}, splash_frames_{0};
+  int64_t splash_draw_us_{0}, splash_first_us_{0};
+  uint32_t splash_pixels_sent_{0};
+  bool splash_rested_{false}, splash_waiting_{false};
+  // The glass's frame when the splash's first was drawn, and when its last was: the next waits for the glass.
+  uint32_t splash_frame_at_{0};
+  uint32_t splash_drawn_frame_{0};
+  // The last one, for /api/ui: its frames and the longest wait between two looks at it.
+  uint32_t splash_ticked_at_{0}, splash_gap_ms_{0}, splash_last_frames_{0}, splash_last_gap_ms_{0};
 
   // The body of a POST on its way in (the HTTP server's task).
   std::string body_;

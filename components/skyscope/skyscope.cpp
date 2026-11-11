@@ -557,6 +557,7 @@ void Skyscope::loop() {
   touch_lock_tick_(now);
 #endif
   sleep_or_wake_(now);
+  splash_tick_(now);
   // The brightness set, or the one a finger is dragging to; none while the screen is off.
   const float level = (drag_level_ >= 0 ? drag_level_ : settings_.brightness) / 100.0f;
   if (brightness_ && !asleep_ && level != applied_brightness_) {
@@ -586,6 +587,7 @@ void Skyscope::loop() {
     refresh_menu_wifi_();
     refresh_picker_();  // a search answered, a scan given up
     refresh_weather_();
+    refresh_today_();
     take_alerts_(now);
     if (now - stats_saved_at_ >= STATS_SAVE_MS) save_stats_();
   }
@@ -908,6 +910,7 @@ void Skyscope::build_ui_() {
   if (const uint32_t s = kept_touch_lock_s_()) lock_touch_(s);
 #endif
   replan_();
+  start_splash_();
 #ifdef USE_SKYSCOPE_RADIO
   // The radio's tasks, on the worker's core above it, before the worker asks it for planes; the stick is opened
   // whenever one is plugged in.
@@ -1024,6 +1027,7 @@ void Skyscope::go_to_sleep_(const std::string &why) {
   end_preview_(false);
   finish_swipe_();
   close_weather_();
+  close_today_();
   // Dark, and nothing drawn: an AMOLED shows black as off. The worker asks for no planes or tiles meanwhile.
   asleep_ = true;
   if (brightness_) brightness_->set_level(0);

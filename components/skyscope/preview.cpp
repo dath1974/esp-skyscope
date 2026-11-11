@@ -66,7 +66,8 @@ void Skyscope::update(const touchscreen::TouchPoints_t &points) {
     lv_point_t p{(int32_t) a.x, (int32_t) a.y};
     touch_on_map_ = lv_indev_search_obj(lv_screen_active(), &p) == canvas_;
     // The bottom strip is for swiping between maps (swipe.cpp): a drag there is no pan.
-    touch_in_strip_ = swipe::in_strip(a.y, height_, ui::mm(swipe::STRIP_MM));
+    touch_in_strip_ = swipe::in_strip(a.y, height_, ui::mm(swipe::STRIP_MM)) ||
+                      swipe::in_top_strip(a.y, ui::mm(swipe::STRIP_MM));
   }
   if (gestured_ || count > 1) {
     gestured_ = true;

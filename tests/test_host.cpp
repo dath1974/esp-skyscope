@@ -13,6 +13,7 @@
 #include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/card.h"
+#include "../components/skyscope/emblem.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/follow.h"
@@ -37,6 +38,7 @@
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/swipe.h"
 #include "../components/skyscope/tiles.h"
+#include "../components/skyscope/today.h"
 #include "../components/skyscope/touch.h"
 #include "../components/skyscope/weather.h"
 #include "../components/skyscope/wifi_list.h"
@@ -1089,6 +1091,77 @@ static void test_shapes() {
   CHECK(o.planes.size() == 1 && o.planes[0].kind == AIRLINER);
 }
 
+// The emblem (emblem.h): a frame drawn after another is the same picture as that frame drawn alone, and every pixel
+// that differs from the frame before lies in a box it says changed, so the glass can send only those.
+static void test_emblem() {
+  using namespace emblem;
+  const int n = 240;
+  Emblem stepped, alone;
+  stepped.prepare(n, n / 2.0f - 2);
+  alone.prepare(n, n / 2.0f - 2);
+  CHECK(stepped.ready() && stepped.size() == n);
+  std::vector<uint16_t> now((size_t) n * n), before((size_t) n * n), fresh((size_t) n * n);
+  std::vector<Box> changed;
+  size_t sent = 0, frames = 0;
+  for (float t = 0; t < SPIN_S + 0.3f; t += 0.09f) {
+    stepped.draw(now.data(), n, bearing_at(t), turned_at(t), 1, &changed);
+    // Into other pixels each time, so this one is drawn whole.
+    std::vector<uint16_t> other((size_t) n * n);
+    alone.draw(other.data(), n, bearing_at(t), turned_at(t));
+    CHECK(now == other);
+    size_t outside = 0;
+    for (int y = 0; y < n; ++y)
+      for (int x = 0; x < n; ++x) {
+        if (now[(size_t) y * n + x] == before[(size_t) y * n + x]) continue;
+        bool in = false;
+        for (const Box &b : changed) in = in || (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+        outside += !in;
+      }
+    CHECK(outside == 0);
+    for (const Box &b : changed) {
+      CHECK(b.x >= 0 && b.y >= 0 && b.w >= 0 && b.h >= 0 && b.x + b.w <= n && b.y + b.h <= n);
+      if (t > 0) sent += (size_t) b.w * b.h;
+    }
+    if (t > 0) ++frames;
+    // Few enough boxes for LVGL to keep apart (past 32 it draws the whole glass again).
+    CHECK(changed.size() <= 20);
+    before = now;
+  }
+  // A frame sends well under the whole picture, on average.
+  CHECK(sent / frames < (size_t) n * n * 7 / 10);
+  // It comes to rest where it is printed, having passed every blip, and stays there.
+  CHECK(near(bearing_at(SPIN_S), REST_DEGREES, 0.01) && near(bearing_at(SPIN_S + 5), REST_DEGREES, 0.01));
+  CHECK(near(turned_at(0), 0, 0.001) && near(turned_at(SPIN_S), TURN_DEGREES, 0.001));
+  for (const Blip &b : BLIPS) {
+    const float after_start = std::fmod(b.bearing - bearing_at(0) + 720.0f, 360.0f);
+    CHECK(after_start <= TURN_DEGREES);
+  }
+  // The rim is lit, the ground outside the scope is not, and the hub is the propeller's, not the scope's.
+  alone.draw(fresh.data(), n, REST_DEGREES, TURN_DEGREES);
+  CHECK(fresh[0] == rgb565(Colors{}.ground));
+  CHECK(fresh[(size_t) (n / 2) * n + (int) (n / 2 + RIM * (n / 2.0f - 2))] == rgb565(Colors{}.scope));
+  const uint16_t hub = fresh[(size_t) (n / 2) * n + n / 2 + (int) (HUB * (n / 2.0f - 2) * 0.3f)];
+  CHECK((hub >> 11) > 12 && (hub >> 11) + 4 > (hub & 0x1F));
+  // The bearing a compass gives, and the arc tangent it comes from.
+  CHECK(near(bearing_of(0, -10), 0, 0.02) && near(bearing_of(10, 0), 90, 0.02) && near(bearing_of(0, 10), 180, 0.02) &&
+        near(bearing_of(-10, 0), 270, 0.02) && near(bearing_of(10, -10), 45, 0.02));
+  for (float t = 0; t < 40; t += 0.37f) CHECK(near(atan_degrees(t), std::atan(t) * 180 / 3.14159265, 0.02));
+  // The blade: slim at the root, broadest past its middle, nothing at its tip; its middle leans the way it turns
+  // (+y), which is what tells the eye which way that is; lit most along the leading edge.
+  CHECK(blade_half_wide(0.64f) > 2 * blade_half_wide(0) && near(blade_half_wide(1), 0, 1e-4));
+  CHECK(blade_middle(0.5f) > 0 && near(blade_middle(1), 0, 1e-6));
+  const float mid = BLADE_ROOT + BLADE_LONG * 0.6f;
+  CHECK(blade_holds(mid, blade_middle(0.6f)) && !blade_holds(BLADE_TIP + 0.01f, 0) && !blade_holds(mid, 0.2f));
+  CHECK(blade_lit(mid, blade_lead(0.6f)) > blade_lit(mid, blade_trail(0.6f)) + 0.5f);
+  // A plane the beam finds: its nose and its wingtips are in it, the air beside its nose is not.
+  CHECK(plane_distance(0, -0.9f) < 0 && plane_distance(0.9f, 0.4f) < 0 && plane_distance(-0.9f, 0.4f) < 0);
+  CHECK(plane_distance(0.6f, -0.8f) > 0.3f);
+  // What it takes is said before it is taken, and given back.
+  CHECK(Emblem::bytes(720, 358) < 2 * 1024 * 1024);
+  stepped.release();
+  CHECK(!stepped.ready());
+}
+
 static void test_beam() {
   // A 101 x 101 scope around its middle, a gray ground; the beam at 90 degrees (east), having come from 85.
   const int n = 101;
@@ -1948,6 +2021,10 @@ static void test_swipe() {
   // Sideways far enough, and more sideways than not: to the left the next map, to the right the one before.
   CHECK(direction(300, 420, 180, 430, 98) == 1 && direction(180, 420, 300, 410, 98) == -1);
   CHECK(direction(300, 420, 250, 420, 98) == 0);   // too short
+  // The strip along the top, and a swipe down from it: far enough, and more down than across.
+  CHECK(in_top_strip(0, 73) && in_top_strip(72, 73) && !in_top_strip(73, 73) && !in_top_strip(-1, 73));
+  CHECK(downward(200, 20, 210, 130, 98) && !downward(200, 20, 210, 100, 98) && !downward(200, 20, 300, 130, 98) &&
+        !downward(200, 130, 200, 20, 98));
   CHECK(direction(300, 440, 180, 370, 98) == 0);   // not twice as far across as up
   // The maps in the menu's order, the custom server only where there is one; a swipe steps as the menu's arrows do.
   Settings s;
@@ -2726,6 +2803,28 @@ static void test_sightings() {
   CHECK(book.today().planes == 2 && book.today().visits == 3 && alerts.size() == 1 && alerts[0].kind == WATCHED);
   const auto types = book.top_types();
   CHECK(types.size() == 2 && types[0].n == 1);
+  // The day as its page on the glass tells it (today.h).
+  {
+    CHECK(today::summary(book) == "2 planes today, 1 in range now");
+    CHECK(today::summary(Book{}).rfind("Nothing seen yet", 0) == 0 && today::lines(Book{}, false).empty());
+    CHECK(today::busiest_hour(book.today()) == 14 && today::busiest_hour(Day{}) == -1);
+    CHECK(today::day_name(20261110) == "Nov 10" && today::day_name(20260101) == "Jan 1" && today::day_name(0) == "");
+    auto has = [](const std::vector<today::Line> &lines, today::Tone tone, const std::string &text) {
+      for (const auto &l : lines)
+        if (l.tone == tone && l.text == text) return true;
+      return false;
+    };
+    const auto lines = today::lines(book, false);
+    CHECK(has(lines, today::PLAIN, "Most at once 2, 3 visits, busiest hour 14:00 (2)"));
+    CHECK(has(lines, today::PLAIN, "2 watched planes, 1 emergency"));
+    CHECK(has(lines, today::HEADING, "The day's records") && has(lines, today::PLAIN, "Nearest  UAL1, 2.0 NM"));
+    CHECK(has(lines, today::PLAIN, "Highest  UAL1, 12000 ft") && has(lines, today::PLAIN, "Fastest  UAL1, 300 kt"));
+    CHECK(has(lines, today::HEADING, "Commonest types"));
+    // Metric: kilometers, meters and kilometers an hour.
+    const auto metric = today::lines(book, true);
+    CHECK(has(metric, today::PLAIN, "Nearest  UAL1, 3.7 km") && has(metric, today::PLAIN, "Highest  UAL1, 3658 m") &&
+          has(metric, today::PLAIN, "Fastest  UAL1, 556 km/h"));
+  }
   // Two planes known by made-up addresses ("~", TIS-B) are two planes, and neither is the transponder at that address.
   {
     Book apart;
@@ -2851,6 +2950,7 @@ int main(int argc, char **argv) {
   test_sprites();
   test_shapes();
   test_beam();
+  test_emblem();
   test_providers();
   test_follow();
   test_climb_text();

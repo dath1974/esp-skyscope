@@ -15,16 +15,17 @@ are the user guide; read them for what the screen does and how it is set up.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`, `wake.h`,
-    `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h` (namespace `sky`). Keep them that way;
-    logic that can be tested on a PC belongs here.
+    `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h` (namespace `sky`).
+    Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
-    `networks.cpp`, `wxpage.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, `card.cpp` (the map card), and the P4's radio,
-    `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
+    `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, `card.cpp` (the
+    map card), and the P4's radio, `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
   `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
-- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `screenshots.py`
+- `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `emblem.cpp` (the emblem's
+  sheet and `docs/emblem.svg`), `screenshots.py`
   (`docs/screens.md`'s pictures, from a real screen), `wake_table.py` (`wake.h`,
   each type's wake category from the FAA's list).
 
@@ -35,6 +36,8 @@ are the user guide; read them for what the screen does and how it is set up.
 - `make firmware`: compiles with the ESPHome in `ESPHOME_VERSION` (Makefile) and refuses another version;
   `make firmware-esphome` installs it. Slow; run it when device code, `__init__.py` or YAML changes.
 - `make test-markers`: renders `tests/build/markers.png` after changing aircraft shapes (`shapes.h`, `sprites.h`).
+- `make emblem`: after changing `emblem.h`, renders `tests/build/emblem.png`, writes `docs/emblem.svg`, and the page's
+  copy to paste into `page.h`.
 - `make test-esp32*` need `DEVICE=<address>` and a real screen. Do not run them unless the user gives an address.
   Device tests must put back every setting they change and never print the screen's location.
 
@@ -59,6 +62,10 @@ are the user guide; read them for what the screen does and how it is set up.
 - **Round glass.** On a board with `round: true` the corners are not there. Place anything new on the glass through
   `glass.h` and `ui.h` (`ui::pad_page` for a page, `ui::hug_edge` for a box along the top or bottom edge), never by
   the display's width and height alone.
+- **Pixels are dear.** Drawing the splash on the P4 came to about a tenth of a microsecond for every pixel read or
+  written, whatever was done with it: half a million pixels a frame was six frames a second. Anything that moves
+  draws only what changed and tells LVGL only those boxes (`emblem.h`, `beam.h`), fewer than 32 of them: past that
+  LVGL draws the whole glass.
 - **Docs.** `README.md` is the front page: what the screen does in a line each, install, first start, updates and the
   data sources. The detail lives in `docs/`: `using.md` (the glass, the menu, every feature), `hardware.md` (boards,
   the radio, the card's slot), `api.md` (every request) and `development.md` (`make` targets, tests, releases). Update

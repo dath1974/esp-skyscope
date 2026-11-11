@@ -24,6 +24,7 @@ CONF_TILE_SCALE = "tile_scale"
 CONF_FONT_SMALL = "font_small"
 CONF_FONT_LABEL = "font_label"
 CONF_FONT_TITLE = "font_title"
+CONF_FONT_SPLASH = "font_splash"
 CONF_USER_AGENT = "user_agent"
 CONF_SETUP_NETWORK = "setup_network"
 CONF_BRIGHTNESS_OUTPUT = "brightness_output"
@@ -104,6 +105,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_FONT_SMALL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_LABEL): cv.use_id(font.Font),
         cv.Required(CONF_FONT_TITLE): cv.use_id(font.Font),
+        # The screen's name under the emblem at the start (splash.cpp): a large font that needs only its letters.
+        # Without one the name is in the title's font.
+        cv.Optional(CONF_FONT_SPLASH): cv.use_id(font.Font),
         # Tile servers and ADS-B exchanges ask that a client says who it is; esp-skyscope/<version> (+<the project's
         # page>) unless set.
         cv.Optional(CONF_USER_AGENT): cv.string_strict,
@@ -187,8 +191,9 @@ def _final_validate(config):
     lvgl_defines.add_lv_use("canvas", "image", "label", "flex", "obj", "line", "qrcode")
     # A picture of the glass as two fingers land on it, which they then zoom and pan (preview.cpp).
     lvgl_defines.add_define("LV_USE_SNAPSHOT", "1")
-    for key in (CONF_FONT_SMALL, CONF_FONT_LABEL, CONF_FONT_TITLE):
-        lvgl_defines.get_esphome_fonts_used().add(config[key])
+    for key in (CONF_FONT_SMALL, CONF_FONT_LABEL, CONF_FONT_TITLE, CONF_FONT_SPLASH):
+        if key in config:
+            lvgl_defines.get_esphome_fonts_used().add(config[key])
     return config
 
 
@@ -213,6 +218,8 @@ async def to_code(config):
     label = await cg.get_variable(config[CONF_FONT_LABEL])
     title = await cg.get_variable(config[CONF_FONT_TITLE])
     cg.add(var.set_fonts(small, label, title))
+    if CONF_FONT_SPLASH in config:
+        cg.add(var.set_font_splash(await cg.get_variable(config[CONF_FONT_SPLASH])))
     cg.add(var.set_dpi(config[CONF_DPI]))
     cg.add(var.set_tile_scale(config[CONF_TILE_SCALE]))
     cg.add(var.set_user_agent(config.get(CONF_USER_AGENT, f"esp-skyscope/{version} (+{PROJECT_URL})")))

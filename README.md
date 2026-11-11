@@ -1,5 +1,7 @@
 # esp-skyscope
 
+<img src="docs/emblem.svg" alt="The Skyscope emblem: a radar scope whose beam is a propeller" width="120" align="right">
+
 Live aircraft tracking on a small, self-contained ESP32 touch screen. The screen fetches traffic from a public ADS-B
 exchange and map tiles from public tile servers, and decodes and draws everything itself: no computer, no app.
 
@@ -27,12 +29,13 @@ More pictures, each map and page with a word on it: [docs/screens.md](docs/scree
 - **Follow a plane** anywhere in the world by its registration, callsign or flight number. The map moves with it, and
   over an ocean the screen shows where it is likely to be until it is heard again.
 - **Alerts** along the top of the glass when a watched plane comes into range or one squawks an emergency, and **the
-  day's tally** on the web page: planes by the hour, the commonest types, the day's records, and a log to download.
+  day's tally** on the glass and the web page: planes by the hour, the commonest types, the day's records, and a log
+  to download.
 - **Home Assistant** finds the screen by itself: the planes in range, each alert, the screen on or off.
 - **Aviation weather**: the nearest station's METAR, TAF and MOS, the SIGMETs, G-AIRMETs and pilot reports nearby, and
   the NEXRAD radar over any map.
 - **On the glass**: tap a plane for its card, pinch to zoom, swipe to change the map, long-press for a menu with every
-  setting. The screen can sleep at night.
+  setting. The screen can sleep at night. It starts with its emblem turning to rest while it joins the network.
 - **A map card**: a microSD card keeps the tiles, so maps come back without downloading them again, and the FAA charts
   can be downloaded ahead for use with a slow network or none.
 - **Updates itself** from the project's releases, when you press Install.

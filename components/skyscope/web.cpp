@@ -648,6 +648,15 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       request->send(200, "application/json", seconds ? "{\"touch_locked\":true}" : "{\"touch_locked\":false}");
       return;
     }
+    // The splash again, as at the start: to look at it, and for its picture.
+    if (!unreadable && in["splash"] == true && in["divert"].isNull()) {
+      this->defer([this]() {
+        this->end_splash_();
+        this->start_splash_();
+      });
+      request->send(200, "application/json", "{\"splash\":true}");
+      return;
+    }
     const bool broken = unreadable || !in["divert"].is<const char *>();
     const std::string origin = broken ? std::string() : in["divert"].as<std::string>();
     if (broken || (!origin.empty() && (origin.rfind("http://", 0) != 0 || origin.size() >= 96 || origin.back() == '/'))) {

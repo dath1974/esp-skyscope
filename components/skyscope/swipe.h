@@ -16,6 +16,9 @@ constexpr float SWIPE_MM = 8;   // the least a finger goes sideways for a swipe
 // Whether a finger that came down at `y` is in the strip of a glass `height` high, `strip_px` of it.
 inline bool in_strip(double y, int height, int strip_px) { return y >= height - strip_px && y < height; }
 
+// The same along the top edge, where a swipe down opens the day's tally (todaypage.cpp).
+inline bool in_top_strip(double y, int strip_px) { return y >= 0 && y < strip_px; }
+
 // A finger from (x0, y0) to (x1, y1): 1 for a swipe to the left (the next map), -1 to the right (the one before), 0
 // for none: at least `least` sideways, and at least twice as far sideways as up or down.
 inline int direction(double x0, double y0, double x1, double y1, double least) {
@@ -28,6 +31,11 @@ inline int direction(double x0, double y0, double x1, double y1, double least) {
 inline bool upward(double x0, double y0, double x1, double y1, double least) {
   const double dx = x1 - x0, dy = y0 - y1;
   return dy >= least && dy >= 2 * std::fabs(dx);
+}
+
+// And going down: at least `least` down, and at least twice as far down as across.
+inline bool downward(double x0, double y0, double x1, double y1, double least) {
+  return upward(x0, -y0, x1, -y1, least);
 }
 
 inline const menu::Row &map_row() {

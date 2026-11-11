@@ -29,6 +29,9 @@ carries the C6's: at start, a C6 running any other version is updated over the l
 ships with. A board with an early chip (its boot log says `chip revision: v1.x`) needs `engineering_sample: true` and
 a build of its own.
 
+With 32 MB of PSRAM the P4 keeps up to 12 MB of map tiles in memory, where the other boards keep 3 MB, so a map
+swiped back to or zoomed out again is drawn without the network or the card.
+
 The glass is round, and the screen keeps everything inside the circle: pages and the keyboard in the largest square it
 holds, the status, credit and plane cards moved in from the edge, and no plane or label in the corners
 (`round: true` in the `skyscope:` block).
@@ -69,10 +72,13 @@ Every board has a microSD slot, set by `card:` in the board file's `skyscope:` b
 - **LCD 2.8B**: one data line on GPIO 2, 1 and 42. The first two are shared with the lines that set up the panel, which
   is done once at start before the card is looked for; the card's DAT3 is held high by the board's I/O expander.
 
+A card that answers but garbles is asked again more gently, at 20 MHz and then on one data line, before the screen
+gives up on it; the web page's **Map card** says why a card was not taken.
+
 ## Adding a board
 
-A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, and the tile cache up
-to 3 MB) and a display LVGL can drive. Adding one is a new file in `boards/` with its display, touch, fonts and the
+A board needs an ESP32-S3 or ESP32-P4 with PSRAM (the map takes up to five frames of the screen, and the tile cache
+3 MB or more) and a display LVGL can drive. Adding one is a new file in `boards/` with its display, touch, fonts and the
 `skyscope:` block's `dpi`, and the board in the build matrix of `.github/workflows/tests.yml` (a test checks it is
 there). A release builds every file in `boards/` by itself. A new board needs plenty of testing, and the project's aim
 is a physically small screen.

@@ -110,6 +110,10 @@ void Skyscope::describe_ui_(JsonObject out) {
   out["width"] = width_;
   out["height"] = height_;
   out["asleep"] = asleep_;
+  out["splash"] = splash_ != nullptr;  // the emblem at the start, still over everything
+  // The last one shown: a start that kept the loop busy shows few frames and a long wait.
+  out["splash_frames"] = splash_last_frames_;
+  out["splash_gap_ms"] = splash_last_gap_ms_;
   out["touching"] = probe_touch_.busy();  // a touch from /api/touch still being played
   out["status"] = text_of(status_);
   if (shown(setup_)) out["setup"] = text_of(setup_title_);
@@ -130,6 +134,17 @@ void Skyscope::describe_ui_(JsonObject out) {
     lv_obj_t *head = lv_obj_get_parent(wx_title_);
     place(wx["close"].to<JsonObject>(), lv_obj_get_child(head, 0));
     place(wx["refresh"].to<JsonObject>(), lv_obj_get_child(head, 2));
+  }
+  if (today_) {
+    // The day's tally: its line, its lines, how tall each hour's bar is, and its Close key.
+    JsonObject today = out["today"].to<JsonObject>();
+    today["line"] = text_of(today_line_);
+    JsonArray lines = today["lines"].to<JsonArray>();
+    for (uint32_t i = 0; i < lv_obj_get_child_count(today_list_); ++i)
+      lines.add(text_of(lv_obj_get_child(today_list_, i)));
+    JsonArray bars = today["bars"].to<JsonArray>();
+    for (lv_obj_t *bar : today_bars_) bars.add(lv_obj_get_height(bar));
+    place(today["close"].to<JsonObject>(), lv_obj_get_child(lv_obj_get_child(today_, 0), 0));
   }
   if (shown(card_)) {
     JsonObject card = out["card"].to<JsonObject>();

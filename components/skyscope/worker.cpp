@@ -27,8 +27,12 @@ static const char *const TAG = "skyscope.worker";
 
 namespace {
 // Tiles as they came (PNG or JPEG bytes), in PSRAM, the least recently drawn going first. A tile the server has none
-// of (a chart outside its country) is kept as empty, so it is not asked for again and again.
-constexpr size_t CACHE_BYTES = 3 * 1024 * 1024;
+// of (a chart outside its country) is kept as empty, so it is not asked for again and again. Every board keeps
+// CACHE_BYTES of them; one with PSRAM to spare (the P4's 32 MB) keeps more, up to CACHE_MOST_BYTES: half of what is
+// free at the start beyond CACHE_HEADROOM, which is left for the frames kept and drawn ahead, the radar's loop and
+// a photo. So a map swiped back to, or the next step of a plane followed, is there without the network or the card.
+constexpr size_t CACHE_BYTES = 3 * 1024 * 1024, CACHE_MOST_BYTES = 12 * 1024 * 1024;
+constexpr size_t CACHE_HEADROOM = 8 * 1024 * 1024;
 // PSRAM the cache leaves free for the rest of the screen: the frames, the feed, the planes' trails. Something that finds
 // none aborts, so a board with little to spare (the LCD 2.8B, whose glass's frames take much of it) keeps fewer tiles.
 constexpr size_t PSRAM_SPARE = 1024 * 1024;
@@ -56,6 +60,12 @@ struct Cached {
 };
 class Cache {
  public:
+  // The most it keeps, from the PSRAM free as the worker starts.
+  void size_to(size_t free_psram) {
+    const size_t spare = free_psram > CACHE_HEADROOM ? (free_psram - CACHE_HEADROOM) / 2 : 0;
+    limit_ = std::max(CACHE_BYTES, std::min(CACHE_MOST_BYTES, spare));
+  }
+  size_t limit() const { return limit_; }
   Cached *find(const tiles::Key &k, uint32_t now) {
     for (auto it = items_.begin(); it != items_.end(); ++it) {
       if (!(it->key == k)) continue;
@@ -80,7 +90,7 @@ class Cache {
   }
   // Lets the least recently drawn tiles go while there are too many, or PSRAM is short of `size` and the spare.
   void trim(size_t size = 0) {
-    while (!items_.empty() && (bytes_ + size > CACHE_BYTES ||
+    while (!items_.empty() && (bytes_ + size > limit_ ||
                                heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < size + PSRAM_SPARE))
       drop_(std::prev(items_.end()));
   }
@@ -111,7 +121,7 @@ class Cache {
     items_.erase(it);
   }
   std::list<Cached> items_;
-  size_t bytes_ = 0;
+  size_t bytes_ = 0, limit_ = CACHE_BYTES;
 
  public:
   size_t size() const { return items_.size(); }
@@ -287,6 +297,8 @@ void Skyscope::worker_main(void *self) { static_cast<Skyscope *>(self)->worker_(
 
 void Skyscope::worker_() {
   Cache cache;
+  cache.size_to(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  ESP_LOGI(TAG, "Tile cache: up to %u KB", (unsigned) (cache.limit() / 1024));
   http::Body body;
   Settings settings;
   tiles::Plan plan;

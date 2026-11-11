@@ -10,7 +10,7 @@ How the code is laid out, how to build and test it, and how releases are made. B
   can build them; `AGENTS.md` lists them.
 - `components/rgb_panel/`: the LCD 2.8B's display driver.
 - `tests/`: the host tests, the page's tests, and the tests against a real screen with the mock they use.
-- `tools/`: the release manifest, the aircraft sheet, the screenshots, and the wake category table.
+- `tools/`: the release manifest, the aircraft sheet, the emblem, the screenshots, and the wake category table.
 
 ## Building
 
@@ -31,6 +31,9 @@ Node 18 or newer.
 - `make test-python`: the release manifest, the mock the device tests use, and `tools/screenshots.py`.
 - `make test-page`: the web page's script (`tests/test_page.mjs`).
 - `make test-markers` draws every aircraft shape on a sheet (`tests/build/markers.png`); CI keeps it with each run.
+- `make emblem` draws the emblem (`components/skyscope/emblem.h`) as the screen's own code does, on a sheet to look at
+  (`tests/build/emblem.png`), and writes `docs/emblem.svg` and the web page's copy (`tests/build/emblem-page.svg`,
+  pasted into `page.h` after a change).
 
 ## Tests against a real screen
 

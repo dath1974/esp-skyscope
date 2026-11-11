@@ -22,6 +22,8 @@
 #   make test-page        the web page's script (Node 18 or newer)
 #   make test-markers     every kind of aircraft drawn on a sheet,
 #                         tests/build/markers.png
+#   make emblem           the emblem drawn on a sheet (tests/build/emblem.png)
+#                         and as docs/emblem.svg
 #
 # Tests - Real ESP32 Hardware Needed
 # Must specify DEVICE=<ESP32 IP Address>. All but test-esp32-public run
@@ -71,7 +73,7 @@ SKYSCOPE_VERSION = $(shell sed -nE 's/^  version: "?([^"]+)"?$$/\1/p' \
 export MSG
 
 .PHONY: all firmware firmware-all firmware-flash firmware-esphome firmware-esphome-version \
-	test test-host test-python test-page test-markers \
+	test test-host test-python test-page test-markers emblem \
 	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak test-esp32-public screenshots \
 	release-version release-tag release clean help
 
@@ -144,6 +146,15 @@ test-markers:
 	mkdir -p tests/build
 	$${CXX:-c++} -std=c++20 -O2 tools/markers.cpp -o tests/build/markers
 	tests/build/markers tests/build/markers.png
+
+# The emblem (components/skyscope/emblem.h) without a screen: docs/emblem.svg,
+# a sheet to look at (tests/build/emblem.png), and the page's own copy
+# (tests/build/emblem-page.svg, pasted into components/skyscope/page.h).
+emblem:
+	mkdir -p tests/build
+	$${CXX:-c++} -std=c++20 -O2 tools/emblem.cpp -o tests/build/emblem
+	tests/build/emblem tests/build/emblem.png docs/emblem.svg \
+	  tests/build/emblem-page.svg
 
 test-esp32:
 	@test -n "$(DEVICE)" || \

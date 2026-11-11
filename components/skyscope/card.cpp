@@ -115,12 +115,35 @@ bool mount(const Config &c, std::string &error, bool format) {
   m.format_if_mount_failed = format;  // else a card with something else on it is left alone
   m.max_files = 2;
   m.allocation_unit_size = CLUSTER_BYTES;
-  const esp_err_t err = esp_vfs_fat_sdmmc_mount(sky::card::ROOT, &host, &slot, &m, &card_);
+  // The bus as the board states it first. A card that answers but garbles (a checksum that fails, a reply cut short)
+  // is asked again more gently: at the standard 20 MHz, then on one data line, where a long trace, a tired card or an
+  // adapter still gets through. A slot with no card in it, or a card with no FAT32 on it, is not asked again: neither
+  // is the bus's fault.
+  struct Try {
+    int width, khz;
+  };
+  std::vector<Try> tries{{c.width, c.khz}};
+  if (c.khz > SDMMC_FREQ_DEFAULT) tries.push_back({c.width, SDMMC_FREQ_DEFAULT});
+  if (c.width > 1) tries.push_back({1, SDMMC_FREQ_DEFAULT});
+  esp_err_t err = ESP_FAIL;
+  for (size_t i = 0; i < tries.size(); ++i) {
+    host.max_freq_khz = tries[i].khz;
+    slot.width = tries[i].width;
+    err = esp_vfs_fat_sdmmc_mount(sky::card::ROOT, &host, &slot, &m, &card_);
+    if (err == ESP_OK || err == ESP_FAIL || err == ESP_ERR_TIMEOUT || err == ESP_ERR_NOT_FOUND) break;
+    card_ = nullptr;
+    if (i + 1 < tries.size())
+      ESP_LOGW(TAG, "The card did not answer cleanly on %d data line%s at %d MHz (%s): trying %d at %d MHz",
+               tries[i].width, tries[i].width == 1 ? "" : "s", tries[i].khz / 1000, esp_err_to_name(err),
+               tries[i + 1].width, tries[i + 1].khz / 1000);
+  }
   unformatted_ = err == ESP_FAIL;
   if (err != ESP_OK) {
     card_ = nullptr;
     error = err == ESP_FAIL ? "the card is not FAT32: format it to use it"
-          : err == ESP_ERR_TIMEOUT ? "no card in the slot" : esp_err_to_name(err);
+          : err == ESP_ERR_TIMEOUT || err == ESP_ERR_NOT_FOUND ? "no card in the slot"
+          : std::string("the card does not answer properly (") + esp_err_to_name(err) +
+                "): try it in again, or another";
     ESP_LOGI(TAG, "No map card: %s", error.c_str());
     return false;
   }
