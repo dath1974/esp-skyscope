@@ -547,6 +547,16 @@ void Skyscope::worker_() {
   if (card_fitted_) mount_card();
 
   while (true) {
+    // The times this loop waits for, kept from growing so old that they read as yet to come (ticks.h): a layer off or
+    // the screen asleep for weeks leaves them unasked.
+    {
+      const uint32_t at = millis();
+      for (uint32_t *due : {&feed_due, &airspace_due, &follow_due, &route_due, &job_due, &radar_check_due,
+                            &radar_step_due})
+        ticks::keep_past(*due, at);
+      ticks::expire(routes_down_until, at);
+      ticks::expire(hexdb_down_until, at);
+    }
     cache.trim();  // PSRAM taken since by anything else comes out of the cache
     bool online, updating;
     std::string search;
@@ -815,7 +825,7 @@ void Skyscope::worker_() {
       follow_due = millis();
       if (!follow_for.empty()) ESP_LOGI(TAG, "Following %s: %u ways to ask", follow_for.c_str(), (unsigned) follow_asks.size());
       route_for.clear();
-      route_due = 0;
+      route_due = millis();
       {
         std::lock_guard<std::mutex> guard(lock_);
         shared_.route = follow::Route{};

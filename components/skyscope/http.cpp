@@ -101,8 +101,15 @@ Client *client_for(const std::string &url, const std::string &agent) {
   const std::string server = server_of(url);
   auto found = clients.find(server);
   if (found != clients.end()) return &found->second;
-  // Room for the feed's server, a map's and one more; past that one goes.
-  if (clients.size() >= MOST_CLIENTS) drop(clients.begin()->first);
+  // Room for the feed's server, a map's and one more; past that the one used longest ago goes. (The first by name
+  // went once, which was the feed's: every plane tapped for its route cost the feed a new connection.)
+  if (clients.size() >= MOST_CLIENTS) {
+    const uint32_t now = (uint32_t) (esp_timer_get_time() / 1000);
+    auto oldest = clients.begin();
+    for (auto it = clients.begin(); it != clients.end(); ++it)
+      if (now - it->second.used > now - oldest->second.used) oldest = it;
+    drop(std::string(oldest->first));
+  }
   Client &c = clients[server];
   esp_http_client_config_t config{};
   config.url = url.c_str();

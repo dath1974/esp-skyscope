@@ -295,7 +295,10 @@ void Skyscope::restyle_() {
   lv_obj_set_style_bg_color(card_, lv_color_hex(c.card), 0);
   lv_obj_set_style_border_color(card_, lv_color_hex(c.muted), 0);
   const bool radar = shown_().map == RADAR;
-  lv_obj_set_style_border_width(card_, radar ? std::max(1, ui::px(1)) : 0, 0);
+  // A fine edge all around, so the card stands off a map as busy as a chart: the scope's line on the radar, a faint
+  // one over a map.
+  lv_obj_set_style_border_width(card_, std::max(1, ui::px(1)), 0);
+  lv_obj_set_style_border_opa(card_, radar ? LV_OPA_COVER : LV_OPA_40, 0);
   lv_obj_set_style_radius(card_, radar ? 0 : ui::px(8), 0);
   // The brightness bar: the scope's phosphor on the radar, the accent over a map.
   lv_obj_set_style_bg_color(level_, lv_color_hex(c.card), 0);
@@ -557,6 +560,8 @@ void Skyscope::loop() {
   touch_lock_tick_(now);
 #endif
   sleep_or_wake_(now);
+  // Taps are taken again some time after a pinch or a swipe: a time kept from growing too old to read (ticks.h).
+  ticks::keep_past(taps_from_, now);
   splash_tick_(now);
   // The brightness set, or the one a finger is dragging to; none while the screen is off.
   const float level = (drag_level_ >= 0 ? drag_level_ : settings_.brightness) / 100.0f;
@@ -714,7 +719,9 @@ void Skyscope::build_ui_() {
   lv_obj_set_flex_flow(card_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(card_, ui::px(2), 0);
   ui::hug_edge(card_, LV_ALIGN_BOTTOM_MID, 0, -ui::px(8));
-  lv_obj_set_style_bg_opa(card_, LV_OPA_90, 0);
+  // Nearly solid: over a chart's lines and words, a card that lets them through cannot be read.
+  lv_obj_set_style_bg_opa(card_, (lv_opa_t) 244, 0);
+  lv_obj_set_style_pad_all(card_, ui::mm(1.2f), 0);
   card_title_ = label(card_, ui::fonts.title, colors::INK);
   for (size_t i = 0; i < 4; ++i) {
     lv_obj_t *parent = card_;
@@ -1250,7 +1257,10 @@ void Skyscope::update_card_() {
                            : !f->type.empty()        ? f->type
                            : feed::made_up_address(*f) ? std::string("seen by radar, sends no ID")
                                                      : std::string();
-  set_text(card_rows_[0], join({kind, f->registration != overlay::name_of(*f) ? f->registration : ""}));
+  // A row with nothing to say takes no line of the card.
+  const std::string what = join({kind, f->registration != overlay::name_of(*f) ? f->registration : ""});
+  set_text(card_rows_[0], what);
+  set_shown(card_rows_[0], !what.empty());
   char heading[16] = "";
   if (f->has_heading) std::snprintf(heading, sizeof(heading), "%03d\xC2\xB0", (int) std::lround(f->heading) % 360);
   // The altitude, an arrow up or down for a climb or descent with its rate after it, the speed and the heading.
@@ -1267,7 +1277,9 @@ void Skyscope::update_card_() {
     card_arrow_way_ = way;
     lv_line_set_points_mutable(card_arrow_, card_arrow_points_, 5);
   }
-  set_text(card_after_, join({overlay::climb_rate(*f, metric), overlay::speed_text(*f, metric), heading}));
+  // In level flight no arrow parts the altitude from the speed: a dot does, as between the rest.
+  const std::string after = join({overlay::climb_rate(*f, metric), overlay::speed_text(*f, metric), heading});
+  set_text(card_after_, way || after.empty() ? after : "\xC2\xB7  " + after);
   const bool followed = !settings_.follow.empty() && follower_.known() && follower_.hex() == f->hex;
   // Its route, where adsb.lol knows one that fits where it is: its airports.
   if (!followed) ask_picked_route_(*f);
@@ -1275,8 +1287,10 @@ void Skyscope::update_card_() {
   const bool asked = f->hex == route_asked_hex_ && f->callsign == route_asked_callsign_;
   const bool route_known = r.known && (followed || asked);
   const std::string route = route_known ? r.from + " to " + r.to : "";
-  set_text(card_rows_[2], join({f->operator_name, f->squawk.empty() ? "" : "squawk " + f->squawk, route,
-                                f->estimated ? "estimated, out of reach" : ""}));
+  const std::string more = join({f->operator_name, f->squawk.empty() ? "" : "squawk " + f->squawk, route,
+                                 f->estimated ? "estimated, out of reach" : ""});
+  set_text(card_rows_[2], more);
+  set_shown(card_rows_[2], !more.empty());
   // Which way to look for it from the place, while the view is the place's own (not a plane followed far away) and the
   // plane is near enough to be seen.
   const geo::Sight sight = overlay::sight_of(*f, settings_.lat, settings_.lon);

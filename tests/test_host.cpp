@@ -14,6 +14,7 @@
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/card.h"
 #include "../components/skyscope/emblem.h"
+#include "../components/skyscope/ticks.h"
 #include "../components/skyscope/feed.h"
 #include "../components/skyscope/firmware.h"
 #include "../components/skyscope/follow.h"
@@ -1160,6 +1161,39 @@ static void test_emblem() {
   CHECK(Emblem::bytes(720, 358) < 2 * 1024 * 1024);
   stepped.release();
   CHECK(!stepped.ready());
+}
+
+// Times on the 32-bit clock (ticks.h): one left alone for weeks reads as yet to come, unless it was kept behind the
+// clock on every pass.
+static void test_ticks() {
+  using namespace ticks;
+  CHECK(past(1000, 1000) && past(1000, 5000) && !past(5000, 1000));
+  CHECK(past(0xFFFFFF00u, 0x00000100u));  // over the clock's turn
+  // 25 days on, a time set at the start reads as yet to come.
+  const uint32_t day = 24u * 3600 * 1000;
+  CHECK(!past(0, 25 * day));
+  // Kept behind the clock a pass at a time (here an hour), it is past all along, and over the clock's turn.
+  uint32_t due = 0;
+  for (uint32_t now = 0, pass = 0; pass < 60 * 24; ++pass, now += 3600 * 1000) {
+    keep_past(due, now);
+    CHECK(past(due, now));
+  }
+  // A time yet to come is left alone, and so is one that has only just passed.
+  due = 9000;
+  keep_past(due, 1000);
+  CHECK(due == 9000);
+  keep_past(due, 9000 + BEHIND_MS);
+  CHECK(due == 9000);
+  keep_past(due, 9001 + BEHIND_MS);
+  CHECK(due == 9001);
+  // One where 0 says "none": none again once it has come, and not before.
+  uint32_t until = 5000;
+  expire(until, 4999);
+  CHECK(until == 5000);
+  expire(until, 5000);
+  CHECK(until == 0);
+  expire(until, 123);
+  CHECK(until == 0);
 }
 
 static void test_beam() {
@@ -2815,7 +2849,17 @@ static void test_sightings() {
       return false;
     };
     const auto lines = today::lines(book, false);
-    CHECK(has(lines, today::PLAIN, "Most at once 2, 3 visits, busiest hour 14:00 (2)"));
+    CHECK(has(lines, today::QUIET, "3 visits, busiest hour 14:00 (2)"));
+    // The tiles at the top: the planes today, those in range now, the most at once; none before the clock is set.
+    const auto stats = today::stats(book);
+    CHECK(stats.size() == 3 && stats[0].value == "2" && stats[0].caption == "planes today" && stats[1].value == "1" &&
+          stats[2].value == "2" && stats[2].caption == "most at once");
+    CHECK(today::stats(Book{}).empty());
+    // A record's row has its parts for the page's columns; a list's row its share of the longest.
+    for (const auto &l : lines) {
+      if (l.text == "Nearest  UAL1, 2.0 NM") CHECK(l.label == "Nearest" && l.name == "UAL1" && l.value == "2.0 NM" && l.share < 0);
+      if (l.tone != today::HEADING && l.label.empty() && !l.name.empty()) CHECK(l.share > 0 && l.share <= 1 && !l.value.empty());
+    }
     CHECK(has(lines, today::PLAIN, "2 watched planes, 1 emergency"));
     CHECK(has(lines, today::HEADING, "The day's records") && has(lines, today::PLAIN, "Nearest  UAL1, 2.0 NM"));
     CHECK(has(lines, today::PLAIN, "Highest  UAL1, 12000 ft") && has(lines, today::PLAIN, "Fastest  UAL1, 300 kt"));
@@ -2951,6 +2995,7 @@ int main(int argc, char **argv) {
   test_shapes();
   test_beam();
   test_emblem();
+  test_ticks();
   test_providers();
   test_follow();
   test_climb_text();

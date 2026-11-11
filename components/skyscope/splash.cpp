@@ -1,8 +1,8 @@
 // The splash at the start: the screen's emblem (emblem.h), a radar scope whose beam is a propeller, turning to rest
 // while the screen joins its network and fetches its first map under it. On round glass the scope's rim is the glass's
-// own edge, its ticks all the way around the bezel; on a rectangle the scope sits over the name. It takes no touch
-// (a finger goes to what is under it) and nothing waits for it: after a few seconds it fades into whatever the screen
-// has ready by then, and its memory goes back.
+// own edge, its ticks all the way around the bezel; on a rectangle the scope sits over the name. A touch ends it
+// early (and is not the map's, which cannot be seen yet), and nothing waits for it: after a few seconds it fades into
+// whatever the screen has ready by then, and its memory goes back.
 #include "skyscope.h"
 
 #include "colors.h"
@@ -62,7 +62,13 @@ void Skyscope::start_splash_() {
   lv_obj_set_size(splash_, width_, height_);
   lv_obj_set_style_bg_color(splash_, lv_color_hex(colors::BACKGROUND), 0);
   lv_obj_set_style_bg_opa(splash_, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(splash_, LV_OBJ_FLAG_CLICKABLE);
+  // A touch is the splash's own, not the map's under it, which cannot be seen yet: it ends the splash now.
+  lv_obj_add_flag(splash_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(splash_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    const uint32_t now = millis();
+    if (!self->splash_waiting_ && now - self->splash_from_ < HOLD_UNTIL_MS) self->splash_from_ = now - HOLD_UNTIL_MS;
+  }, LV_EVENT_PRESSED, this);
   splash_canvas_ = lv_canvas_create(splash_);
   lv_canvas_set_buffer(splash_canvas_, splash_pixels_, size, size, LV_COLOR_FORMAT_RGB565);
   lv_obj_remove_flag(splash_canvas_, LV_OBJ_FLAG_CLICKABLE);

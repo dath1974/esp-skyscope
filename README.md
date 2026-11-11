@@ -77,7 +77,7 @@ board).
    **Save**. The map and the traffic appear within a few seconds.
 
 Every setting is on the web page and in the menu (a long press on the map), and the screen keeps them across restarts
-and updates. Tap the status bar at the top to see the screen's address.
+and updates. Tap the map to see the screen's address in the status line at the top.
 
 ## Updates
 
@@ -123,10 +123,9 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu) | the GFS MOS, and the NEXRAD radar (optional) | Iowa State University; free, credited on the glass |
 
 A plane's route and photo are asked once, when its card is opened (or it is followed); the route is kept for 20
-minutes, the photo only while its card is open. The screen asks
-for planes every 10 seconds by default. It keeps to the limits each exchange announces, waits as long
-as it is told after a refusal, and meanwhile asks the other exchange. Tiles are cached in memory and on the map card,
-and asked for only when a map needs one it does not have.
+minutes, the photo only while its card is open. The screen asks for planes every 10 seconds by default. It keeps to
+the limits each exchange announces, waits as long as it is told after a refusal, and meanwhile asks the other
+exchange. Tiles are cached in memory and on the map card, and asked for only when a map needs one it does not have.
 
 **Not for navigation.** ADS-B exchanges and the screen's own radio show what receivers hear: planes without ADS-B, or
 out of a receiver's range, are missing, and positions may be late.

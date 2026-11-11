@@ -708,7 +708,11 @@ void show(View *&view, lv_obj_t *parent, const ap::Overlay &o) {
     view->painted = {};
   }
   render_labels(view);
-  if (o.radar.on && o.radar.sweep && !view->sweeping) view->sweeping = lv_timer_create(sweep, SWEEP_CHECK_MS, view);
+  if (o.radar.on && o.radar.sweep && !view->sweeping) {
+    // Its first step now: a time left from the last sweep, weeks old, would read as yet to come (ticks.h).
+    view->next_step = lv_tick_get();
+    view->sweeping = lv_timer_create(sweep, SWEEP_CHECK_MS, view);
+  }
   else if (!(o.radar.on && o.radar.sweep)) stop_sweep(view);
   if (!sweeps(view) || fresh) lv_obj_invalidate(view->layer);
 }

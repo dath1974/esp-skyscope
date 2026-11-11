@@ -63,9 +63,10 @@ simulated is credited as **simulated**, so made-up planes are never mistaken for
   operator and squawk, and its route where [adsb.lol](https://adsb.lol) knows one (`KJFK to EGLL`, drawn on the map as
   a great circle). A route is shown only when the plane is where it would be on that route, since a flight number is
   sometimes moved to another. Where adsb.lol has none, the route comes from [hexdb.io](https://hexdb.io), in a build
-  with `hexdb_routes: true` (the default for now; see the README's data sources). Within 60 NM the card says which way to look for it from your place: `NE, 25° up, 8.4 NM`,
-  and for one that will pass within 5 NM in the next half hour, `passes 1.2 NM off in 3 min` (or `overhead in 3 min`).
-  The angle takes the ground at sea level, as the planes' altitudes are. Its **Follow** key follows it.
+  with `hexdb_routes: true` (the default for now; see the README's data sources). Within 60 NM the card says which
+  way to look for it from your place: `NE, 25° up, 8.4 NM`, and for one that will pass within 5 NM in the next half
+  hour, `passes 1.2 NM off in 3 min` (or `overhead in 3 min`). The angle takes the ground at sea level, as the planes'
+  altitudes are. Its **Follow** key follows it.
 
   With **Photos** on (the menu's Aircraft group, or the web page), the card also shows the plane's latest photo from
   [Planespotters.net](https://www.planespotters.net), with its photographer under it and a QR code beside it: scan it
@@ -81,7 +82,7 @@ simulated is credited as **simulated**, so made-up planes are never mistaken for
 
 **At the start** the screen shows its emblem, a radar scope whose beam is a propeller, turning to rest over its name
 and version. On the round 4C the scope's rim is the edge of the glass. It lasts four seconds and holds nothing up:
-the screen joins its network and fetches its map under it, and a finger goes to whatever is there.
+the screen joins its network and fetches its map under it. A tap ends it early.
 
 **Sleep.** The screen can turn itself off after a while without a touch, and at a bedtime every night, coming back on
 at a set time or at a tap. While it is off it fetches nothing.
@@ -154,8 +155,8 @@ restart or the screen going to sleep.
 - **Out of reach**: the exchanges hear only what volunteers' receivers on the ground hear, so a plane over an ocean is
   lost to them. After a minute without a report the screen carries it on along its course at its last speed, drawn
   faint and labeled `estimated`, until it is heard again.
-- **Its route**: the airports it flies from and to, from adsb.lol (or hexdb.io), with the great circle between them. This is not a
-  filed flight plan, only the rough way a long flight goes.
+- **Its route**: the airports it flies from and to, from adsb.lol (or hexdb.io), with the great circle between
+  them. This is not a filed flight plan, only the rough way a long flight goes.
 - **Following stops by itself** once the plane has been on the ground for ten minutes after flying, or out of reach for
   twelve hours. A plane at its gate before it flies is waited for.
 
@@ -185,11 +186,15 @@ The screen counts the planes within the range of the place (up to 250 NM), from 
 the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
 planes around the place count, so none are counted while a plane is followed elsewhere.
 
-A swipe down from the top edge of the map (or **Show the day's tally** in the menu) opens the day on the glass: how
-many planes and how many in range now, a bar for each hour, the day's records, the commonest types and operators, and
-the days before. The web page shows the same under **Today in range**, and keeps the latest 400 visits as a log to
-download (CSV). The tally is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to
-it, a file a day in its `log` folder.
+A swipe down from the top edge of the map (or **Show the day's tally** in the menu) opens the day on the glass:
+
+- three numbers at the top: the planes today, those in range now, and the most at once;
+- a bar for each hour, with this hour's the brightest;
+- the day's records, the commonest types and operators, and the days before, each with a bar for its count.
+
+The web page shows the same under **Today in range**, and keeps the latest 400 visits as a log to download (CSV). The
+tally is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to it, a file a day in
+its `log` folder.
 
 ## Home Assistant
 

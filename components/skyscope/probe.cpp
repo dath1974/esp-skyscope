@@ -138,10 +138,11 @@ void Skyscope::describe_ui_(JsonObject out) {
   if (today_) {
     // The day's tally: its line, its lines, how tall each hour's bar is, and its Close key.
     JsonObject today = out["today"].to<JsonObject>();
-    today["line"] = text_of(today_line_);
+    today["line"] = today_texts_.empty() ? "" : today_texts_[0];
     JsonArray lines = today["lines"].to<JsonArray>();
-    for (uint32_t i = 0; i < lv_obj_get_child_count(today_list_); ++i)
-      lines.add(text_of(lv_obj_get_child(today_list_, i)));
+    for (size_t i = 1; i < today_texts_.size(); ++i) lines.add(today_texts_[i]);
+    JsonArray stats = today["stats"].to<JsonArray>();
+    for (lv_obj_t *value : today_stat_values_) stats.add(text_of(value));
     JsonArray bars = today["bars"].to<JsonArray>();
     for (lv_obj_t *bar : today_bars_) bars.add(lv_obj_get_height(bar));
     place(today["close"].to<JsonObject>(), lv_obj_get_child(lv_obj_get_child(today_, 0), 0));
@@ -274,7 +275,8 @@ void Skyscope::handle_probe_(AsyncWebServerRequest *request, const std::string &
     }
     // One touch at a time (this task alone keeps this).
     const uint32_t now = millis();
-    if ((int32_t) (now - probe_busy_until_) < 0) {
+    ticks::expire(probe_busy_until_, now);
+    if (probe_busy_until_) {
       request->send(409, "application/json", "{\"error\":\"busy\"}");
       return;
     }

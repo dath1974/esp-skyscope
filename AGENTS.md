@@ -14,8 +14,9 @@ are the user guide; read them for what the screen does and how it is set up.
 - `components/skyscope/`: the firmware. `skyscope.h` explains the two threads; start there.
   - Plain C++ with no ESPHome or ESP-IDF includes, so the host tests can build them: `geo.h`, `glass.h`,
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
-    `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`, `wake.h`,
-    `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h` (namespace `sky`).
+    `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
+    `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
+    `ticks.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, `card.cpp` (the
@@ -25,9 +26,8 @@ are the user guide; read them for what the screen does and how it is set up.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
   `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
 - `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `emblem.cpp` (the emblem's
-  sheet and `docs/emblem.svg`), `screenshots.py`
-  (`docs/screens.md`'s pictures, from a real screen), `wake_table.py` (`wake.h`,
-  each type's wake category from the FAA's list).
+  sheet and `docs/emblem.svg`), `screenshots.py` (`docs/screens.md`'s pictures, from a real screen), `wake_table.py`
+  (`wake.h`, each type's wake category from the FAA's list).
 
 ## Build and test
 
@@ -53,8 +53,8 @@ are the user guide; read them for what the screen does and how it is set up.
 - **Public services.** adsb.fi, adsb.lol (its planes and its routes), Esri, OSM, USGS, FAA, the Aviation Weather
   Center and the Iowa Environmental Mesonet have terms; keep to them. Respect rate-limit headers and backoff in
   `feed.h`, keep the User-Agent and tile caching, and keep attribution as each source requires.
-- **Test endpoints** (`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`) are compiled out with `test_api: false`; keep them behind
-  that flag.
+- **Test endpoints** (`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`) are compiled out with
+  `test_api: false`; keep them behind that flag.
 - **Tests against the mock.** The device tests (all but `--public`) send the screen to `tests/mock_feed.py`, which
   stands in for every public service (`tests/mock_services.py`), so a run is the same every time and on every board.
   A new service the screen asks needs its stand-in there, and its answer read in `test_mock_answers` (test_host.cpp);
@@ -66,6 +66,10 @@ are the user guide; read them for what the screen does and how it is set up.
   written, whatever was done with it: half a million pixels a frame was six frames a second. Anything that moves
   draws only what changed and tells LVGL only those boxes (`emblem.h`, `beam.h`), fewer than 32 of them: past that
   LVGL draws the whole glass.
+- **The clock turns over.** `millis()` is 32 bits: a time more than 24.8 days gone reads as yet to come, and a screen
+  on a wall is up that long. Taps were once ignored and routes never asked for because of it. A time that can wait
+  unasked for weeks (a deadline of a layer that is off, the last touch) is kept behind the clock on every pass, or let
+  go once it has come (`ticks.h`).
 - **Docs.** `README.md` is the front page: what the screen does in a line each, install, first start, updates and the
   data sources. The detail lives in `docs/`: `using.md` (the glass, the menu, every feature), `hardware.md` (boards,
   the radio, the card's slot), `api.md` (every request) and `development.md` (`make` targets, tests, releases). Update

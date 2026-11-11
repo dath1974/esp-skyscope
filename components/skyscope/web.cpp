@@ -95,6 +95,10 @@ void Skyscope::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t 
 void Skyscope::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = url_of(request);
   const bool post = request->method() == HTTP_POST;
+  // What was sent with it, taken here once: left in body_ by a request that had no use for it, it was read as the body
+  // of the next request that came with none.
+  const std::string body = std::move(body_);
+  body_.clear();
   {
     std::string password;
     {
@@ -102,7 +106,6 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       password = shared_.settings.password;
     }
     if (!password.empty() && !request->authenticate(WEB_USER, password.c_str())) {
-      body_.clear();
       request->requestAuthentication();
       return;
     }
@@ -121,8 +124,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     }
     if (post) {
       JsonDocument in;
-      const std::string text = std::move(body_);
-      body_.clear();
+      const std::string &text = body;
       if (text.empty() || text.size() > MOST_BODY || deserializeJson(in, text) || !in.is<JsonObject>()) {
         JsonDocument out;
         out["error"] = "body";
@@ -377,8 +379,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       return;
     }
     JsonDocument in;
-    const std::string text = std::move(body_);
-    body_.clear();
+    const std::string &text = body;
     if (text.empty() || text.size() > MOST_BODY || deserializeJson(in, text) || !in.is<JsonObject>()) {
       out["error"] = "body";
       send_json(request, 400, out);
@@ -530,7 +531,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
   if (url == "/metrics") {
     std::string text;
     auto metric = [&](const char *name, const char *help, double value, const char *type = "gauge") {
-      char line[200];
+      char line[256];
       std::snprintf(line, sizeof(line), "# HELP skyscope_%s %s\n# TYPE skyscope_%s %s\nskyscope_%s %.10g\n", name,
                     help, name, type, name, value);
       text += line;
@@ -565,8 +566,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
   if (url == "/api/debug" && post) {
     // Measurement only, never stored: {"planes": false} hides the plane layer while the map and the beam go on.
     JsonDocument in;
-    const std::string text = std::move(body_);
-    body_.clear();
+    const std::string &text = body;
     if (deserializeJson(in, text) || !in["planes"].is<bool>()) {
       request->send(400, "application/json", "{\"error\":\"planes\"}");
       return;
@@ -580,8 +580,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
 #ifdef USE_UPDATE
     if (post && firmware_) {
       JsonDocument in;
-      const std::string text = std::move(body_);
-      body_.clear();
+      const std::string &text = body;
       const bool broken = (bool) deserializeJson(in, text);
       bool source = false;
 #ifdef SKYSCOPE_TEST_API
@@ -634,8 +633,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
 #ifdef SKYSCOPE_TEST_API
   if (url == "/api/test" && post) {
     JsonDocument in;
-    const std::string text = std::move(body_);
-    body_.clear();
+    const std::string &text = body;
     const bool unreadable = (bool) deserializeJson(in, text);
     // The fingers locked out for N seconds while a test runs (0 lets them back), with no restart.
     if (!unreadable && in["lock_touch_s"].is<int>() && in["divert"].isNull()) {
@@ -672,8 +670,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     // The tile decoder's benchmark (worker.cpp): POST {"runs": 3} begins it on the map shown, GET answers with it.
     if (post) {
       JsonDocument in;
-      const std::string text = std::move(body_);
-      body_.clear();
+      const std::string &text = body;
       const int runs = deserializeJson(in, text) ? 3 : (in["runs"] | 3);
       std::lock_guard<std::mutex> guard(lock_);
       shared_.bench_runs = runs;
@@ -695,8 +692,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
   if ((url == "/api/touch" && post) || url == "/api/ui" || url == "/api/screenshot") {
-    const std::string text = std::move(body_);
-    body_.clear();
+    const std::string &text = body;
     this->handle_probe_(request, url, text);
     return;
   }
@@ -705,8 +701,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
 #ifdef SKYSCOPE_TEST_API
     if (post) {
       JsonDocument in;
-      const std::string text = std::move(body_);
-      body_.clear();
+      const std::string &text = body;
       if (deserializeJson(in, text)) {
         request->send(400, "application/json", "{\"error\":\"json\"}");
         return;

@@ -430,6 +430,7 @@ void Skyscope::fill_picker_() {
   }
   // The others in reach, and one by its name.
   heading("In reach");
+  listed_networks_ = networks_;
   for (size_t i = 0; i < networks_.size(); ++i) {
     const Network &n = networks_[i];
     if (known.find(n.name) >= 0) continue;
@@ -563,9 +564,9 @@ void Skyscope::picker_pick_(int index) {
     });
     return;
   }
-  if (index < 0 || index >= (int) networks_.size()) return;
-  network_name_ = networks_[index].name;
-  const bool secured = networks_[index].secured;
+  if (index < 0 || index >= (int) listed_networks_.size()) return;
+  network_name_ = listed_networks_[index].name;
+  const bool secured = listed_networks_[index].secured;
   this->defer([this, secured]() {
     open_editor_(TYPING_PASSWORD, "Password", "", keyboard::WORDS, 64,
                  "For \"" + network_name_ + "\"" + (secured ? "" : ", an open network: none") +
@@ -579,8 +580,13 @@ void Skyscope::close_picker_() {
   picker_ = picker_back_ = picker_line_ = picker_list_ = picker_scan_ = nullptr;
   networks_.clear();
   networks_.shrink_to_fit();
+  listed_networks_.clear();
+  listed_networks_.shrink_to_fit();
   scanning_until_ = 0;
   picker_stale_ = false;
+  // Forget's second tap is not waited for over a closed list: left set, it would one day read as armed (ticks.h).
+  forget_armed_ = -1;
+  forget_armed_until_ = 0;
 }
 
 // ---------------------------------------------------------------- Wi-Fi

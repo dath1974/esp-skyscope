@@ -60,6 +60,7 @@
 #include "touch.h"
 #include "settings.h"
 #include "sightings.h"
+#include "ticks.h"
 #include "tiles.h"
 #include "view.h"
 #include "weather.h"
@@ -617,6 +618,9 @@ class Skyscope : public Component,
     bool secured;
   };
   std::vector<Network> networks_;
+  // The networks as the list on the glass shows them: a scan that ends while a finger is on the list changes
+  // networks_ and not the list, and a tap picks what it shows.
+  std::vector<Network> listed_networks_;
   uint32_t scanning_until_{0};  // a scan asked for, until it answers or this
   std::string network_name_;   // the network whose password is being typed
   std::string joining_;        // the network the screen restarts to join
@@ -710,6 +714,9 @@ class Skyscope : public Component,
   // (sightings.h's revision) and when it was last looked at.
   lv_obj_t *today_{nullptr}, *today_line_{nullptr}, *today_chart_{nullptr}, *today_list_{nullptr};
   lv_obj_t *today_bars_[24]{};
+  // Its three numbers' tiles, and its lines in words as last shown (for /api/ui).
+  lv_obj_t *today_tiles_{nullptr}, *today_stat_values_[3]{}, *today_stat_captions_[3]{};
+  std::vector<std::string> today_texts_;
   uint32_t today_rev_{0}, today_at_{0};
   // The splash: its page, the emblem and the pixels it is drawn into (freed with it), when it began, and its frames.
   lv_obj_t *splash_{nullptr}, *splash_canvas_{nullptr}, *splash_name_{nullptr}, *splash_line_{nullptr};
