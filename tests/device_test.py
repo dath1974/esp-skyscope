@@ -36,7 +36,8 @@ It never prints the screen's place. Python's standard library only. Nothing here
   without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
   is refused out of reach and shown, not applied, within it; the Wi-Fi list finds networks and goes back; another
   appearance rebuilds the menu in its colors; Check asks the update server, and Install takes a second tap (never
-  given); a tap on a plane opens its card and a second closes it; a tap on the map shows the screen's address; a drag
+  given); the pages' keys at the menu's top, a switch, and the factory reset asking first (never answered yes); the
+  tour asked for, a step done by its touch, and ended; a tap on a plane opens its card and a second closes it; a tap on the map shows the screen's address; a drag
   up the right edge brightens it; a swipe along the bottom changes the map and one back undoes it; a swipe up opens
   the weather page, whose tabs fill in with the mock's station; the weather radar's scan and its loop;
 - --maps: each map in turn, every tile drawn without an error, asked of that map's own server, and memory after;
@@ -496,6 +497,8 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
             print("  (nothing to install: Install is not offered, as it should not be)")
     run.check(glass.close_menu("cancel"), "the menu closes")
     run.check(not differing(screen, original), "with nothing applied", differing(screen, original))
+    test_menu_keys(screen, run, glass, original)
+    test_tour(screen, run, glass)
 
     # A plane's card. One the feed drops as it is tapped (out of range, no longer heard) takes its card with it: then
     # another, a few times.
@@ -565,6 +568,93 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
 
     test_weather(screen, run, glass, "KTST" if server else "")
     test_radar_overlay(screen, run)
+
+
+def test_menu_keys(screen: Screen, run: Run, glass: Glass, original: dict):
+    """The menu's parts that are no row of arrows: the pages' keys at its top, a switch, and the question asked before
+    a factory reset, which is never answered yes here."""
+    m = glass.open_menu()
+    if not run.check(m is not None and all(m["keys"].get(k, {}).get("reachable") for k in ("weather", "today")),
+                     "the menu begins with the pages' keys"):
+        glass.close_menu()
+        return
+    glass.tap_key(m["keys"]["today"])
+    page = wait_for(lambda: glass.ui().get("today"), 3, 0.3)
+    if run.check(page is not None, "Today's planes opens the day's tally"):
+        glass.tap_key(page["close"])
+        back = wait_for(lambda: "today" not in glass.ui() and glass.menu(), 3, 0.3)
+        run.check(back is not None, "and Close goes back to the menu")
+    row = glass.reach_row("rings")
+    if run.check(row is not None and row.get("switch"), "a setting that is on or off has a switch"):
+        was = row["value"]
+        glass.tap_key(row["on"])
+        row = glass.row("rings")
+        run.check(row["value"] != was and row["pending"], f"a tap turns it over ({was} to {row['value']}), marked")
+        glass.tap_key(row["on"])
+        row = glass.row("rings")
+        run.check(row["value"] == was and not row["pending"], "and another turns it back")
+    reset = glass.scroll_to(lambda m: m["keys"].get("reset"))
+    if run.check(reset is not None, "the menu has the factory reset"):
+        glass.tap_key(reset)
+        ask = wait_for(lambda: (glass.menu() or {}).get("ask"), 3, 0.3)
+        if run.check(ask is not None and ask["yes_label"] == "Erase everything", "which asks first"):
+            time.sleep(1)  # its keys take no tap in their first moment
+            glass.tap_key(ask["no"])
+            gone = wait_for(lambda: (lambda m: m if m and not m.get("ask") else None)(glass.menu()), 3, 0.3)
+            run.check(gone is not None, "and Cancel goes back to the menu")
+            if gone is None:
+                # Never left up: a later touch could land on its other key. A restart puts it away.
+                screen.json("/api/reboot", {})
+                wait_for(lambda: not screen.up(), 15, 1)
+                wait_for(screen.up, 90)
+                time.sleep(8)
+        run.check(not glass.ui().get("resetting"), "with nothing erased")
+    glass.close_menu("cancel")
+    run.check(not differing(screen, original), "and nothing applied", differing(screen, original))
+
+
+def test_tour(screen: Screen, run: Run, glass: Glass):
+    """The tour: asked for, its card comes up over the map; its key goes on without a step's touch, a touch made is
+    seen and the tour goes on by itself, and End tour ends it. It is off again after, pass or fail."""
+    def card(step=None):
+        t = glass.ui().get("tour")
+        return t if t and (step is None or t["step"] == step) else None
+
+    screen.json("/api/settings", {"tour": True})
+    try:
+        t = wait_for(lambda: card("welcome"), 5, 0.3)
+        if not run.check(t is not None and t["shown"], "asked for, the tour's card comes up over the map"):
+            return
+        glass.tap_key(t["next"])
+        t = wait_for(lambda: card("plane"), 3, 0.3)
+        if not run.check(t is not None, "Start goes to its first touch"):
+            return
+        glass.tap_key(t["next"])
+        t = wait_for(lambda: card("address"), 3, 0.3)
+        if not run.check(t is not None and not t["done"], "Next goes on without the touch"):
+            return
+        # A tap on the map below the card and its keys, away from the planes: the touch this step waits for.
+        ui = glass.ui()
+        spots = [(int(ui["width"] * gx / 10), y) for gx in range(2, 8)
+                 for y in range(t["next"]["y"] + 70, ui["height"] - 60, 30)]
+        clear = [p for p in spots if all(math.hypot(p[0] - q["x"], p[1] - q["y"]) > 70 for q in ui["planes"])]
+        if clear:
+            wait_for(lambda: "http://" not in glass.ui()["status"], 10, 0.5)
+            glass.tap(*clear[0])
+            seen = wait_for(lambda: (lambda t: t if t and (t["done"] or t["step"] != "address") else None)(card()), 3, 0.2)
+            run.check(seen is not None, "a step's touch is seen (a tap on the map)")
+            run.check(wait_for(lambda: card("brightness"), 12, 0.5) is not None, "and the tour goes on by itself")
+        else:
+            print("  (no clear spot under the tour's card for a tap)")
+        t = card()
+        if run.check(t is not None and t.get("end"), "every step can end the tour"):
+            glass.tap_key(t["end"])
+            run.check(wait_for(lambda: "tour" not in glass.ui(), 3, 0.3) is not None, "End tour puts its card away")
+            run.check(screen.json("/api/settings")[1]["tour"] is False, "and it is not shown again unasked")
+    finally:
+        screen.json("/api/settings", {"tour": False})
+        wait_for(lambda: "tour" not in glass.ui(), 5, 0.5)
+        wait_for(lambda: "http://" not in glass.ui()["status"], 10, 0.5)
 
 
 def test_weather(screen: Screen, run: Run, glass: Glass, station: str = ""):
@@ -1323,7 +1413,7 @@ def test_settings(origin: str) -> dict:
             "by_altitude": True, "glide": True, "track_s": 60, "watch": [], "rotation": 0, "metric": False,
             "brightness": 80, "sleep_min": 0, "bedtime": False, "bed_off": "22:00", "bed_on": "07:00",
             "bed_wake": True, "timezone": "UTC0", "weather_station": "", "radar_overlay": False,
-            "radar_loop": False}
+            "radar_loop": False, "tour": False}
 
 
 def divert(screen: Screen, origin: str) -> bool:
@@ -1394,7 +1484,7 @@ def test_public(screen: Screen, run: Run):
     print("Public services (at a test place)")
     base = {**TEST_PLACE, "place": "TEST", "range_nm": 15, "map": "radar", "airspace": False, "fallback": False,
             "place_names": True, "radar_overlay": False, "radar_loop": False, "weather_station": "KJFK",
-            "sleep_min": 0, "bedtime": False}
+            "sleep_min": 0, "bedtime": False, "tour": False}
     status, answer = screen.json("/api/settings", base)
     if not run.check(status == 200, "the test place taken", str(answer)):
         return

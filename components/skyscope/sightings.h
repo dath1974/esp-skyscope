@@ -1,9 +1,9 @@
 #pragma once
 // What the screen has seen in its range: each plane's visit (from when it came within the range to when it was last
 // heard there), the day's tally (how many planes, by the hour, the commonest types and operators, the nearest, highest
-// and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, or a plane
-// squawking an emergency. Only reports around the place count: while a plane is followed the planes come from around
-// it, and they are no sighting of the screen's own.
+// and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, or a
+// plane squawking an emergency. Only reports around the place count: while a plane is followed the planes come from
+// around it, and they are no sighting of the screen's own.
 //
 // Nothing here fetches, keeps the time or writes a file (the worker hands in each report with the time and the local
 // date, and writes the log to the map card), so the tests run on a PC. Everything that grows with the sky is in PSRAM.
@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -100,9 +101,9 @@ class Book {
     days_.reserve(MOST_DAYS);
   }
 
-  // A report around the place at `unix_s` (Unix seconds), on local date `date` (yyyymmdd) and hour: the planes within the
-  // range counted, visits begun and carried on, alerts for the ones that call for one, and visits over (heard last more
-  // than VISIT_GAP_S ago) moved to the log and handed back in `ended`, for the card's log.
+  // A report around the place at `unix_s` (Unix seconds), on local date `date` (yyyymmdd) and hour: the planes within
+  // the range counted, visits begun and carried on, alerts for the ones that call for one, and visits over (heard last
+  // more than VISIT_GAP_S ago) moved to the log and handed back in `ended`, for the card's log.
   void see(const std::vector<feed::Flight> &flights, const Settings &s, int64_t unix_s, uint32_t date, int hour,
            std::vector<Alert> &alerts, std::vector<Visit> &ended) {
     if (!s.located || !date) return;

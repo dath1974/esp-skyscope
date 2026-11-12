@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <string>
 
 namespace sky::shapes {
@@ -30,10 +31,12 @@ enum Kind : uint8_t {
   VEHICLE,    // on the ground: a car seen from above
   KINDS
 };
-inline constexpr const char *NAMES[KINDS] = {"airliner", "heavy",  "quad",    "jet",     "turboprop", "light",  "helicopter",
-                                             "fast",     "glider", "balloon", "airship", "drone",     "vehicle"};
+inline constexpr const char *NAMES[KINDS] = {"airliner", "heavy", "quad",   "jet",     "turboprop",
+                                             "light",    "helicopter", "fast", "glider", "balloon",
+                                             "airship",  "drone", "vehicle"};
 // How large each kind is drawn, as a share of the plane size: a heavy stands out from a Cessna.
-inline constexpr float SCALE[KINDS] = {1.0f, 1.2f, 1.25f, 0.85f, 0.9f, 0.8f, 0.85f, 0.85f, 0.95f, 0.75f, 0.95f, 0.7f, 0.55f};
+inline constexpr float SCALE[KINDS] = {1.0f,  1.2f,  1.25f, 0.85f, 0.9f,  0.8f, 0.85f,
+                                       0.85f, 0.95f, 0.75f, 0.95f, 0.7f,  0.55f};
 // Whether a kind turns to its heading.
 inline constexpr bool TURNS[KINDS] = {true, true, true, true, true, true, true, true, true, false, true, true, true};
 
@@ -72,7 +75,8 @@ inline Part rect(float x0, float y0, float x1, float y1, uint8_t ink = 255) {
 }
 // A bar `w` wide from `a` to `b`.
 inline Part bar(Point a, Point b, float w, uint8_t ink = 255) {
-  const float dx = b.x - a.x, dy = b.y - a.y, n = std::sqrt(dx * dx + dy * dy), ox = -dy / n * w / 2, oy = dx / n * w / 2;
+  const float dx = b.x - a.x, dy = b.y - a.y, n = std::sqrt(dx * dx + dy * dy);
+  const float ox = -dy / n * w / 2, oy = dx / n * w / 2;
   return poly({{a.x + ox, a.y + oy}, {b.x + ox, b.y + oy}, {b.x - ox, b.y - oy}, {a.x - ox, a.y - oy}}, ink);
 }
 }  // namespace detail
@@ -223,13 +227,14 @@ struct Type {
 // clang-format off
 inline constexpr Type TYPES[] = {
   // Narrow-body airliners
-  {"A318", AIRLINER}, {"A319", AIRLINER}, {"A320", AIRLINER}, {"A321", AIRLINER}, {"A19N", AIRLINER}, {"A20N", AIRLINER},
-  {"A21N", AIRLINER}, {"B712", AIRLINER}, {"B733", AIRLINER}, {"B734", AIRLINER}, {"B735", AIRLINER}, {"B736", AIRLINER},
-  {"B737", AIRLINER}, {"B738", AIRLINER}, {"B739", AIRLINER}, {"B37M", AIRLINER}, {"B38M", AIRLINER}, {"B39M", AIRLINER},
-  {"B3XM", AIRLINER}, {"B752", AIRLINER}, {"B753", AIRLINER}, {"BCS1", AIRLINER}, {"BCS3", AIRLINER}, {"E170", AIRLINER},
-  {"E75L", AIRLINER}, {"E75S", AIRLINER}, {"E190", AIRLINER}, {"E195", AIRLINER}, {"E290", AIRLINER}, {"E295", AIRLINER},
-  {"MD82", AIRLINER}, {"MD83", AIRLINER}, {"MD88", AIRLINER}, {"MD90", AIRLINER}, {"C919", AIRLINER}, {"SU95", AIRLINER},
-  {"A221", AIRLINER}, {"A223", AIRLINER}, {"B722", AIRLINER},
+  {"A318", AIRLINER}, {"A319", AIRLINER}, {"A320", AIRLINER}, {"A321", AIRLINER}, {"A19N", AIRLINER},
+  {"A20N", AIRLINER}, {"A21N", AIRLINER}, {"B712", AIRLINER}, {"B733", AIRLINER}, {"B734", AIRLINER},
+  {"B735", AIRLINER}, {"B736", AIRLINER}, {"B737", AIRLINER}, {"B738", AIRLINER}, {"B739", AIRLINER},
+  {"B37M", AIRLINER}, {"B38M", AIRLINER}, {"B39M", AIRLINER}, {"B3XM", AIRLINER}, {"B752", AIRLINER},
+  {"B753", AIRLINER}, {"BCS1", AIRLINER}, {"BCS3", AIRLINER}, {"E170", AIRLINER}, {"E75L", AIRLINER},
+  {"E75S", AIRLINER}, {"E190", AIRLINER}, {"E195", AIRLINER}, {"E290", AIRLINER}, {"E295", AIRLINER},
+  {"MD82", AIRLINER}, {"MD83", AIRLINER}, {"MD88", AIRLINER}, {"MD90", AIRLINER}, {"C919", AIRLINER},
+  {"SU95", AIRLINER}, {"A221", AIRLINER}, {"A223", AIRLINER}, {"B722", AIRLINER},
   // Wide-body twins, and the three-engined
   {"A306", HEAVY}, {"A30B", HEAVY}, {"A310", HEAVY}, {"A332", HEAVY}, {"A333", HEAVY}, {"A338", HEAVY}, {"A339", HEAVY},
   {"A359", HEAVY}, {"A35K", HEAVY}, {"B762", HEAVY}, {"B763", HEAVY}, {"B764", HEAVY}, {"B772", HEAVY}, {"B773", HEAVY},
@@ -241,13 +246,14 @@ inline constexpr Type TYPES[] = {
   {"A225", QUAD}, {"IL76", QUAD}, {"E3TF", QUAD}, {"E3CF", QUAD}, {"E6", QUAD}, {"B52", QUAD}, {"A400", QUAD},
   {"B461", QUAD}, {"B462", QUAD}, {"B463", QUAD}, {"RJ85", QUAD}, {"RJ1H", QUAD},
   // Business and regional jets
-  {"C25A", JET}, {"C25B", JET}, {"C25C", JET}, {"C25M", JET}, {"C500", JET}, {"C510", JET}, {"C525", JET}, {"C550", JET},
-  {"C560", JET}, {"C56X", JET}, {"C650", JET}, {"C680", JET}, {"C68A", JET}, {"C700", JET}, {"C750", JET}, {"CL30", JET},
-  {"CL35", JET}, {"CL60", JET}, {"GLF4", JET}, {"GLF5", JET}, {"GLF6", JET}, {"GLEX", JET}, {"GL5T", JET}, {"GL7T", JET},
-  {"G280", JET}, {"GA5C", JET}, {"GA6C", JET}, {"GA7C", JET}, {"GA8C", JET}, {"F2TH", JET}, {"F900", JET}, {"FA7X", JET},
-  {"FA8X", JET}, {"FA50", JET}, {"E50P", JET}, {"E55P", JET}, {"E545", JET}, {"E550", JET}, {"E135", JET}, {"E145", JET},
-  {"LJ35", JET}, {"LJ40", JET}, {"LJ45", JET}, {"LJ60", JET}, {"LJ75", JET}, {"H25B", JET}, {"PRM1", JET}, {"HDJT", JET},
-  {"SF50", JET}, {"BE40", JET}, {"PC24", JET}, {"ASTR", JET}, {"GALX", JET}, {"CRJ1", JET}, {"CRJ2", JET}, {"CRJ7", JET},
+  {"C25A", JET}, {"C25B", JET}, {"C25C", JET}, {"C25M", JET}, {"C500", JET}, {"C510", JET}, {"C525", JET},
+  {"C550", JET}, {"C560", JET}, {"C56X", JET}, {"C650", JET}, {"C680", JET}, {"C68A", JET}, {"C700", JET},
+  {"C750", JET}, {"CL30", JET}, {"CL35", JET}, {"CL60", JET}, {"GLF4", JET}, {"GLF5", JET}, {"GLF6", JET},
+  {"GLEX", JET}, {"GL5T", JET}, {"GL7T", JET}, {"G280", JET}, {"GA5C", JET}, {"GA6C", JET}, {"GA7C", JET},
+  {"GA8C", JET}, {"F2TH", JET}, {"F900", JET}, {"FA7X", JET}, {"FA8X", JET}, {"FA50", JET}, {"E50P", JET},
+  {"E55P", JET}, {"E545", JET}, {"E550", JET}, {"E135", JET}, {"E145", JET}, {"LJ35", JET}, {"LJ40", JET},
+  {"LJ45", JET}, {"LJ60", JET}, {"LJ75", JET}, {"H25B", JET}, {"PRM1", JET}, {"HDJT", JET}, {"SF50", JET},
+  {"BE40", JET}, {"PC24", JET}, {"ASTR", JET}, {"GALX", JET}, {"CRJ1", JET}, {"CRJ2", JET}, {"CRJ7", JET},
   {"CRJ9", JET}, {"CRJX", JET}, {"EA50", JET},
   // Turboprops
   {"AT43", TURBOPROP}, {"AT45", TURBOPROP}, {"AT72", TURBOPROP}, {"AT75", TURBOPROP}, {"AT76", TURBOPROP},

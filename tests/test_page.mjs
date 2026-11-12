@@ -171,3 +171,26 @@ test("the day's tally is told in words", () => {
   assert.equal(records_words(day, true), 'Nearest: UAL1, 2.2 km; highest: N1, 12497 m; fastest: N2, 948 km/h.');
   assert.equal(records_words({}, false), '');
 });
+
+test("the page's parts are the menu's groups, in the menu's order", () => {
+  // The menu's groups (menu_rows.h groups()), each with the settings under its heading.
+  const rows = readFileSync(new URL('../components/skyscope/menu_rows.h', import.meta.url), 'utf8');
+  const table = rows.slice(rows.indexOf('inline const std::vector<Group> &groups()'));
+  const groups = [...table.slice(0, table.indexOf('return table;')).matchAll(/\{"(\w+)",\s*"([^"]+)"\}/g)];
+  assert.ok(groups.length >= 8);
+  const html = page.slice(page.indexOf('<form id="f">'), page.indexOf('<script>'));
+  const headings = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map(m => m[1]);
+  assert.deepEqual(headings.slice(0, groups.length), groups.map(g => g[2]));
+  // And each group's first setting is under the page's heading of that name.
+  for (const [, key, name] of groups) {
+    const part = html.slice(html.indexOf(`<h2>${name}</h2>`));
+    const section = part.slice(0, part.indexOf('</section>'));
+    assert.ok(section.includes(`id="${key}"`), `${key} is not under ${name}`);
+  }
+});
+
+test('a factory reset is asked for first, and the tour is a setting', () => {
+  assert.match(script, /\$\('factory'\)\.onclick=async\(\)=>\{if\(!confirm\(RESET_ASK\)\)return;/);
+  assert.match(script, /fetch\('api\/reset',.*body:'\{"factory":true\}'/);
+  assert.match(script, /\$\('tour'\)\.onclick=.*body:'\{"tour":true\}'/);
+});

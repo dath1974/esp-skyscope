@@ -16,11 +16,11 @@ are the user guide; read them for what the screen does and how it is set up.
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
     `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
-    `ticks.h` (namespace `sky`).
+    `ticks.h`, `tour.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
-    `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`, `card.cpp` (the
-    map card), and the P4's radio, `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
+    `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `tour.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`,
+    `card.cpp` (the map card), and the P4's radio, `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
@@ -70,6 +70,11 @@ are the user guide; read them for what the screen does and how it is set up.
   on a wall is up that long. Taps were once ignored and routes never asked for because of it. A time that can wait
   unasked for weeks (a deadline of a layer that is off, the last touch) is kept behind the clock on every pass, or let
   go once it has come (`ticks.h`).
+- **One order for the settings.** The menu's groups (`menu_rows.h`) and the web page's parts (`page.h`) have the same
+  names in the same order, and `tests/test_page.mjs` holds them to it: a setting moved in one moves in the other.
+- **Erasing.** A factory reset (`factory_reset_`, skyscope.cpp) erases all of ESPHome's preferences: whatever new
+  thing the screen keeps in flash goes with them, and nothing may be stored on its way down (`resetting_`). A device
+  test never answers its question yes: the screen would forget its network.
 - **Docs.** `README.md` is the front page: what the screen does in a line each, install, first start, updates and the
   data sources. The detail lives in `docs/`: `using.md` (the glass, the menu, every feature), `hardware.md` (boards,
   the radio, the card's slot), `api.md` (every request) and `development.md` (`make` targets, tests, releases). Update

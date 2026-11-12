@@ -6,6 +6,7 @@
 #include "lvgl.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <string>
 
@@ -102,7 +103,8 @@ inline lv_obj_t *icon(lv_obj_t *parent, int which, uint32_t color) {
   const bool erase = which == ICON_ERASE;
   lv_obj_t *box = plain(parent);
   lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(box, (erase ? erase_wide : shift_wide) + icon_stroke, (erase ? erase_tall : shift_tall) + icon_stroke);
+  const int wide = erase ? erase_wide : shift_wide, tall = erase ? erase_tall : shift_tall;
+  lv_obj_set_size(box, wide + icon_stroke, tall + icon_stroke);
   auto stroke = [&](const lv_point_precise_t *points, int count) {
     lv_obj_t *line = lv_line_create(box);
     lv_line_set_points(line, points, count);

@@ -19,7 +19,8 @@ constexpr int RINGS = 4;
 
 lv_point_precise_t at(double cx, double cy, double bearing, double r) {
   const double a = bearing * geo::PI / 180.0;
-  return {(lv_value_precise_t) std::lround(cx + std::sin(a) * r), (lv_value_precise_t) std::lround(cy - std::cos(a) * r)};
+  return {(lv_value_precise_t) std::lround(cx + std::sin(a) * r),
+          (lv_value_precise_t) std::lround(cy - std::cos(a) * r)};
 }
 void line(lv_layer_t *layer, lv_point_precise_t a, lv_point_precise_t b, uint32_t color, int width, lv_opa_t opa) {
   lv_draw_line_dsc_t d;
@@ -54,12 +55,12 @@ void disc(lv_layer_t *layer, double cx, double cy, double r, uint32_t color, lv_
   lv_area_t box{x, y, x + s - 1, y + s - 1};
   lv_draw_rect(layer, &d, &box);
 }
-// `text` with its middle (`centerd`) or its left end at x, y.
-void text(lv_layer_t *layer, const char *s, double x, double y, uint32_t color, lv_opa_t opa, bool centerd) {
+// `text` with its middle (`centered`) or its left end at x, y.
+void text(lv_layer_t *layer, const char *s, double x, double y, uint32_t color, lv_opa_t opa, bool centered) {
   const lv_font_t *font = ui::fonts.small;
   if (!font) return;
   const int w = ui::text_width(s, font), h = lv_font_get_line_height(font);
-  const int x0 = (int) std::lround(centerd ? x - w / 2.0 : x), y0 = (int) std::lround(y - h / 2.0);
+  const int x0 = (int) std::lround(centered ? x - w / 2.0 : x), y0 = (int) std::lround(y - h / 2.0);
   lv_draw_label_dsc_t d;
   lv_draw_label_dsc_init(&d);
   d.font = font;
@@ -105,7 +106,8 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
     // The glow of a lit tube, strongest in the middle.
     for (int n = 1; n <= 4; ++n) disc(layer, cx, cy, far * n / 4, tint.glow, 6);
     const uint32_t grid = colors::glow_share(tint, colors::share::GRID);
-    for (int bearing = 0; bearing < 360; bearing += 30) line(layer, at(cx, cy, bearing, 0), at(cx, cy, bearing, far), grid, thin, LV_OPA_COVER);
+    for (int bearing = 0; bearing < 360; bearing += 30)
+      line(layer, at(cx, cy, bearing, 0), at(cx, cy, bearing, far), grid, thin, LV_OPA_COVER);
   }
   const double px_per_nm = geo::NM / v.meters_per_px();
   const double step = ring_step(px_per_nm, std::max<double>(rose, ui::px(40)));
@@ -140,8 +142,9 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
   }
   const int arm = ui::px(5);
   const uint32_t cross = radar ? tint.hot : pal.ink;
-  line(layer, {(lv_value_precise_t) (cx - arm), (lv_value_precise_t) cy}, {(lv_value_precise_t) (cx + arm), (lv_value_precise_t) cy}, cross, thin, LV_OPA_COVER);
-  line(layer, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy - arm)}, {(lv_value_precise_t) cx, (lv_value_precise_t) (cy + arm)}, cross, thin, LV_OPA_COVER);
+  const auto x = (lv_value_precise_t) cx, y = (lv_value_precise_t) cy;
+  line(layer, {x - arm, y}, {x + arm, y}, cross, thin, LV_OPA_COVER);
+  line(layer, {x, y - arm}, {x, y + arm}, cross, thin, LV_OPA_COVER);
 }
 
 airspace::Ink airspace_ink(const Look &look) {

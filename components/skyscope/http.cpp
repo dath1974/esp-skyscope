@@ -34,8 +34,9 @@ bool Body::reserve(size_t bytes) {
 
 namespace {
 // One client a server, kept open between requests: a new TLS connection costs some 4 seconds of the worker's core on an
-// ESP32-S3 (its handshake), where a request on an open one costs a few hundred milliseconds. The feed is asked every few
-// seconds and a map's tiles come one after another from one server, so nearly every request finds its connection open.
+// ESP32-S3 (its handshake), where a request on an open one costs a few hundred milliseconds. The feed is asked every
+// few seconds and a map's tiles come one after another from one server, so nearly every request finds its connection
+// open.
 struct Fill {
   Body *body;
   size_t most;
@@ -55,8 +56,10 @@ esp_err_t on_event(esp_http_client_event_t *e) {
     return ESP_OK;
   }
   if (fill && e->event_id == HTTP_EVENT_ON_HEADER && e->header_key && e->header_value) {
-    if (strcasecmp(e->header_key, "x-ratelimit-limit") == 0) fill->rate_limit = std::string(e->header_value).substr(0, 120);
-    if (strcasecmp(e->header_key, "x-ratelimit-reset") == 0) fill->rate_reset_s = std::max(0, std::atoi(e->header_value));
+    if (strcasecmp(e->header_key, "x-ratelimit-limit") == 0)
+      fill->rate_limit = std::string(e->header_value).substr(0, 120);
+    if (strcasecmp(e->header_key, "x-ratelimit-reset") == 0)
+      fill->rate_reset_s = std::max(0, std::atoi(e->header_value));
     if (strcasecmp(e->header_key, "Cache-Control") == 0) fill->max_age_s = max_age(e->header_value);
     return ESP_OK;
   }

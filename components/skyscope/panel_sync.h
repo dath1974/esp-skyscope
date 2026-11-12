@@ -84,8 +84,12 @@ inline void start(int pin) {
   lv_display_add_event_cb(display, [](lv_event_t *) { armed = true; }, LV_EVENT_REFR_START, nullptr);
   lv_display_add_event_cb(display, flush_start, LV_EVENT_FLUSH_START, nullptr);
   lv_timer_t *report = lv_timer_create([](lv_timer_t *) {
-    if (on) ESP_LOGI("panel_sync", "%u frames waited for the panel's tearing signal, none of the last ones in vain", (unsigned) synced);
-    else ESP_LOGW("panel_sync", "The tearing signal stopped coming after %u frames: the screen draws without it", (unsigned) synced);
+    if (on)
+      ESP_LOGI("panel_sync", "%u frames waited for the panel's tearing signal, none of the last ones in vain",
+               (unsigned) synced);
+    else
+      ESP_LOGW("panel_sync", "The tearing signal stopped coming after %u frames: the screen draws without it",
+               (unsigned) synced);
   }, REPORT_MS, nullptr);
   lv_timer_set_repeat_count(report, 1);
   on = true;

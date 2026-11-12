@@ -19,7 +19,7 @@ textarea{min-height:70px;font-family:ui-monospace,Menlo,monospace}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .check{display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:600}.check input{width:auto}
 button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 16px;background:var(--accent);color:#fff;cursor:pointer}
-button.plain{background:transparent;color:var(--accent);border:1px solid var(--line)}
+button.plain{background:transparent;color:var(--accent);border:1px solid var(--line)}button.plain.bad{color:var(--bad)}
 .bar{position:sticky;bottom:0;background:var(--bg);padding:10px 0;display:flex;gap:10px;align-items:center}
 header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;flex:none}
 #msg{font-size:14px}.bad{color:var(--bad)}#status{font-size:14px;color:var(--muted)}#found button{display:block;width:100%;text-align:left;margin:4px 0}
@@ -29,7 +29,7 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 </style></head><body><main>
 <header><svg id="emblem" xmlns="http://www.w3.org/2000/svg" viewBox="-104 -104 208 208" role="img" aria-label="Skyscope"> <defs><linearGradient id="lit" gradientUnits="userSpaceOnUse" x1="0" y1="-6.5" x2="0" y2="11.7"><stop offset="0" stop-color="#5E7388"/><stop offset="1" stop-color="#F2F4F7"/></linearGradient><radialGradient id="dome" cx="0.34" cy="0.3" r="0.75"><stop offset="0" stop-color="#F2F4F7"/><stop offset="1" stop-color="#5E7388"/></radialGradient><radialGradient id="haze"><stop offset="0" stop-color="#33B5FF" stop-opacity="0.07"/><stop offset="1" stop-color="#33B5FF" stop-opacity="0"/></radialGradient></defs> <circle r="104" fill="#000000"/> <circle r="80.0" fill="url(#haze)"/> <circle r="96.50" fill="none" stroke="#33B5FF" stroke-width="7.5" stroke-opacity="0.13"/> <path d="M5.50 -9.53L47.80 -82.79A95.60 95.60 0 0 1 58.86 -75.33L6.77 -8.67A11.00 11.00 0 0 0 5.50 -9.53Z" fill="#33B5FF" fill-opacity="0.481"/> <path d="M4.12 -10.20L35.81 -88.64A95.60 95.60 0 0 1 47.80 -82.79L5.50 -9.53A11.00 11.00 0 0 0 4.12 -10.20Z" fill="#33B5FF" fill-opacity="0.347"/> <path d="M2.66 -10.67L23.13 -92.76A95.60 95.60 0 0 1 35.81 -88.64L4.12 -10.20A11.00 11.00 0 0 0 2.66 -10.67Z" fill="#33B5FF" fill-opacity="0.239"/> <path d="M1.15 -10.94L9.99 -95.08A95.60 95.60 0 0 1 23.13 -92.76L2.66 -10.67A11.00 11.00 0 0 0 1.15 -10.94Z" fill="#33B5FF" fill-opacity="0.156"/> <path d="M-0.38 -10.99L-3.34 -95.54A95.60 95.60 0 0 1 9.99 -95.08L1.15 -10.94A11.00 11.00 0 0 0 -0.38 -10.99Z" fill="#33B5FF" fill-opacity="0.094"/> <path d="M-1.91 -10.83L-16.60 -94.15A95.60 95.60 0 0 1 -3.34 -95.54L-0.38 -10.99A11.00 11.00 0 0 0 -1.91 -10.83Z" fill="#33B5FF" fill-opacity="0.051"/> <path d="M-3.40 -10.46L-29.54 -90.92A95.60 95.60 0 0 1 -16.60 -94.15L-1.91 -10.83A11.00 11.00 0 0 0 -3.40 -10.46Z" fill="#33B5FF" fill-opacity="0.023"/> <path d="M-4.82 -9.89L-41.91 -85.92A95.60 95.60 0 0 1 -29.54 -90.92L-3.40 -10.46A11.00 11.00 0 0 0 -4.82 -9.89Z" fill="#33B5FF" fill-opacity="0.007"/> <path d="M-6.15 -9.12L-53.46 -79.26A95.60 95.60 0 0 1 -41.91 -85.92L-4.82 -9.89A11.00 11.00 0 0 0 -6.15 -9.12Z" fill="#33B5FF" fill-opacity="0.001"/> <g fill="none" stroke="#33B5FF"> <circle r="96.50" stroke-width="1.80"/> <circle r="32.00" stroke-width="0.90" stroke-opacity="0.42"/> <circle r="64.00" stroke-width="0.90" stroke-opacity="0.42"/> <path d="M0.00 -96.50L0.00 -87.70" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M16.76 -95.03L15.89 -90.11" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M33.00 -90.68L31.29 -85.98" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M48.25 -83.57L43.85 -75.95" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M62.03 -73.92L58.82 -70.09" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M73.92 -62.03L70.09 -58.82" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M83.57 -48.25L75.95 -43.85" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M90.68 -33.00L85.98 -31.29" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M95.03 -16.76L90.11 -15.89" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M96.50 0.00L87.70 0.00" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M95.03 16.76L90.11 15.89" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M90.68 33.00L85.98 31.29" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M83.57 48.25L75.95 43.85" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M73.92 62.03L70.09 58.82" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M62.03 73.92L58.82 70.09" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M48.25 83.57L43.85 75.95" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M33.00 90.68L31.29 85.98" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M16.76 95.03L15.89 90.11" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-0.00 96.50L-0.00 87.70" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-16.76 95.03L-15.89 90.11" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-33.00 90.68L-31.29 85.98" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-48.25 83.57L-43.85 75.95" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-62.03 73.92L-58.82 70.09" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-73.92 62.03L-70.09 58.82" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-83.57 48.25L-75.95 43.85" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-90.68 33.00L-85.98 31.29" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-95.03 16.76L-90.11 15.89" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-96.50 -0.00L-87.70 -0.00" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-95.03 -16.76L-90.11 -15.89" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-90.68 -33.00L-85.98 -31.29" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-83.57 -48.25L-75.95 -43.85" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-73.92 -62.03L-70.09 -58.82" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-62.03 -73.92L-58.82 -70.09" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-48.25 -83.57L-43.85 -75.95" stroke-width="1.00" stroke-opacity="1.00"/> <path d="M-33.00 -90.68L-31.29 -85.98" stroke-width="1.00" stroke-opacity="0.72"/> <path d="M-16.76 -95.03L-15.89 -90.11" stroke-width="1.00" stroke-opacity="0.72"/> </g> <circle cx="21.78" cy="-75.94" r="8.53" fill="#FFB000" fill-opacity="0.12"/> <g transform="translate(21.78 -75.94) rotate(305) scale(5.80)" stroke="#FFB000" stroke-opacity="0.89" stroke-linecap="round" fill="none"><path d="M0.00 -1.00L0.00 0.95" stroke-width="0.30"/><path d="M0.00 -0.08L0.98 0.42" stroke-width="0.23"/><path d="M-0.00 -0.08L-0.98 0.42" stroke-width="0.23"/><path d="M0.00 0.76L0.40 0.98" stroke-width="0.17"/><path d="M-0.00 0.76L-0.40 0.98" stroke-width="0.17"/></g> <circle cx="-44.70" cy="14.52" r="6.76" fill="#FFB000" fill-opacity="0.05"/> <g transform="translate(-44.70 14.52) rotate(70) scale(4.60)" stroke="#FFB000" stroke-opacity="0.34" stroke-linecap="round" fill="none"><path d="M0.00 -1.00L0.00 0.95" stroke-width="0.30"/><path d="M0.00 -0.08L0.98 0.42" stroke-width="0.23"/><path d="M-0.00 -0.08L-0.98 0.42" stroke-width="0.23"/><path d="M0.00 0.76L0.40 0.98" stroke-width="0.17"/><path d="M-0.00 0.76L-0.40 0.98" stroke-width="0.17"/></g> <circle cx="-67.55" cy="-39.00" r="6.76" fill="#FFB000" fill-opacity="0.07"/> <g transform="translate(-67.55 -39.00) rotate(150) scale(4.60)" stroke="#FFB000" stroke-opacity="0.53" stroke-linecap="round" fill="none"><path d="M0.00 -1.00L0.00 0.95" stroke-width="0.30"/><path d="M0.00 -0.08L0.98 0.42" stroke-width="0.23"/><path d="M-0.00 -0.08L-0.98 0.42" stroke-width="0.23"/><path d="M0.00 0.76L0.40 0.98" stroke-width="0.17"/><path d="M-0.00 0.76L-0.40 0.98" stroke-width="0.17"/></g> <path d="M34.17 -43.73L58.86 -75.33" stroke="#F2F4F7" stroke-width="1.20"/> <g id="blade" transform="rotate(-52)"><path fill="url(#lit)" d="M5.0 3.3L12.4 5.5L19.2 7.8L25.5 9.7L31.2 11.0L36.4 11.5L41.0 11.3L45.1 10.8L48.7 10.3L51.7 9.2L54.1 7.7L56.0 5.9L57.4 3.9L58.2 1.9L58.5 0.0L58.2 -1.4L57.4 -2.6L56.0 -3.6L54.1 -4.2L51.7 -4.6L48.7 -4.5L45.1 -4.0L41.0 -3.5L36.4 -3.1L31.2 -2.6L25.5 -1.9L19.2 -1.4L12.4 -1.5L5.0 -2.6Z"/><path fill="#FFB000" fill-opacity="0.84" d="M50.2 9.9L51.0 9.5L51.8 9.2L52.6 8.7L53.4 8.2L53.4 -4.4L52.6 -4.5L51.8 -4.5L51.0 -4.6L50.2 -4.6Z"/></g> <use href="#blade" transform="rotate(120)"/> <use href="#blade" transform="rotate(240)"/> <circle r="10.00" fill="url(#dome)"/> <circle r="5.60" fill="none" stroke="#5E7388" stroke-opacity="0.5" stroke-width="0.70"/> </svg><div><h1>Skyscope</h1><div id="status">Loading...</div></div></header>
 <form id="f">
-<section><h2>Where</h2>
+<section><h2>Place</h2>
 <label for="q">Find a place</label><div class="row"><input id="q" placeholder="An airport, a town, an address"><button type="button" class="plain" id="find">Search</button></div>
 <input type="hidden" id="place" name="place">
 <p class="hint">An airport code (KJFK, JFK), or an airport's name (Teterboro Airport), is looked up in the FAA's airport data first; anything else, and airports outside the United States, in OpenStreetMap. An airport found by its name offers its identifier as the name the screen shows. The search goes from this browser; the screen only stores the coordinates.</p>
@@ -38,10 +38,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" step="any" min="-180" max="180" required></div></div>
 <label for="range_nm">Range (nautical miles to the nearer edge)</label><input id="range_nm" name="range_nm" type="number" min="1" max="5000">
 <p class="hint">Up to 5000 NM, for following a plane across an ocean. The exchanges answer for 250 NM around a point at most, so the planes shown come from that far around the place, or around the plane followed.</p>
-<label for="follow">Follow a plane</label><input id="follow" name="follow" placeholder="N12345, G-EUPT, BAW286 or BA 286">
-<div id="followed"><div class="row"><div><label for="follow_label">Its label</label><select id="follow_label" name="follow_label"><option value="auto">As the other planes'</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
-<div><label for="follow_track_min">Its track (minutes, 0 for the whole flight)</label><input id="follow_track_min" name="follow_track_min" type="number" min="0" max="1440"></div></div></div>
-<p class="hint">Its registration, callsign or flight number (the larger airlines' flight numbers are turned into their callsigns); empty to stop. The screen finds it anywhere in the world, moves the map with it (a chart of the United States gives way to the streets map outside it) and asks for the planes around it; your place stays as it is. Out of reach of the volunteers' receivers, over an ocean, it is shown faint where it is likely to be until it is heard again. Following stops by itself once it has landed. <span id="following"></span></p>
+<label for="weather_station">Weather station</label><input id="weather_station" name="weather_station" maxlength="4" placeholder="The nearest to the place">
+<p class="hint">A swipe up from the bottom edge of the map (or the menu's Weather key) shows the weather page: the METAR, TAF and GFS MOS of this station (or, left empty, of the nearest one to the place that reports), and the SIGMETs, G-AIRMETs and pilot reports over the area, from aviationweather.gov and the Iowa Environmental Mesonet. Not for flight planning.</p>
 </section>
 <section><h2>Map</h2>
 <div class="row"><div><label for="map">Background</label><select id="map" name="map">
@@ -58,13 +56,41 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <div data-for="streets osm satellite topo custom"><label for="tile_scale">Map text size</label><select id="tile_scale" name="tile_scale"><option value="0">The screen's default</option><option value="1">Small (1:1)</option><option value="2">Large (2x)</option></select></div>
 <div data-for="radar"><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
 <label class="check" data-for="streets satellite"><input type="checkbox" id="place_names" name="place_names"> Place names</label>
-<label class="check"><input type="checkbox" id="rings" name="rings"> Range rings and compass rose</label>
-<label class="check"><input type="checkbox" id="airspace" name="airspace"> Airspace and runways (FAA, United States)</label>
-<p class="hint">Class B, C and D airspace outlines and runways, with dashed centerlines at towered airports, as a controller's scope shows them. Asked from the FAA once for each place and range. Not for navigation.</p>
 <label class="check" data-for="radar"><input type="checkbox" id="scope" name="scope"> Radar scope: glow, bearing lines, range rings and rose (off: only the planes and the airspace)</label>
 <label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps (with the scope)</label>
 </section>
+<section><h2>Over the map</h2>
+<label class="check"><input type="checkbox" id="rings" name="rings"> Range rings and compass rose</label>
+<label class="check"><input type="checkbox" id="airspace" name="airspace"> Airspace and runways (FAA, United States)</label>
+<p class="hint">Class B, C and D airspace outlines and runways, with dashed centerlines at towered airports, as a controller's scope shows them. Asked from the FAA once for each place and range. Not for navigation.</p>
+<label class="check" data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><input type="checkbox" id="radar_overlay" name="radar_overlay"> Weather radar over the map (NEXRAD, United States)</label>
+<label class="check" data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><input type="checkbox" id="radar_loop" name="radar_loop"> Play the radar's last hour as a loop</label>
+<p class="hint" data-for="streets osm satellite topo sectional ifr_low ifr_high custom">The composite of the NWS radars from the Iowa Environmental Mesonet, a new scan every five minutes. The loop shows the last hour a scan at a time; each scan is fetched once.</p>
+</section>
 <section><h2>Aircraft</h2>
+<div class="row3"><div><label for="marker">Marker</label><select id="marker" name="marker"><option value="type">plane by type</option><option>plane</option><option>arrow</option><option>dot</option></select></div>
+<div><label for="label">Label</label><select id="label" name="label"><option value="auto">Automatic</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
+<div><label for="track_s">Track (s, 0 for none)</label><input id="track_s" name="track_s" type="number" min="0" max="300"></div></div>
+<label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Color by altitude</label>
+<label class="check"><input type="checkbox" id="glide" name="glide"> Glide between reports</label>
+<label class="check"><input type="checkbox" id="photos" name="photos"> A photo on a plane's card</label>
+<p class="hint">The plane's latest photo from Planespotters.net, with its photographer and a QR code to the photo's page there (scan it with a phone to see it full size). Asked when a card opens, and kept only while it is open.</p>
+</section>
+<section><h2>Which aircraft</h2>
+<div class="row3"><div><label for="alt_min">Lowest (ft)</label><input id="alt_min" name="alt_min" type="number" min="0" max="60000" step="500"></div>
+<div><label for="alt_max">Highest (ft)</label><input id="alt_max" name="alt_max" type="number" min="0" max="60000" step="500"></div>
+<div><label for="most">Most shown</label><input id="most" name="most" type="number" min="1" max="60"></div></div>
+<label class="check"><input type="checkbox" id="ground" name="ground"> Show aircraft on the ground</label>
+<label for="watch">Watched aircraft</label><textarea id="watch" placeholder="N12345 red&#10;BAW123 blue"></textarea>
+<p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring, and one coming into range shows along the top of the screen.</p>
+</section>
+<section><h2>Follow a plane</h2>
+<label for="follow">Plane</label><input id="follow" name="follow" placeholder="N12345, G-EUPT, BAW286 or BA 286">
+<div id="followed"><div class="row"><div><label for="follow_label">Its label</label><select id="follow_label" name="follow_label"><option value="auto">As the other planes'</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
+<div><label for="follow_track_min">Its track (minutes, 0 for the whole flight)</label><input id="follow_track_min" name="follow_track_min" type="number" min="0" max="1440"></div></div></div>
+<p class="hint">Its registration, callsign or flight number (the larger airlines' flight numbers are turned into their callsigns); empty to stop. The screen finds it anywhere in the world, moves the map with it (a chart of the United States gives way to the streets map outside it) and asks for the planes around it; your place stays as it is. Out of reach of the volunteers' receivers, over an ocean, it is shown faint where it is likely to be until it is heard again. Following stops by itself once it has landed. <span id="following"></span></p>
+</section>
+<section><h2>Source</h2>
 <div class="row"><div><label for="feed">Preferred source</label><select id="feed" name="feed"><option value="adsb_fi">adsb.fi</option><option value="adsb_lol">adsb.lol</option><option value="receiver">A receiver on your network</option><option value="radio" hidden>This screen's radio (USB stick)</option></select></div>
 <div><label for="refresh_s">Refresh every (s)</label><input id="refresh_s" name="refresh_s" type="number" min="3" max="300"></div></div>
 <div id="receiver"><label for="receiver_url">Receiver address</label><input id="receiver_url" name="receiver_url" placeholder="http://receiver.local/tar1090/data/aircraft.json">
@@ -72,19 +98,6 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <label class="check"><input type="checkbox" id="fallback" name="fallback"> Use another source while this one is unavailable</label>
 <p class="hint">Each exchange sets its own limits and may change them with its load (adsb.fi asks for no more than one request a second; adsb.lol has at times allowed only a few hundred a day per address). The screen keeps to what each one announces: when one refuses, it waits as long as that exchange says, or twice as long each time it refuses again, and meanwhile asks the other one if allowed to. It goes back to the preferred source as soon as that one's wait is over. <span id="every"></span></p>
 <p class="hint" id="sources"></p>
-<div class="row3"><div><label for="alt_min">Lowest (ft)</label><input id="alt_min" name="alt_min" type="number" min="0" max="60000" step="500"></div>
-<div><label for="alt_max">Highest (ft)</label><input id="alt_max" name="alt_max" type="number" min="0" max="60000" step="500"></div>
-<div><label for="most">Most shown</label><input id="most" name="most" type="number" min="1" max="60"></div></div>
-<div class="row3"><div><label for="marker">Marker</label><select id="marker" name="marker"><option value="type">plane by type</option><option>plane</option><option>arrow</option><option>dot</option></select></div>
-<div><label for="label">Label</label><select id="label" name="label"><option value="auto">Automatic</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
-<div><label for="track_s">Track (s, 0 for none)</label><input id="track_s" name="track_s" type="number" min="0" max="300"></div></div>
-<label class="check"><input type="checkbox" id="by_altitude" name="by_altitude"> Color by altitude</label>
-<label class="check"><input type="checkbox" id="glide" name="glide"> Glide between reports</label>
-<label class="check"><input type="checkbox" id="ground" name="ground"> Show aircraft on the ground</label>
-<label class="check"><input type="checkbox" id="photos" name="photos"> A photo on a plane's card</label>
-<p class="hint">The plane's latest photo from Planespotters.net, with its photographer and a QR code to the photo's page there (scan it with a phone to see it full size). Asked when a card opens, and kept only while it is open.</p>
-<label for="watch">Watched aircraft</label><textarea id="watch" placeholder="N12345 red&#10;BAW123 blue"></textarea>
-<p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring, and one coming into range shows along the top of the screen.</p>
 </section>
 <section><h2>Screen</h2>
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
@@ -95,6 +108,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <div id="bed">
 <div class="row"><div><label for="bed_off">Off at</label><input id="bed_off" type="time"></div>
 <div><label class="check" style="margin-top:8px"><input type="checkbox" id="bed_wake" name="bed_wake"> On again at</label><input id="bed_on" type="time"></div></div>
+<p class="hint">A tap wakes the screen at any time; the screen-off timer above works as well.</p>
+</div>
 <label for="tzsel">Time zone</label><select id="tzsel">
 <option value="UTC0">UTC</option><option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option><option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
 <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option><option value="MST7">US Arizona</option><option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
@@ -105,20 +120,15 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia (Sydney, Melbourne)</option><option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand</option>
 <option value="custom">Other (a POSIX TZ string)</option></select>
 <input id="timezone" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
-<p class="hint">A tap wakes the screen at any time; the screen-off timer above works as well. The screen's clock now: <span id="clock">not set yet</span>. <span id="tzhint"></span></p>
-</div>
+<p class="hint">Bedtime goes by it, and so do the day's tally (from midnight) and the weather's times. The screen's clock now: <span id="clock">not set yet</span>. <span id="tzhint"></span></p>
 <label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
+</section>
+<section><h2>Network</h2>
 <label for="password">Password for this page</label><input id="password" type="password" autocomplete="new-password" maxlength="32">
 <label class="check"><input type="checkbox" id="password_clear"> No password</label>
-<p class="hint" id="password_hint">Asked for this page and every request of its API (the user name is admin; up to 32 characters). Leave it empty to keep the one there is. Forgotten, it can be changed or removed in the screen's own menu (Screen, Web password). ESPHome's own updates over the network and Home Assistant have keys of their own.</p>
-</section>
-<section><h2>Weather</h2>
-<label for="weather_station">Station for the weather page</label><input id="weather_station" name="weather_station" maxlength="4" placeholder="The nearest to the place">
-<p class="hint">A swipe up from the bottom edge of the map (or the menu) shows the weather page: the METAR, TAF and GFS MOS of this station (or, left empty, of the nearest one to the place that reports), and the SIGMETs, G-AIRMETs and pilot reports over the area, from aviationweather.gov and the Iowa Environmental Mesonet. Not for flight planning.</p>
-<label class="check"><input type="checkbox" id="radar_overlay" name="radar_overlay"> Weather radar over the map (NEXRAD, United States)</label>
-<label class="check"><input type="checkbox" id="radar_loop" name="radar_loop"> Play the radar's last hour as a loop</label>
-<p class="hint">The composite of the NWS radars from the Iowa Environmental Mesonet, a new scan every five minutes. The loop shows the last hour a scan at a time; each scan is fetched once.</p>
+<p class="hint" id="password_hint">Asked for this page and every request of its API (the user name is admin; up to 32 characters). Leave it empty to keep the one there is. Forgotten, it can be changed or removed in the screen's own menu (Network, Web password). ESPHome's own updates over the network and Home Assistant have keys of their own.</p>
+<p class="hint">The Wi-Fi network is chosen on the screen itself: its menu, Network, lists the networks it knows and those in reach.</p>
 </section>
 <section id="stats"><h2>Today in range</h2>
 <p id="stats_text">Nothing seen yet.</p>
@@ -146,6 +156,10 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <p id="fw_text">Asking the update server...</p>
 <div class="bar" style="position:static;padding:0"><button type="button" id="fw_install" style="display:none">Install</button><button type="button" class="plain" id="fw_check">Check now</button></div>
 <p class="hint">Releases are published on GitHub. Installing downloads the new firmware into the other half of the screen's flash and restarts into it, a minute or two; the settings are kept. A download that breaks off changes nothing.</p>
+</section>
+<section><h2>About</h2>
+<div class="bar" style="position:static;padding:0"><button type="button" class="plain" id="tour">Show the tour on the screen</button><button type="button" class="plain bad" id="factory">Factory reset</button></div>
+<p class="hint">The tour shows on the screen what a finger does there, a touch at a time, as at a new screen's first start. A factory reset erases everything the screen keeps (every setting and the place, the Wi-Fi networks, this page's password, the day's tally, Home Assistant's key) and restarts it as a new screen, which opens its setup network; the map card is left as it is. Both are in the screen's own menu too, under About.</p>
 </section>
 <div class="bar"><button type="submit">Save</button><button type="button" class="plain" id="reboot">Restart</button><span id="msg"></span></div>
 </form></main>
@@ -193,6 +207,13 @@ f.onsubmit=async e=>{e.preventDefault();const s={};NUM.forEach(k=>{if($(k).value
  say('Saving...');const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
  const j=await r.json();if(r.ok){show(j);say('Saved')}else say('Please check: '+j.error,true)};
 $('reboot').onclick=async()=>{await fetch('api/reboot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});say('Restarting...')};
+// The tour again, on the screen's glass; and everything the screen keeps erased, asked first.
+$('tour').onclick=async()=>{const r=await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"tour":true}'});
+ say(r.ok?'The tour is on the screen':'The screen did not take that',!r.ok)};
+const RESET_ASK='Erase everything the screen keeps? Every setting, the Wi-Fi networks, this password and the day\'s tally go, and the screen restarts as new.';
+$('factory').onclick=async()=>{if(!confirm(RESET_ASK))return;
+ const r=await fetch('api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"factory":true}'});
+ say(r.ok?'Erased. The screen restarts as new: join its setup network to set it up again.':'The screen did not take that',!r.ok)};
 // An airport's identifier from what the search gave: the FAA's, or OpenStreetMap's tags (ICAO first), '' for none.
 function ident_of(p){const t=p.extratags||{};return(p.ident||t.icao||t.faa||t.iata||'').toUpperCase()}
 let picking=0;

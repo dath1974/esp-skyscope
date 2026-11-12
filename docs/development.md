@@ -20,6 +20,8 @@ How the code is laid out, how to build and test it, and how releases are made. B
   build sent over Wi-Fi comes in.
 - `make` builds the firmware and runs `make test` (and `make test-esp32` too, given `DEVICE`).
 - `make help` lists every target; `make clean` removes what the build and tests leave, keeping ESPHome's toolchain.
+- `make factory-reset DEVICE=<address>` (with `PASSWORD=<its web password>` where one is set) erases everything a
+  screen keeps and restarts it as a new one, as its menu's **Factory reset** does. It asks first.
 
 ## Tests that need no screen
 
@@ -50,8 +52,9 @@ fails on any request the mock did not know. The screen must be able to reach thi
 ([under WSL, see below](#a-screen-reaching-a-test-server-under-wsl)).
 
 - `make test-esp32 DEVICE=<address>`: the page, settings, status and memory, aircraft, airspace, and the glass through
-  `/api/touch`: the menu and its keyboard, the Wi-Fi list, firmware, a plane's card, swiping between maps, the weather
-  page and radar, and the brightness strip.
+  `/api/touch`: the menu and its keyboard, its switches and the question before a factory reset (never answered
+  yes), the Wi-Fi list, firmware, the tour, a plane's card, swiping between maps, the weather page and radar, and the
+  brightness strip.
 - `make test-esp32-full DEVICE=<address>`: also every map drawn whole, a restart that keeps the settings, and sleep
   and waking.
 - `make test-esp32-mock DEVICE=<address>`: the mock as a receiver (filters, range, crowded skies, bad entries, and

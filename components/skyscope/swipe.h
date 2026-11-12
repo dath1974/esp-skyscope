@@ -3,6 +3,7 @@
 // Map row (menu_rows.h), so it goes through the same maps in the same order and skips the same ones. A drag that
 // starts in the strip is never a pan (preview.cpp); everywhere else on the map it is.
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include "menu_rows.h"

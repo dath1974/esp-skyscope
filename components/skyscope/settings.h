@@ -10,6 +10,7 @@
 #include <cstring>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "schedule.h"
@@ -30,16 +31,16 @@ template<size_t N> struct Names {
 // The maps a person chooses from. `streets` is Esri's gray canvas, dark or light by the appearance; every other map is
 // one map, made dark by tiles.h's night rules where it has no dark one of its own.
 enum MapStyle : uint8_t { RADAR, OSM, STREETS, SATELLITE, TOPO, SECTIONAL, IFR_LOW, IFR_HIGH, CUSTOM };
-inline constexpr Names<9> MAP_STYLES{{"radar", "osm", "streets", "satellite", "topo", "sectional", "ifr_low", "ifr_high",
-                                      "custom"}};
+inline constexpr Names<9> MAP_STYLES{
+    {"radar", "osm", "streets", "satellite", "topo", "sectional", "ifr_low", "ifr_high", "custom"}};
 enum Theme : uint8_t { DARK, LIGHT };
 inline constexpr Names<2> THEMES{{"dark", "light"}};
 // The public exchanges, a receiver of one's own (readsb, tar1090, dump1090: its aircraft.json at receiver_url), and the
 // screen's own radio (radio.h), where it has one.
 enum Feed : uint8_t { ADSB_LOL, ADSB_FI, RECEIVER, RADIO };
 inline constexpr Names<4> FEEDS{{"adsb_lol", "adsb_fi", "receiver", "radio"}};
-// Whether this screen has a radio of its own (the `radio:` of its YAML), set once as it starts. Without one the radio is
-// never asked, even preferred, as a receiver without an address is not: the menu skips it, and the others stand in
+// Whether this screen has a radio of its own (the `radio:` of its YAML), set once as it starts. Without one the radio
+// is never asked, even preferred, as a receiver without an address is not: the menu skips it, and the others stand in
 // where falling back is allowed.
 inline bool radio_fitted = false;
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
@@ -52,8 +53,9 @@ inline constexpr Names<6> LABELS{{"auto", "none", "callsign", "altitude", "full"
 inline constexpr Names<6> WATCH_COLORS{{"red", "orange", "amber", "green", "blue", "purple"}};
 
 inline constexpr int RANGES_NM[] = {2, 3, 5, 8, 10, 15, 20, 30, 40, 60, 80, 120, 160, 250};
-// The range goes out to a good part of the world, for following a plane across an ocean (follow.h); the exchanges answer
-// for 250 NM around a point at most, so planes come from that far around the place, or around the plane followed.
+// The range goes out to a good part of the world, for following a plane across an ocean (follow.h); the exchanges
+// answer for 250 NM around a point at most, so planes come from that far around the place, or around the plane
+// followed.
 constexpr int MIN_RANGE_NM = 1, MAX_RANGE_NM = 5000, FEED_REACH_NM = 250;
 constexpr int ALTITUDE_CEILING = 60000;
 constexpr size_t MOST_WATCHED = 12;
@@ -133,6 +135,9 @@ struct Settings {
   // The web page's and the API's password (HTTP Basic, the user "admin"), "" for none. Never written out but to the
   // stored copy: the API says only whether there is one (`password_set`).
   std::string password;
+  // The tour of what a finger does here (tour.h) is still to be shown: on a new screen, until it is taken or ended.
+  // Set again, the screen shows it again.
+  bool tour = true;
 };
 constexpr size_t MOST_PASSWORD = 32;
 constexpr const char *WEB_USER = "admin";
@@ -221,6 +226,7 @@ inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["weather_station"] = s.weather_station;
   o["radar_overlay"] = s.radar_overlay;
   o["radar_loop"] = s.radar_loop;
+  o["tour"] = s.tour;
   if (secrets) o["password"] = s.password;
   else o["password_set"] = !s.password.empty();
 }
@@ -362,7 +368,8 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!number("sleep_min", n.sleep_min, 0, 1440)) return fail("sleep_min");
   if (!flag("bedtime", n.bedtime)) return fail("bedtime");
   if (!flag("bed_wake", n.bed_wake)) return fail("bed_wake");
-  for (const auto &[key, field] : {std::pair<const char *, std::string *>{"bed_off", &n.bed_off}, {"bed_on", &n.bed_on}}) {
+  using Time = std::pair<const char *, std::string *>;
+  for (const auto &[key, field] : {Time{"bed_off", &n.bed_off}, Time{"bed_on", &n.bed_on}}) {
     if (o[key].isNull()) continue;
     const char *t = o[key].as<const char *>();
     if (!t || schedule::minutes(t) < 0) return fail(key);
@@ -387,6 +394,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   }
   if (!flag("radar_overlay", n.radar_overlay)) return fail("radar_overlay");
   if (!flag("radar_loop", n.radar_loop)) return fail("radar_loop");
+  if (!flag("tour", n.tour)) return fail("tour");
   if (!o["password"].isNull()) {
     const char *p = o["password"].as<const char *>();
     if (!p || std::strlen(p) > MOST_PASSWORD) return fail("password");

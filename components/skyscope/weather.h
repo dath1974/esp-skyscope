@@ -52,7 +52,9 @@ inline std::string bbox(double lat, double lon, double half) {
   return text;
 }
 // The METARs near a place, to find the nearest station that reports: half a degree around it.
-inline std::string nearby_url(double lat, double lon) { return std::string(AWC) + "metar?format=json&bbox=" + bbox(lat, lon, 0.5); }
+inline std::string nearby_url(double lat, double lon) {
+  return std::string(AWC) + "metar?format=json&bbox=" + bbox(lat, lon, 0.5);
+}
 // Pilot reports over the map: as far as `range_nm` around the place, at least 50 NM.
 inline std::string pirep_url(double lat, double lon, int range_nm) {
   return std::string(AWC) + "pirep?format=json&age=2&bbox=" + bbox(lat, lon, std::max(50, range_nm) / 60.0);
@@ -178,10 +180,12 @@ inline std::vector<std::string> decoded(const Metar &m, bool metric) {
   const int ceiling = ceiling_ft(m);
   if (ceiling >= 0) lines.push_back("Ceiling " + std::to_string(ceiling) + " ft");
   if (m.has_temp) {
-    if (metric) std::snprintf(text, sizeof(text), "Temperature %.0f\xC2\xB0" "C, dew point %.0f\xC2\xB0" "C", m.temp_c, m.dew_c);
+    if (metric)
+      std::snprintf(text, sizeof(text), "Temperature %.0f\xC2\xB0" "C, dew point %.0f\xC2\xB0" "C", m.temp_c,
+                    m.dew_c);
     else
-      std::snprintf(text, sizeof(text), "Temperature %.0f\xC2\xB0" "F, dew point %.0f\xC2\xB0" "F", m.temp_c * 9 / 5 + 32,
-                    m.dew_c * 9 / 5 + 32);
+      std::snprintf(text, sizeof(text), "Temperature %.0f\xC2\xB0" "F, dew point %.0f\xC2\xB0" "F",
+                    m.temp_c * 9 / 5 + 32, m.dew_c * 9 / 5 + 32);
     lines.push_back(text);
   }
   if (m.altim_hpa > 0) {
@@ -272,8 +276,8 @@ inline std::vector<std::string> taf_lines(const std::string &raw) {
 
 // ---------------------------------------------------------------- MOS
 
-// One forecast hour of the GFS MOS (the NWS's MAV): its time, temperature and dew point (°F), wind, sky, the ceiling and
-// visibility categories (1 the lowest), the 6-hour chance of precipitation (-1 for none given).
+// One forecast hour of the GFS MOS (the NWS's MAV): its time, temperature and dew point (°F), wind, sky, the ceiling
+// and visibility categories (1 the lowest), the 6-hour chance of precipitation (-1 for none given).
 struct MosRow {
   int64_t at = 0;  // Unix seconds
   int temp_f = 0, dew_f = 0, wind_dir = 0, wind_kt = 0, cig = 0, vis = 0, pop6 = -1;
@@ -417,9 +421,13 @@ inline bool read_gairmets(const char *text, size_t length, JsonDocument &doc, do
     });
     if (seen) continue;
     a.words = g["due_to"] | "";
-    if (g["severity"].is<const char *>()) a.words += std::string(a.words.empty() ? "" : ", ") + g["severity"].as<const char *>();
+    if (g["severity"].is<const char *>())
+      a.words += std::string(a.words.empty() ? "" : ", ") + g["severity"].as<const char *>();
     // Altitudes in hundreds of feet, as strings ("SFC", "FZL", "180").
-    auto feet = [](JsonVariantConst v) { return v.is<const char *>() && std::isdigit((unsigned char) v.as<const char *>()[0]) ? std::atoi(v.as<const char *>()) * 100 : -1; };
+    auto feet = [](JsonVariantConst v) {
+      const char *hundreds = v.is<const char *>() ? v.as<const char *>() : "";
+      return std::isdigit((unsigned char) hundreds[0]) ? std::atoi(hundreds) * 100 : -1;
+    };
     a.low_ft = feet(g["base"]);
     a.high_ft = feet(g["top"]);
     a.until = g["expireTime"] | (int64_t) 0;
@@ -428,7 +436,8 @@ inline bool read_gairmets(const char *text, size_t length, JsonDocument &doc, do
   return true;
 }
 
-inline bool read_pireps(const char *text, size_t length, JsonDocument &doc, std::vector<Pirep> &out, std::string &error) {
+inline bool read_pireps(const char *text, size_t length, JsonDocument &doc, std::vector<Pirep> &out,
+                        std::string &error) {
   out.clear();
   if (length == 0) return true;  // none: the service answers 204, an empty body
   const DeserializationError e = deserializeJson(doc, text, length);

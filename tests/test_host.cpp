@@ -41,6 +41,7 @@
 #include "../components/skyscope/tiles.h"
 #include "../components/skyscope/today.h"
 #include "../components/skyscope/touch.h"
+#include "../components/skyscope/tour.h"
 #include "../components/skyscope/weather.h"
 #include "../components/skyscope/wifi_list.h"
 #include "../components/skyscope/pngrow.h"
@@ -367,6 +368,15 @@ static void test_offline() {
     offline::Tracker t;
     CHECK(!t.update(true, false, UINT32_MAX - 100));
     CHECK(t.update(true, false, AFTER_MS));
+  }
+  {
+    // Off a network for longer than the clock's 49.7 days: still offline as it comes around to where it was lost,
+    // not online for another AFTER_MS.
+    offline::Tracker t;
+    CHECK(!t.update(true, false, 5000));
+    CHECK(t.update(true, false, 5000 + AFTER_MS));
+    CHECK(t.update(true, false, 0x80000000u) && t.update(true, false, 4999) && t.update(true, false, 5001));
+    CHECK(t.update(true, false, 5000 + AFTER_MS / 2) && t.offline());
   }
   Settings s;
   s.map = SECTIONAL;
@@ -1795,7 +1805,27 @@ static void test_menu() {
       for (size_t i = at; i < menu::rows().size(); ++i)
         if (std::string(menu::rows()[i].key) == g.first_key) { at = i; ++found; break; }
     CHECK(found == menu::groups().size());
+    // Every row has its place under one heading: the rows a setting needs come after it in its own group.
+    auto group_of = [](const char *key) {
+      const char *name = "";
+      for (const auto &r : menu::rows()) {
+        if (const menu::Group *g = menu::group_starting(r)) name = g->name;
+        if (std::string(r.key) == key) return std::string(name);
+      }
+      return std::string();
+    };
+    CHECK(group_of("range_nm") == "Place" && group_of("sweep") == "Map" && group_of("radar_loop") == "Over the map");
+    CHECK(group_of("photos") == "Aircraft" && group_of("watch") == "Which aircraft");
+    CHECK(group_of("follow_track_min") == "Follow a plane" && group_of("refresh_s") == "Source");
+    CHECK(group_of("rotation") == "Screen" && group_of("password") == "Network");
+    for (const auto &r : menu::rows())
+      for (const char *need : r.needs) CHECK(group_of(need) == group_of(r.key));
   }
+  // A flag that is on or off is a switch; Units is neither, and keeps its arrows. A switch still steps.
+  CHECK(menu::switched(row("rings")) && menu::switched(row("bedtime")) && !menu::switched(row("metric")));
+  CHECK(!menu::switched(row("map")) && !menu::switched(row("range_nm")));
+  for (const auto &r : menu::rows())
+    if (menu::switched(r)) CHECK(menu::steps(r) && !menu::typed(r));
   // Rows follow the map: the phosphor on the radar only, place names on streets and imagery.
   st.map = RADAR;
   CHECK(menu::applies(row("tint"), st) && !menu::applies(row("place_names"), st) && !menu::applies(row("theme"), st));
@@ -1803,9 +1833,18 @@ static void test_menu() {
   CHECK(!menu::applies(row("tint"), st) && menu::applies(row("place_names"), st) && menu::applies(row("tile_scale"), st));
   st.map = SECTIONAL;
   CHECK(!menu::applies(row("tile_scale"), st) && menu::applies(row("map_brightness"), st));
-  // Bedtime's times show with bedtime on; the time it comes on again only with that on too.
+  // The weather radar goes over a map of tiles, not the scope; its loop shows only with it on.
+  st.map = RADAR;
+  CHECK(!menu::applies(row("radar_overlay"), st));
+  st.map = STREETS;
+  st.radar_overlay = false;
+  CHECK(menu::applies(row("radar_overlay"), st) && !menu::applies(row("radar_loop"), st));
+  st.radar_overlay = true;
+  CHECK(menu::applies(row("radar_loop"), st));
+  // Bedtime's times show with bedtime on; the time it comes on again only with that on too. The time zone always
+  // shows: the day's tally and the weather go by it too.
   st.bedtime = false;
-  CHECK(!menu::applies(row("bed_off"), st) && !menu::applies(row("timezone"), st));
+  CHECK(!menu::applies(row("bed_off"), st) && menu::applies(row("timezone"), st));
   st.bedtime = true;
   st.bed_wake = false;
   CHECK(menu::applies(row("bed_off"), st) && !menu::applies(row("bed_on"), st));
@@ -2647,6 +2686,97 @@ static void test_touch() {
   CHECK(gesture("swipe", 0, 0, 0, 0, 0).empty());
 }
 
+static void test_tour() {
+  using tour::Guide;
+  using tour::Seen;
+  Seen seen;
+  seen.planes = true;
+  Guide g;
+  g.start();
+  // The welcome waits for its key, whatever the glass shows.
+  CHECK(g.step() == tour::WELCOME && !g.look(seen, 1000) && !g.look(seen, 60000) && g.step() == tour::WELCOME);
+  CHECK(g.next(seen) && g.step() == tour::PLANE && !g.done());
+  CHECK(std::string(tour::words(tour::PLANE, seen).ask) == "Tap a plane.");
+  // A step waits for its touch as long as it takes.
+  CHECK(!g.look(seen, 70000) && !g.look(seen, 700000) && g.step() == tour::PLANE);
+  // The touch made: said at once, and the step stays while what it opened is open.
+  seen.card = true;
+  CHECK(g.look(seen, 701000) && g.done() && g.step() == tour::PLANE);
+  CHECK(!g.look(seen, 800000) && g.step() == tour::PLANE);
+  // Put away: the words stay a moment, then the next step.
+  seen.card = false;
+  CHECK(!g.look(seen, 800100) && !g.look(seen, 800100 + Guide::HOLD_MS - 1) && g.step() == tour::PLANE);
+  CHECK(g.look(seen, 800100 + Guide::HOLD_MS) && g.step() == tour::ADDRESS && !g.done());
+  // The address goes by itself and is in nobody's way: the next step does not wait for it.
+  seen.address = true;
+  CHECK(g.look(seen, 900000) && g.done());
+  CHECK(!g.look(seen, 900100) && g.look(seen, 900100 + Guide::HOLD_MS) && g.step() == tour::BRIGHTNESS);
+  seen.address = false;
+  // Opened again before the wait is over, the wait starts again.
+  seen.level = true;
+  CHECK(g.look(seen, 1000000));
+  seen.level = false;
+  CHECK(!g.look(seen, 1000100));
+  seen.level = true;
+  CHECK(!g.look(seen, 1001000));
+  seen.level = false;
+  CHECK(!g.look(seen, 1002000) && !g.look(seen, 1002000 + Guide::HOLD_MS - 1) && g.step() == tour::BRIGHTNESS);
+  CHECK(g.look(seen, 1002000 + Guide::HOLD_MS) && g.step() == tour::ZOOM);
+  // The key goes on without the touch, through every step to the goodbye and out.
+  const tour::Step rest[] = {tour::MAPS, tour::WEATHER, tour::TALLY, tour::MENU, tour::FINISH};
+  for (tour::Step next : rest) CHECK(g.next(seen) && g.step() == next && !g.over());
+  CHECK(!g.look(seen, 2000000) && g.step() == tour::FINISH);
+  CHECK(g.next(seen) && g.over() && !g.next(seen) && !g.look(seen, 2000001));
+  // The menu is the last touch: the goodbye comes once it is closed.
+  g.start();
+  while (g.step() != tour::MENU) g.next(seen);
+  seen.menu = true;
+  CHECK(g.look(seen, 5000) && !g.look(seen, 500000) && g.step() == tour::MENU);
+  seen.menu = false;
+  CHECK(!g.look(seen, 500100) && g.look(seen, 500100 + Guide::HOLD_MS) && g.step() == tour::FINISH);
+  // A wait that spans the clock's turn (ticks.h) is still that long.
+  g.start();
+  g.next(seen);
+  seen.card = true;
+  CHECK(g.look(seen, 0xFFFFFF00u));
+  seen.card = false;
+  CHECK(!g.look(seen, 0xFFFFFFF0u) && !g.look(seen, 100) && g.look(seen, 0xFFFFFFF0u + Guide::HOLD_MS));
+  CHECK(g.step() == tour::ADDRESS);
+
+  // A screen with only its radar has no map to swipe to: that step is left out, and its dot.
+  Seen bare;
+  bare.can_swipe = false;
+  CHECK(tour::touches(seen) == 8 && tour::touches(bare) == 7);
+  CHECK(tour::after(tour::ZOOM, seen) == tour::MAPS && tour::after(tour::ZOOM, bare) == tour::WEATHER);
+  CHECK(tour::touch_index(tour::WELCOME, seen) == -1 && tour::touch_index(tour::PLANE, seen) == 0);
+  CHECK(tour::touch_index(tour::WEATHER, seen) == 5 && tour::touch_index(tour::WEATHER, bare) == 4);
+  CHECK(tour::touch_index(tour::FINISH, seen) == 8 && tour::after(tour::FINISH, seen) == tour::STEPS);
+  // With no plane on the glass the first step says so instead of asking for a tap that cannot be made.
+  CHECK(std::string(tour::words(tour::PLANE, bare).ask).find("No plane") == 0);
+  // Every step has a name, a heading and something to do; only the steps with a touch can be made.
+  for (int s = 0; s < tour::STEPS; ++s) {
+    const tour::Words w = tour::words((tour::Step) s, seen);
+    CHECK(*tour::NAMES[s] && *w.title && *w.ask);
+  }
+  Seen all;
+  all.card = all.address = all.level = all.zooming = all.swiping = all.weather = all.tally = all.menu = true;
+  CHECK(!tour::made(tour::WELCOME, all) && !tour::made(tour::FINISH, all) && tour::made(tour::TALLY, all));
+  CHECK(!tour::open(tour::ADDRESS, all) && tour::open(tour::WEATHER, all));
+
+  // The setting: a new screen is shown the tour, and it is a setting like any other.
+  Settings s;
+  CHECK(s.tour);
+  JsonDocument change;
+  change["tour"] = false;
+  std::string error;
+  CHECK(apply(change.as<JsonObjectConst>(), s, error) && !s.tour);
+  change["tour"] = "yes";
+  CHECK(!apply(change.as<JsonObjectConst>(), s, error) && error == "tour" && !s.tour);
+  JsonDocument out;
+  to_json(s, out.to<JsonObject>());
+  CHECK(out["tour"].is<bool>() && out["tour"] == false);
+}
+
 static void test_firmware() {
   using namespace firmware;
   // Nothing to install: no start, nothing said.
@@ -3011,6 +3141,7 @@ int main(int argc, char **argv) {
   test_schedule();
   test_firmware();
   test_touch();
+  test_tour();
   test_pixels();
   test_pngrow();
   test_photos();

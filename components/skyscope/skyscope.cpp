@@ -198,6 +198,8 @@ void Skyscope::load_settings_() {
     std::string error;
     if (!apply(one.as<JsonObjectConst>(), settings_, error)) ESP_LOGW(TAG, "Stored setting %s skipped", error.c_str());
   }
+  // Settings stored before there was a tour are those of a screen long in use: it is not shown one unasked.
+  if (!doc["tour"].is<bool>()) settings_.tour = false;
 }
 
 void Skyscope::save_settings_() {
@@ -243,7 +245,8 @@ void Skyscope::use_settings_(const Settings &s) {
                              s.place_names != settings_.place_names;
   if (s.lat != settings_.lat || s.lon != settings_.lon) tracks_.clear();
   const bool new_zone = s.timezone != settings_.timezone;
-  const bool new_bedtime = s.bedtime != settings_.bedtime || s.bed_off != settings_.bed_off || s.bed_on != settings_.bed_on;
+  const bool new_bedtime =
+      s.bedtime != settings_.bedtime || s.bed_off != settings_.bed_off || s.bed_on != settings_.bed_on;
   settings_ = s;
   if (offline_) offline_settings_ = offline::shown(settings_, offline_card_);
   reshow_();
@@ -326,6 +329,7 @@ void Skyscope::restyle_() {
   lv_obj_set_style_text_color(lv_obj_get_child(card_follow_, 0), lv_color_hex(c.card), 0);
   last_status_ = 0;
   update_card_();
+  if (tour_) show_tour_();  // the tour's card in the new colors
 }
 
 void Skyscope::go_offline_(bool radio_only) {
@@ -366,6 +370,37 @@ void Skyscope::replan_locked_() {
   plan_ = plan_for_(shown_());
   shared_.plan = plan_;
   plan_rev_ = ++shared_.plan_rev;
+}
+
+// Everything the screen keeps in its flash erased (the settings, the Wi-Fi networks, the day's tally, the airspace
+// kept for a restart, Home Assistant's key: all of ESPHome's preferences), then a restart as a new screen. The screen
+// says so first and the worker rests, which also stops a download to the map card, so nothing is fetched or written
+// meanwhile; the card itself is left as it is.
+void Skyscope::factory_reset_() {
+  if (resetting_) return;
+  resetting_ = true;
+  ESP_LOGW(TAG, "Factory reset: everything the screen keeps is erased, and it restarts");
+  if (menu_) close_menu_();
+  close_weather_();
+  close_today_();
+  close_tour_();
+  end_preview_(false);
+  finish_swipe_();
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.updating = true;
+    shared_.stop_ask++;
+  }
+  update_status_(millis());
+  this->set_timeout("factory_reset", 1500, [this]() {
+#ifdef SKYSCOPE_TEST_API
+    // A test's mock and its lock on the fingers go too: they are kept in memory, not in the flash.
+    keep_divert_("");
+    keep_touch_lock_(0);
+#endif
+    global_preferences->reset();
+    App.safe_reboot();
+  });
 }
 
 // ---------------------------------------------------------------- component
@@ -555,7 +590,7 @@ void Skyscope::loop() {
   }
   // Offline, the map card found (or lost) since: the map from it, or the radar.
   if (radio_only != offline_ || (offline_ && card_mounted != offline_card_)) go_offline_(radio_only);
-  if (save_pending_ && (int32_t) (now - save_at_) >= 0) save_settings_();
+  if (save_pending_ && !resetting_ && (int32_t) (now - save_at_) >= 0) save_settings_();
 #ifdef SKYSCOPE_TEST_API
   touch_lock_tick_(now);
 #endif
@@ -577,6 +612,7 @@ void Skyscope::loop() {
   update_frame_();
   preview_tick_(now);
   swipe_tick_(now);
+  tour_tick_(now);
   update_planes_(now);
   if (now - last_tick_ >= GLIDE_FRAME_MS) {
     last_tick_ = now;
@@ -681,8 +717,9 @@ void Skyscope::build_ui_() {
   lv_obj_add_flag(dimmer_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(dimmer_, LV_OBJ_FLAG_SCROLLABLE);
   for (const lv_event_code_t code : {LV_EVENT_PRESSED, LV_EVENT_PRESSING, LV_EVENT_RELEASED})
-    lv_obj_add_event_cb(dimmer_, [](lv_event_t *e) { static_cast<Skyscope *>(lv_event_get_user_data(e))->on_dimmer_(e); },
-                        code, this);
+    lv_obj_add_event_cb(dimmer_, [](lv_event_t *e) {
+      static_cast<Skyscope *>(lv_event_get_user_data(e))->on_dimmer_(e);
+    }, code, this);
   // The level while it changes: a bar filled from the bottom, and the percentage.
   level_ = panel(screen);
   lv_obj_set_size(level_, ui::mm(6), height_ / 2);
@@ -882,7 +919,7 @@ void Skyscope::build_ui_() {
   setup_wifi_ = button_(setup_, "Choose a network here", LV_SIZE_CONTENT, ui::mm(8), -1, true);
   lv_obj_add_event_cb(setup_wifi_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
-    if (self->install_.busy() || !self->joining_.empty()) return;
+    if (self->install_.busy() || self->resetting_ || !self->joining_.empty()) return;
     self->open_menu_();
     self->open_picker_(PICKING_NETWORKS);
   }, LV_EVENT_CLICKED, this);
@@ -890,7 +927,7 @@ void Skyscope::build_ui_() {
   lv_obj_add_flag(setup_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(setup_, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
-    if (!self->install_.busy() && self->joining_.empty()) self->open_menu_();
+    if (!self->install_.busy() && !self->resetting_ && self->joining_.empty()) self->open_menu_();
   }, LV_EVENT_LONG_PRESSED, this);
 
   ui_built_ = true;
@@ -1552,7 +1589,11 @@ void Skyscope::update_status_(uint32_t now) {
 #ifdef USE_CAPTIVE_PORTAL
   portal = captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
 #endif
-  if (coprocessor_updating_) {
+  if (resetting_) {
+    title = "Starting over";
+    body = "Everything the screen keeps is being erased. It restarts in a moment as a new screen, and opens its "
+           "setup network.";
+  } else if (coprocessor_updating_) {
     title = "Updating the Wi-Fi chip";
     body = "Its firmware is being brought up to date with the screen's. The screen restarts by itself when it is done, "
            "in a minute or so.";
@@ -1596,7 +1637,8 @@ void Skyscope::update_status_(uint32_t now) {
   }
   set_shown(setup_, !title.empty());
   // While it asks for a network or looks for one: not while it restarts into one or updates.
-  set_shown(setup_wifi_, !offline_ && !online && !coprocessor_updating_ && !install_.busy() && joining_.empty());
+  set_shown(setup_wifi_, !offline_ && !online && !resetting_ && !coprocessor_updating_ && !install_.busy() &&
+                             joining_.empty());
   if (!title.empty()) {
     set_text(setup_title_, title);
     set_text(setup_body_, body);
@@ -1681,7 +1723,8 @@ void Skyscope::update_status_(uint32_t now) {
     status = (where.empty() ? std::string() : where + "  \xC2\xB7  ") + std::to_string(shown_count_) + " aircraft";
     // While the preferred exchange waits, how long it still waits. Where the planes come from is in the credits.
     if (first.blocked && providers::before(now, first.until))
-      status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until, now);
+      status += std::string("  \xC2\xB7  ") + feed::credit(preferred) + " again in " + feed::countdown(first.until,
+                                                                                                       now);
     // How long since the planes last came in, always: in the warning color once they are well out of date.
     status += "  \xC2\xB7  " + std::to_string((now - feed_at) / 1000) + " s ago";
     if (now - feed_at > 3 * 1000 * (uint32_t) settings_.refresh_s + 10000) color = colors::WARNING;
@@ -1907,7 +1950,7 @@ lv_obj_t *Skyscope::round_key_(lv_obj_t *parent, int across) {
   return b;
 }
 
-// A box for a symbol, centerd in its key, its parts drawn in it; none of them takes a finger from the key.
+// A box for a symbol, centered in its key, its parts drawn in it; none of them takes a finger from the key.
 static lv_obj_t *symbol_box(lv_obj_t *key, int side) {
   lv_obj_t *box = widgets::plain(key);
   lv_obj_set_size(box, side, side);
@@ -1937,6 +1980,11 @@ static lv_obj_t *stroke_line(lv_obj_t *box, lv_point_precise_t *points, int coun
   return line;
 }
 
+// A point of a symbol's line, at the nearest pixel: LVGL keeps a line's points whole on this glass.
+static lv_point_precise_t spot(float x, float y) {
+  return {(lv_value_precise_t) std::lround(x), (lv_value_precise_t) std::lround(y)};
+}
+
 // The stroke of a key's symbol, in proportion to it.
 static int symbol_stroke(int side) { return std::max(2, (int) std::lround(side / 13.0)); }
 
@@ -1956,9 +2004,9 @@ void Skyscope::draw_route_symbol_(lv_obj_t *key, int side) {
   const float gap = r + stroke;
   const float ux = turn_x - ax, uy = turn_y - ay, ul = std::hypot(ux, uy);
   const float vx = bx - turn_x, vy = by - turn_y, vl = std::hypot(vx, vy);
-  route_leg_[0] = {ax + ux / ul * gap, ay + uy / ul * gap};
-  route_leg_[1] = {turn_x, turn_y};
-  route_leg_[2] = {bx - vx / vl * gap, by - vy / vl * gap};
+  route_leg_[0] = spot(ax + ux / ul * gap, ay + uy / ul * gap);
+  route_leg_[1] = spot(turn_x, turn_y);
+  route_leg_[2] = spot(bx - vx / vl * gap, by - vy / vl * gap);
   stroke_line(box, route_leg_, 3, stroke);
 }
 
@@ -1971,8 +2019,8 @@ void Skyscope::draw_sight_symbol_(lv_obj_t *key, int side) {
   ring(box, c, c, std::max(1.5f, side * 0.08f), stroke, true);
   const float dx[4] = {0, 1, 0, -1}, dy[4] = {-1, 0, 1, 0};
   for (int i = 0; i < 4; ++i) {
-    sight_ticks_[i][0] = {c + dx[i] * inner, c + dy[i] * inner};
-    sight_ticks_[i][1] = {c + dx[i] * outer, c + dy[i] * outer};
+    sight_ticks_[i][0] = spot(c + dx[i] * inner, c + dy[i] * inner);
+    sight_ticks_[i][1] = spot(c + dx[i] * outer, c + dy[i] * outer);
     stroke_line(box, sight_ticks_[i], 2, stroke);
   }
 }
@@ -1985,14 +2033,14 @@ void Skyscope::draw_own_symbol_(lv_obj_t *key, int side) {
   const float r = side * 0.27f, cx = side * 0.42f, cy = side * 0.42f;
   ring(box, cx, cy, r, stroke, false);
   const float k = 0.7071f, from = r + stroke / 2.0f, to = side * 0.57f;
-  own_handle_[0] = {cx + k * from, cy + k * from};
-  own_handle_[1] = {cx + k * to, cy + k * to};
+  own_handle_[0] = spot(cx + k * from, cy + k * from);
+  own_handle_[1] = spot(cx + k * to, cy + k * to);
   stroke_line(box, own_handle_, 2, stroke);
   // The roof: a chevron in the glass, a little below its middle.
   const float w = r * 0.55f, rise = r * 0.45f, base = cy + rise * 0.45f;
-  own_roof_[0] = {cx - w, base};
-  own_roof_[1] = {cx, base - rise};
-  own_roof_[2] = {cx + w, base};
+  own_roof_[0] = spot(cx - w, base);
+  own_roof_[1] = spot(cx, base - rise);
+  own_roof_[2] = spot(cx + w, base);
   stroke_line(box, own_roof_, 3, std::max(1, stroke * 3 / 4));
 }
 

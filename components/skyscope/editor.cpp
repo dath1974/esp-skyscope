@@ -114,8 +114,10 @@ void Skyscope::open_editor_(Typing what, const std::string &title, const std::st
     self->defer([self]() { self->close_editor_(); });
   });
   editor_title_ = title_of(head, c.ink, title);
-  const char *done = what == TYPING_PLACE ? "Search" : what == TYPING_NETWORK ? "Next" : what == TYPING_PASSWORD ? "Join"
-                                                                                                                  : "Done";
+  const char *done = what == TYPING_PLACE      ? "Search"
+                     : what == TYPING_NETWORK  ? "Next"
+                     : what == TYPING_PASSWORD ? "Join"
+                                               : "Done";
   editor_done_key_ = button_(head, done, LV_SIZE_CONTENT, tall, -1, true);
   on_click(editor_done_key_, this, [](lv_event_t *e) { self_of(e)->editor_done_(); });
 
@@ -341,8 +343,9 @@ void Skyscope::open_picker_(Picking what) {
 
   if (what == PICKING_PLACES) {
     // Nominatim's terms: OpenStreetMap credited wherever its places are shown.
-    lv_obj_t *credit = widgets::text(picker_, ui::fonts.small, c.muted,
-                                     "Airports from the FAA, places from OpenStreetMap (\xC2\xA9 OpenStreetMap contributors)");
+    lv_obj_t *credit = widgets::text(
+        picker_, ui::fonts.small, c.muted,
+        "Airports from the FAA, places from OpenStreetMap (\xC2\xA9 OpenStreetMap contributors)");
     lv_obj_set_width(credit, lv_pct(100));
     lv_label_set_long_mode(credit, LV_LABEL_LONG_WRAP);
   } else {
@@ -459,7 +462,8 @@ void Skyscope::known_key_(int code) {
       changed = known_networks_->forget(i);
       forget_armed_ = -1;
       forget_armed_until_ = 0;
-      ESP_LOGI(TAG, "Forget network %d: %s, %d ms of the wait left", i + 1, changed ? "forgotten" : "refused", (int) left);
+      ESP_LOGI(TAG, "Forget network %d: %s, %d ms of the wait left", i + 1, changed ? "forgotten" : "refused",
+               (int) left);
     }
   } else {
     changed = known_networks_->move(i, action == KEY_UP ? -1 : 1);
@@ -518,7 +522,8 @@ void Skyscope::refresh_picker_() {
   if (picker_scan_) set_label(lv_obj_get_child(picker_scan_, 0), scanning_until_ ? "Looking..." : "Scan");
   lv_obj_update_layout(picker_line_);
   const int32_t tall = lv_obj_get_height(picker_line_);
-  if (tall > lv_obj_get_style_min_height(picker_line_, LV_PART_MAIN)) lv_obj_set_style_min_height(picker_line_, tall, 0);
+  if (tall > lv_obj_get_style_min_height(picker_line_, LV_PART_MAIN))
+    lv_obj_set_style_min_height(picker_line_, tall, 0);
 }
 
 void Skyscope::picker_pick_(int index) {

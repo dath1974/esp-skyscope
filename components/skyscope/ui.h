@@ -34,7 +34,7 @@ inline void pad_page(lv_obj_t *page, int pad) {
 }
 
 // A box along the top or bottom edge, aligned as LVGL aligns it (`align` one of the TOP_ or BOTTOM_ ones, `x` and `y`
-// from there). On round glass it is centerd instead, `y` in from the edge plus as far as its width needs to lie wholly
+// from there). On round glass it is centered instead, `y` in from the edge plus as far as its width needs to lie wholly
 // on the glass, and moved again whenever its size changes: a status that grows, a card with more rows.
 inline void place_on_edge(lv_obj_t *o, bool top, int gap) {
   const int in = glass::edge_inset(shape, lv_obj_get_width(o)) + gap;

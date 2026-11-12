@@ -2,7 +2,7 @@
 
 The screen serves its settings page at `/` and a small JSON API beside it. Both are open to anyone on your network, as
 an ESPHome device's own web server is, unless a password is set (**Password for this page** on the page, or **Web
-password** in the menu's Screen group): then the page and every request ask for it, as HTTP Basic with the user name
+password** in the menu's Network group): then the page and every request ask for it, as HTTP Basic with the user name
 `admin`. Back to the [README](../README.md).
 
 ```sh
@@ -16,7 +16,7 @@ curl -u admin:<password> http://<screen>/api/stats    # with a password set
 | Request | What it does |
 |---|---|
 | `GET /api/settings` | every setting, but the password: `password_set` says whether there is one |
-| `POST /api/settings` | changes the settings given in a JSON object, leaving the rest. A wrong value answers 400 with `{"error": "<key>"}` and changes nothing. `{"follow": "BAW286"}` follows a plane, `{"follow": ""}` stops; `{"password": "..."}` sets the password, `{"password": ""}` removes it |
+| `POST /api/settings` | changes the settings given in a JSON object, leaving the rest. A wrong value answers 400 with `{"error": "<key>"}` and changes nothing. `{"follow": "BAW286"}` follows a plane, `{"follow": ""}` stops; `{"password": "..."}` sets the password, `{"password": ""}` removes it; `{"tour": true}` shows the tour on the glass again |
 | `GET /api/status` | how the screen is doing ([below](#get-apistatus)) |
 | `GET /api/aircraft` | the planes of the last report |
 | `GET /api/stats` | what the screen has seen in its range today ([below](#get-apistats)) |
@@ -28,6 +28,7 @@ curl -u admin:<password> http://<screen>/api/stats    # with a password set
 | `GET /api/card` | the map card: mounted or why not, its size and free space, tiles read, written and failed, old tiles still being deleted, whether it needs formatting (`unformatted`), and the download in progress |
 | `POST /api/card` | the map card's actions ([below](#post-apicard)) |
 | `POST /api/reboot` | restarts the screen |
+| `POST /api/reset` | `{"factory": true}` erases everything the screen keeps (every setting, the Wi-Fi networks, the password, the day's tally, Home Assistant's key) and restarts it as a new screen on its setup network; the map card is left as it is. Any other body answers 400 and erases nothing |
 | `POST /api/debug` | for measuring only, never stored: `{"planes": false}` hides the planes |
 
 A watched plane in the settings is `{"id": "N12345", "color": "red"}`. The screen also accepts the British spelling,
@@ -91,7 +92,7 @@ along with the `source` field and the network changes.
 |---|---|
 | `POST /api/networks` | `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
 | `POST /api/touch` | a touch on the glass at the screen's own coordinates: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"` |
-| `GET /api/ui` | what the glass shows: the status line, a plane's card, an alert along the top, the brightness, the menu and its keyboard, the map a swipe went to, the weather page, the day's tally (`today`: its `line`, its three numbers in `stats`, its `lines` and its hours' `bars`), whether the emblem of the start is still up (`splash`) and how the last one ran (`splash_frames`, and `splash_gap_ms`, its longest wait between two frames), and where each plane is |
+| `GET /api/ui` | what the glass shows: the status line, a plane's card, an alert along the top, the brightness, the menu and its keyboard (and `ask`, the question before a restart or a factory reset), the tour's card (`tour`: its `step`, whether its touch was `done`, its words and keys), whether a factory reset is under way (`resetting`), the map a swipe went to, the weather page, the day's tally (`today`: its `line`, its three numbers in `stats`, its `lines` and its hours' `bars`), whether the emblem of the start is still up (`splash`) and how the last one ran (`splash_frames`, and `splash_gap_ms`, its longest wait between two frames), and where each plane is |
 | `GET /api/screenshot` | what the glass shows, as a BMP of its own pixels (16-bit RGB565, the screen's way up) |
 | `POST /api/test` | `{"divert": "http://<host>:<port>"}` sends every request to a public service to that server instead (as `/<server>/<path>`), from the restart it makes until power off or `{"divert": ""}`. `GET /api/status` says where (`divert`). `{"lock_touch_s": 900}` takes no notice of fingers on the glass for 900 seconds (and over a restart), so a touch cannot upset a test, while `/api/touch` goes on; the glass says so, and `{"lock_touch_s": 0}` ends it. `GET /api/status` says how long is left (`touch_locked_s`). `{"splash": true}` shows the emblem of the start again |
 | `POST /api/bench` | `{"runs": 3}` times decoding and drawing every tile of the map shown, each way of drawing in turn. `GET /api/bench` says whether it is `busy` and gives the `result` |

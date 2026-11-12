@@ -30,7 +30,8 @@ inline Pixel world(double lat, double lon, double zoom) {
 
 inline double meters_between(double lat1, double lon1, double lat2, double lon2) {
   const double p1 = radians(lat1), p2 = radians(lat2), dp = p2 - p1, dl = radians(lon2 - lon1);
-  const double a = std::sin(dp / 2) * std::sin(dp / 2) + std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
+  const double a =
+      std::sin(dp / 2) * std::sin(dp / 2) + std::cos(p1) * std::cos(p2) * std::sin(dl / 2) * std::sin(dl / 2);
   return 2 * EARTH_METERS * std::asin(std::min(1.0, std::sqrt(a)));
 }
 

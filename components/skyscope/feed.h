@@ -4,12 +4,14 @@
 // ...). Nothing here touches the network: http.cpp fetches the text, parse() reads it, so the tests run on a PC.
 #include <ArduinoJson.h>
 
+#include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "settings.h"
@@ -44,9 +46,9 @@ struct Flight {
 // of its own; such a plane sends no callsign, and its "address" names no aircraft (no photo, nothing to follow).
 inline bool made_up_address(const Flight &f) { return !f.hex.empty() && f.hex[0] == '~'; }
 
-// The URL of `feed` for planes within `radius_nm` of a place. Every one of them caps the radius at 250 nm.
+// The URL of `feed` for planes within `radius_nm` of a place. Every one of them caps the radius at FEED_REACH_NM.
 inline std::string url(Feed feed, double lat, double lon, int radius_nm, const std::string &receiver = "") {
-  radius_nm = std::max(1, std::min(250, radius_nm));
+  radius_nm = std::max(1, std::min(FEED_REACH_NM, radius_nm));
   char out[160];
   switch (feed) {
     case RECEIVER: {
@@ -96,8 +98,8 @@ inline std::string trimmed(const char *s, size_t most = 24) {
 
 // The fewest milliseconds between two requests that keep within every window a server announces in its
 // x-ratelimit-limit header, as Envoy writes it ("500, 4;w=1, 60;w=60, 500;w=86400": N requests in W seconds; the
-// first number alone is the default window's, which the list repeats); 0 when it names no window. 500 a day, as adsb.lol
-// announced it once, is one request every 173 seconds.
+// first number alone is the default window's, which the list repeats); 0 when it names no window. 500 a day, as
+// adsb.lol announced it once, is one request every 173 seconds.
 inline uint32_t min_interval_ms(const std::string &limit) {
   uint32_t most = 0;
   size_t at = 0;
@@ -130,8 +132,9 @@ inline std::string countdown(uint32_t at, uint32_t now) {
 constexpr double STALE_POSITION_S = 60;
 
 // The fields read of a plane, so one with fifty fields costs the memory of the ones we draw.
-constexpr const char *FIELDS[] = {"hex", "flight", "r", "t", "desc", "ownOp", "alt_baro", "gs", "track", "true_heading",
-                                  "baro_rate", "geom_rate", "squawk", "category", "lat", "lon", "seen_pos", "emergency"};
+constexpr const char *FIELDS[] = {"hex",       "flight",    "r",      "t",        "desc", "ownOp", "alt_baro", "gs",
+                                  "track",     "true_heading", "baro_rate", "geom_rate", "squawk", "category",
+                                  "lat",       "lon",       "seen_pos", "emergency"};
 inline JsonDocument plane_filter() {
   JsonDocument f;
   for (const char *key : FIELDS) f[key] = true;

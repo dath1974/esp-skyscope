@@ -47,6 +47,12 @@
 #                         check, build and test, then tag v<version>
 #   make release          push main and the tag, which publishes it
 #
+# A screen
+#   make factory-reset DEVICE=<address> [PASSWORD=<its web password>]
+#                         erase everything the screen keeps (its settings,
+#                         Wi-Fi networks, password and tally) and restart it
+#                         as a new screen; asks first
+#
 # Housekeeping
 #   make clean            remove what the build and tests leave behind
 #                         (the ESPHome toolchain is kept)
@@ -75,7 +81,7 @@ export MSG
 .PHONY: all firmware firmware-all firmware-flash firmware-esphome firmware-esphome-version \
 	test test-host test-python test-page test-markers emblem \
 	test-esp32 test-esp32-full test-esp32-mock test-esp32-soak test-esp32-public screenshots \
-	release-version release-tag release clean help
+	release-version release-tag release factory-reset clean help
 
 all: firmware test $(if $(DEVICE),test-esp32)
 
@@ -199,6 +205,29 @@ screenshots:
 	@test -n "$(DEVICE)" || \
 	  { echo "make screenshots DEVICE=<the screen's address> [ONLY=a,b]"; exit 2; }
 	tools/screenshots.py $(DEVICE) --port $(PORT) $(if $(ONLY),--only $(ONLY))
+
+# Everything the screen keeps erased (POST /api/reset), as its menu's Factory
+# reset does: asked first, since the screen forgets its Wi-Fi networks too and
+# comes back on its setup network. A screen off the network is reset from its
+# own menu (About, Factory reset). The web password reaches curl from the
+# environment, so that quotes in it are safe.
+factory-reset: override export PASSWORD := $(value PASSWORD)
+factory-reset:
+	@test -n "$(DEVICE)" || \
+	  { echo "make factory-reset DEVICE=<the screen's address>" \
+	    "[PASSWORD=<its web password>]"; exit 2; }
+	@printf '%s\n' "This erases everything the screen at $(DEVICE) keeps:" \
+	  "its settings and place, Wi-Fi networks, web password, the day's" \
+	  "tally and Home Assistant's key. It restarts as a new screen on its" \
+	  "setup network. The map card is left as it is."
+	@printf 'Erase it? [y/N] '; read a; test "$$a" = y || \
+	  { echo "Not reset"; exit 1; }
+	@curl -fsS -m 10 -X POST -H 'Content-Type: application/json' \
+	  $${PASSWORD:+-u "admin:$$PASSWORD"} -d '{"factory": true}' \
+	  "http://$(DEVICE)/api/reset" >/dev/null || \
+	  { echo "The screen did not take it (its address, or PASSWORD=...?)"; \
+	    exit 1; }
+	@echo "Erased: the screen restarts as new"
 
 # Only skyscope.yaml is committed, and only when it has no other changes.
 release-version:

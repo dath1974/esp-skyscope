@@ -40,7 +40,10 @@ static bool write_png(const char *path, int w, int h, const std::vector<uint8_t>
   for (int s = 24; s >= 0; s -= 8) z.push_back((adler >> s) & 0xFF);
   FILE *f = std::fopen(path, "wb");
   if (!f) return false;
-  auto be = [&](uint32_t v) { const uint8_t q[4] = {(uint8_t) (v >> 24), (uint8_t) (v >> 16), (uint8_t) (v >> 8), (uint8_t) v}; std::fwrite(q, 1, 4, f); };
+  auto be = [&](uint32_t v) {
+    const uint8_t q[4] = {(uint8_t) (v >> 24), (uint8_t) (v >> 16), (uint8_t) (v >> 8), (uint8_t) v};
+    std::fwrite(q, 1, 4, f);
+  };
   auto chunk = [&](const char *type, const std::vector<uint8_t> &data) {
     be((uint32_t) data.size());
     std::vector<uint8_t> all(type, type + 4);

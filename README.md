@@ -75,9 +75,14 @@ board).
    address in a browser on the same network.
 3. Search for a place (an airport, a town) or enter its latitude and longitude, choose a range and a map, and press
    **Save**. The map and the traffic appear within a few seconds.
+4. Over its first map the screen gives a short tour of what a finger does there, a touch at a time. **End tour** puts
+   it away; the menu's About group has it again.
 
 Every setting is on the web page and in the menu (a long press on the map), and the screen keeps them across restarts
 and updates. Tap the map to see the screen's address in the status line at the top.
+
+To start over, **Factory reset** (the menu's About group, the web page, or `make factory-reset DEVICE=<address>`)
+erases everything the screen keeps and restarts it as a new screen.
 
 ## Updates
 

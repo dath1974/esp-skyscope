@@ -3,8 +3,8 @@
 // object over the map, so thirty planes with their tracks and labels are one object.
 //
 // overlay.h places every plane on the frame (pixels, never a place) and says how far it flies in a minute, in pixels.
-// Between two reports a plane that glides goes on along its heading for at most GLIDE_MS, as a flight map does; one that
-// holds stands still until the next report.
+// Between two reports a plane that glides goes on along its heading for at most GLIDE_MS, as a flight map does; one
+// that holds stands still until the next report.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -68,6 +68,7 @@ struct Overlay {
 };
 
 struct Point { float x, y; };
+inline float radians(float degrees) { return degrees * 3.14159265f / 180.0f; }
 
 // How far `o`'s report is behind `now`, as far as a plane glides.
 inline uint32_t since(const Overlay &o, uint32_t now) {
@@ -82,7 +83,7 @@ inline Point at(const Overlay &o, const Plane &p, uint32_t now, float sx = 1, fl
 
 // The short line an arrow marker points along: from the dot's edge out by `length`, toward `heading`.
 inline std::array<Point, 2> heading_tick(Point c, float radius, float length, int heading) {
-  const float a = heading * 3.14159265f / 180.0f, s = std::sin(a), k = -std::cos(a);
+  const float a = radians(heading), s = std::sin(a), k = -std::cos(a);
   return {{{c.x + s * radius, c.y + k * radius}, {c.x + s * (radius + length), c.y + k * (radius + length)}}};
 }
 
@@ -93,9 +94,10 @@ inline constexpr float BAND_LIGHT[BANDS] = {0.5f, 0.75f, 1.0f, 1.35f, 1.7f};
 inline float band_light(int band) { return BAND_LIGHT[band >= 0 && band < BANDS ? band : 0]; }
 // The beam of a scope that sweeps: once around in SWEEP_MS, clockwise from north, its afterglow a trail of
 // SWEEP_TRAIL degrees behind it, drawn every SWEEP_FRAME_MS (on the clock, view.cpp's sweep: 18 steps a second
-// measured on the AMOLED 2.41 standing up with a few planes, of the 20 asked for). A plane it passes lights up and fades over AFTERGLOW
-// degrees of the turn. Every pixel of the trail changes each frame, so it is kept short: each is a see-through pixel to
-// draw again (about a microsecond each in PSRAM on an ESP32-S3) and to send to the panel, every frame.
+// measured on the AMOLED 2.41 standing up with a few planes, of the 20 asked for). A plane it passes lights up and
+// fades over AFTERGLOW degrees of the turn. Every pixel of the trail changes each frame, so it is kept short: each is
+// a see-through pixel to draw again (about a microsecond each in PSRAM on an ESP32-S3) and to send to the panel,
+// every frame.
 constexpr uint32_t SWEEP_MS = 4000, SWEEP_FRAME_MS = 50;
 constexpr float SWEEP_TRAIL = 10.0f, AFTERGLOW = 360.0f;
 // The beam's bearing at `now`, degrees from north, clockwise.
@@ -113,12 +115,17 @@ inline bool crossed(float was, float now, float at) { return was != now && behin
 inline float afterglow(float since) { return since >= AFTERGLOW ? 0.0f : 1.0f - since / AFTERGLOW; }
 
 struct Box { int x, y, w, h; };
-// The box around the wedge of a circle of radius `r` about `c`, from bearing `from` clockwise to bearing `to` (less than
-// a turn): its middle, its two ends and every quarter of north, east, south and west it passes.
+// The box around the wedge of a circle of radius `r` about `c`, from bearing `from` clockwise to bearing `to` (less
+// than a turn): its middle, its two ends and every quarter of north, east, south and west it passes.
 inline Box wedge_box(Point c, float r, float from, float to) {
-  auto at = [&](float b) { const float a = b * 3.14159265f / 180.0f; return Point{c.x + std::sin(a) * r, c.y - std::cos(a) * r}; };
+  auto at = [&](float b) { return Point{c.x + std::sin(radians(b)) * r, c.y - std::cos(radians(b)) * r}; };
   float x0 = c.x, y0 = c.y, x1 = c.x, y1 = c.y;
-  auto take = [&](Point p) { x0 = std::min(x0, p.x); y0 = std::min(y0, p.y); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y); };
+  auto take = [&](Point p) {
+    x0 = std::min(x0, p.x);
+    y0 = std::min(y0, p.y);
+    x1 = std::max(x1, p.x);
+    y1 = std::max(y1, p.y);
+  };
   const float span = std::fmod(to - from + 720.0f, 360.0f);
   take(at(from));
   take(at(from + span));
@@ -126,13 +133,13 @@ inline Box wedge_box(Point c, float r, float from, float to) {
   const int x = (int) std::floor(x0) - 2, y = (int) std::floor(y0) - 2;
   return {x, y, (int) std::ceil(x1) + 2 - x + 1, (int) std::ceil(y1) + 2 - y + 1};
 }
-inline bool overlaps(const Box &a, const Box &b);
 inline Box join(const Box &a, const Box &b) {
   const int x0 = std::min(a.x, b.x), y0 = std::min(a.y, b.y);
   return {x0, y0, std::max(a.x + a.w, b.x + b.w) - x0, std::max(a.y + a.h, b.y + b.h) - y0};
 }
 inline bool holds(const Box &outer, const Box &inner) {
-  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w &&
+         inner.y + inner.h <= outer.y + outer.h;
 }
 inline Box moved(const Box &b, float dx, float dy) {
   return {b.x + (int) std::floor(dx), b.y + (int) std::floor(dy), b.w + 1, b.h + 1};
@@ -153,9 +160,9 @@ inline Box label_box(Point c, int reach, int w, int h, int frame_w, int frame_h,
 // plane is drawn with a leader line back to it. The spots, in order: beside the plane (right, left), its corners, above
 // and below, then the same eight directions on rings `step` further out (LABEL_RINGS of them). Watched planes are
 // placed first, then the rest in the order given. A label with no clear spot is left out (`shown` false), as a pile of
-// text helps nobody; a watched plane's takes the spot it overlaps
-// least instead, so its label always shows. A label keeps the spot it had (`kept`) while that spot stays clear, so
-// labels hold still while their planes glide. On `round` glass a spot is inside the frame only inside its circle.
+// text helps nobody; a watched plane's takes the spot it overlaps least instead, so its label always shows. A label
+// keeps the spot it had (`kept`) while that spot stays clear, so labels hold still while their planes glide. On
+// `round` glass a spot is inside the frame only inside its circle.
 constexpr int LABEL_DIRECTIONS = 8, LABEL_RINGS = 6, LABEL_SPOTS = LABEL_DIRECTIONS * (LABEL_RINGS + 1), NO_SPOT = -1;
 
 struct Label {
@@ -175,11 +182,12 @@ inline bool overlaps(const Box &a, const Box &b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 inline long overlap_area(const Box &a, const Box &b) {
-  const int w = std::min(a.x + a.w, b.x + b.w) - std::max(a.x, b.x), h = std::min(a.y + a.h, b.y + b.h) - std::max(a.y, b.y);
+  const int w = std::min(a.x + a.w, b.x + b.w) - std::max(a.x, b.x);
+  const int h = std::min(a.y + a.h, b.y + b.h) - std::max(a.y, b.y);
   return w > 0 && h > 0 ? (long) w * h : 0;
 }
-// Spot `spot` of a label: direction spot % 8 (right, left, up-right, down-right, up-left, down-left, up, down), its near
-// edge or corner `reach + gap + ring * step` from the plane.
+// Spot `spot` of a label: direction spot % 8 (right, left, up-right, down-right, up-left, down-left, up, down), its
+// near edge or corner `reach + gap + ring * step` from the plane.
 inline Box spot_box(const Label &l, int spot, int gap, int step) {
   const int ring = spot / LABEL_DIRECTIONS, dir = spot % LABEL_DIRECTIONS;
   const int cx = (int) std::lround(l.c.x), cy = (int) std::lround(l.c.y);
@@ -251,7 +259,8 @@ inline std::vector<Placed> place_labels(const std::vector<Label> &labels, int fr
 // A leader line from a plane's marker to its label moved away: from the marker's edge toward the nearest point of the
 // box, ending on the box.
 inline std::array<Point, 2> leader(const Label &l, const Box &b) {
-  const Point near{std::max<float>(b.x, std::min<float>(l.c.x, b.x + b.w - 1)), std::max<float>(b.y, std::min<float>(l.c.y, b.y + b.h - 1))};
+  const Point near{std::max<float>(b.x, std::min<float>(l.c.x, b.x + b.w - 1)),
+                   std::max<float>(b.y, std::min<float>(l.c.y, b.y + b.h - 1))};
   const float dx = near.x - l.c.x, dy = near.y - l.c.y, d = std::sqrt(dx * dx + dy * dy);
   if (d <= l.reach) return {{near, near}};
   return {{{l.c.x + dx / d * l.reach, l.c.y + dy / d * l.reach}, near}};

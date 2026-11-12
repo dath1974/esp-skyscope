@@ -3,14 +3,14 @@
 // (BAW286), the flight number on a ticket (BA286, turned into its callsign by the airline's ICAO code below) or its
 // transponder's ICAO hex; a tap on a plane's card names it by its own. The worker asks an exchange for it by each of
 // these in turn (adsb.lol and adsb.fi both look a plane up worldwide by callsign, registration and hex), and once it is
-// found, follows its hex: the planes are asked for around it instead of around the place, the map moves with it, and the
-// saved place is left as it was.
+// found, follows its hex: the planes are asked for around it instead of around the place, the map moves with it, and
+// the saved place is left as it was.
 //
 // The exchanges hear only what their volunteers' receivers on the ground hear, so a plane crossing an ocean is out of
-// reach for hours. Meanwhile the screen carries it on along the great circle it was flying, at its last speed, and shows
-// it dimmed as an estimate until it is heard again (asked for by its hex every so often). A plane that has been seen in
-// the air and then sits on the ground, or is lost low and slow near the ground, has landed: following stops by itself,
-// and so it does when a plane has been lost for half a day.
+// reach for hours. Meanwhile the screen carries it on along the great circle it was flying, at its last speed, and
+// shows it dimmed as an estimate until it is heard again (asked for by its hex every so often). A plane that has been
+// seen in the air and then sits on the ground, or is lost low and slow near the ground, has landed: following stops by
+// itself, and so it does when a plane has been lost for half a day.
 //
 // Nothing here fetches or keeps the time itself (millis() is handed in), so the tests run on a PC.
 #include <algorithm>
@@ -150,7 +150,8 @@ inline std::string url(Feed feed, const Ask &a) {
   }
   const bool fi = feed == ADSB_FI;
   switch (a.by) {
-    case BY_CALLSIGN: return (fi ? "https://opendata.adsb.fi/api/v2/callsign/" : "https://api.adsb.lol/v2/callsign/") + id;
+    case BY_CALLSIGN:
+      return (fi ? "https://opendata.adsb.fi/api/v2/callsign/" : "https://api.adsb.lol/v2/callsign/") + id;
     case BY_REGISTRATION:
       return (fi ? "https://opendata.adsb.fi/api/v2/registration/" : "https://api.adsb.lol/v2/reg/") + id;
     default: return (fi ? "https://opendata.adsb.fi/api/v2/hex/" : "https://api.adsb.lol/v2/hex/") + id;
@@ -306,7 +307,8 @@ constexpr double SNAP = 0.15;
 inline bool suits(const geo::View &ahead, double lat, double lon, float heading) {
   const double half = std::min(ahead.width, ahead.height) / 2.0;
   const double h = geo::radians(heading);
-  const double spot_x = ahead.width / 2.0 - LEAD * half * std::sin(h), spot_y = ahead.height / 2.0 + LEAD * half * std::cos(h);
+  const double spot_x = ahead.width / 2.0 - LEAD * half * std::sin(h);
+  const double spot_y = ahead.height / 2.0 + LEAD * half * std::cos(h);
   const geo::Pixel p = ahead.point(lat, lon);
   return std::hypot(p.x - spot_x, p.y - spot_y) <= SNAP * half;
 }
@@ -314,7 +316,8 @@ inline bool suits(const geo::View &ahead, double lat, double lon, float heading)
 // The FAA's charts and the USGS map cover the United States alone: the lower 48, Alaska, Hawaii and Puerto Rico.
 inline bool in_united_states(double lat, double lon) {
   struct Box { double south, north, west, east; };
-  static constexpr Box boxes[] = {{24, 50, -125, -66}, {51, 72, -170, -129}, {18, 23, -161, -154}, {17.5, 18.6, -67.5, -65}};
+  static constexpr Box boxes[] = {
+      {24, 50, -125, -66}, {51, 72, -170, -129}, {18, 23, -161, -154}, {17.5, 18.6, -67.5, -65}};
   for (const Box &b : boxes)
     if (lat >= b.south && lat <= b.north && lon >= b.west && lon <= b.east) return true;
   return false;
@@ -638,7 +641,8 @@ inline Fit fit(const std::vector<geo::Place> &places, int w, int h, bool round) 
   const double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   out.center.lon = std::remainder(cx / geo::TILE_PX * 360.0 - 180.0, 360.0);
   out.center.lat = geo::degrees(std::atan(std::sinh(geo::PI * (1 - 2 * cy / geo::TILE_PX))));
-  // A map's zoom is rounded to a whole one (up as much as half a level) and a round glass has no corners: room for both.
+  // A map's zoom is rounded to a whole one (up as much as half a level) and a round glass has no corners: room for
+  // both.
   const double fill = round ? 0.45 : 0.65;
   const double zoom = std::log2(std::min(w * fill / std::max(x1 - x0, 1e-6), h * fill / std::max(y1 - y0, 1e-6)));
   const double nm = geo::meters_per_pixel(out.center.lat, zoom) * std::min(w, h) / 2 / geo::NM;
@@ -654,8 +658,8 @@ inline geo::View view_for(double lat, double lon, int range_nm, int w, int h) {
 constexpr int PLANE_RANGE_NM = 100;  // the Plane key's view around a plane whose speed is not known
 
 // How far a plane at `heading` crosses the glass between two steps of the view, as a share of half its shorter side:
-// from LEAD behind the middle (center_for) to KEEP of the way out to the edge ahead (off_center). Across a long glass it
-// has further to go than toward a short side; on round glass it is the same every way.
+// from LEAD behind the middle (center_for) to KEEP of the way out to the edge ahead (off_center). Across a long glass
+// it has further to go than toward a short side; on round glass it is the same every way.
 inline double step_share(int w, int h, bool round, bool has_heading, float heading) {
   if (round || !has_heading || w == h) return LEAD + KEEP;
   const double half = std::min(w, h) / 2.0;

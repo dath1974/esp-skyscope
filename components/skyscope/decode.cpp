@@ -74,7 +74,8 @@ template <typename T> struct Kept {
   T *get(bool in_internal) {
     T *&p = in_internal ? internal : psram;
     if (!p) {
-      void *room = heap_caps_malloc(sizeof(T), (in_internal ? MALLOC_CAP_INTERNAL : MALLOC_CAP_SPIRAM) | MALLOC_CAP_8BIT);
+      const uint32_t where = in_internal ? MALLOC_CAP_INTERNAL : MALLOC_CAP_SPIRAM;
+      void *room = heap_caps_malloc(sizeof(T), where | MALLOC_CAP_8BIT);
       if (room) p = new (room) T();
     }
     return p;
@@ -120,7 +121,8 @@ int png_row(PNGDRAW *row) {
   uint8_t *alpha = scratch.alpha + row->y * TILE;
   pngrow::convert(r, job.d->filter, job.d->table, &job.palette, scratch.color + row->y * TILE, alpha);
   // Whether it is see-through anywhere, looked at while the row is still at hand.
-  if (job.d->options.lean && job.d->opaque) job.d->opaque = std::all_of(alpha, alpha + w, [](uint8_t v) { return v == 255; });
+  if (job.d->options.lean && job.d->opaque)
+    job.d->opaque = std::all_of(alpha, alpha + w, [](uint8_t v) { return v == 255; });
   return 1;
 }
 
@@ -149,7 +151,8 @@ int jpeg_block(JPEGDRAW *j) {
   const Decoding &d = *static_cast<const Decoding *>(j->pUser);
   const bool plain = tiles::plain(d.filter);
   auto color_of = [&](uint16_t c) {
-    return d.table ? d.table[c] : plain ? c : tiles::paint(d.filter, tiles::red_of(c), tiles::green_of(c), tiles::blue_of(c));
+    if (d.table) return d.table[c];
+    return plain ? c : tiles::paint(d.filter, tiles::red_of(c), tiles::green_of(c), tiles::blue_of(c));
   };
   if (d.frame) {
     // Clipped to the tile and to the frame; a row of a plain map copied whole.
@@ -295,7 +298,8 @@ bool draw(const uint8_t *data, size_t size, uint16_t *frame, int width, int heig
         }
       }
     }
-    pixels::lay(frame, width, height, ox, oy, at.scale, {scratch.color, scratch.alpha, d.width, d.height, TILE, opaque});
+    const pixels::Tile tile{scratch.color, scratch.alpha, d.width, d.height, TILE, opaque};
+    pixels::lay(frame, width, height, ox, oy, at.scale, tile);
   }
   if (times) {
     times->decode_us = decoded - started;

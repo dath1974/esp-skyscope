@@ -45,7 +45,7 @@ inline std::string stamp(uint32_t minutes) {
   const unsigned d = doy - (153 * mp + 2) / 5 + 1, m = mp < 10 ? mp + 3 : mp - 9;
   const int64_t y = (int64_t) yoe + era * 400 + (m <= 2);
   const unsigned of_day = minutes % 1440;
-  char text[16];
+  char text[32];
   std::snprintf(text, sizeof(text), "%04d%02u%02u%02u%02u", (int) y, m, d, of_day / 60, of_day % 60);
   return text;
 }
@@ -61,8 +61,9 @@ inline std::vector<uint32_t> frames(uint32_t latest, bool loop) {
 
 inline std::string tile_url(const tiles::Key &k) {
   char text[160];
-  std::snprintf(text, sizeof(text), "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-%s/%u/%u/%u.png",
-                stamp(k.time).c_str(), k.z, (unsigned) k.x, (unsigned) k.y);
+  std::snprintf(text, sizeof(text),
+                "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-%s/%u/%u/%u.png",
+                stamp(k.time).c_str(), (unsigned) k.z, (unsigned) k.x, (unsigned) k.y);
   return text;
 }
 
@@ -91,7 +92,8 @@ inline tiles::Filter filter() {
 constexpr size_t MOST_OVERLAY_PIXELS = 600 * 1000;  // of all the loop's scans together: 1.2 MB of PSRAM at most
 // What a scan's runs reserve at first: more than 4 KB each, so the heap gives them PSRAM, not internal RAM.
 constexpr size_t RESERVE_RUNS = 1280, RESERVE_PIXELS = 2560;
-static_assert(RESERVE_RUNS * sizeof(uint32_t) > 4096 && RESERVE_PIXELS * sizeof(uint16_t) > 4096, "PSRAM's, not internal");
+static_assert(RESERVE_RUNS * sizeof(uint32_t) > 4096 && RESERVE_PIXELS * sizeof(uint16_t) > 4096,
+              "PSRAM's, not internal");
 struct Overlay {
   uint32_t scan = 0;
   std::vector<uint32_t> starts, lengths;  // each run: where it starts in the frame, and how many pixels
@@ -131,7 +133,7 @@ inline void apply(const Overlay &o, uint16_t *frame) {
 // "0810Z", the time of the scan shown, for the credits.
 inline std::string clock(uint32_t minutes) {
   char text[8];
-  std::snprintf(text, sizeof(text), "%02u%02uZ", (minutes % 1440) / 60, minutes % 60);
+  std::snprintf(text, sizeof(text), "%02u%02uZ", (unsigned) (minutes % 1440 / 60), (unsigned) (minutes % 60));
   return text;
 }
 }  // namespace sky::radar

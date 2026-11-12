@@ -1,8 +1,8 @@
 #pragma once
 // HTTPS GETs (and the odd POST) from the worker task: the whole body into PSRAM, checked against the certificate
 // bundle.
-#include <cstddef>
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -59,9 +59,9 @@ inline int max_age(const char *header) {
 // http://192.168.1.5:8095/tile.openstreetmap.org/9/150/192.png. Every public service is HTTPS; a plain http:// address
 // (a receiver on the network, the mock itself, one that cannot be found) is asked as it is.
 inline std::string diverted(const std::string &url, const std::string &origin) {
-  constexpr const char *HTTPS = "https://";
+  static constexpr char HTTPS[] = "https://";
   if (origin.empty() || url.rfind(HTTPS, 0) != 0) return url;
-  return origin + "/" + url.substr(8);
+  return origin + "/" + url.substr(sizeof(HTTPS) - 1);
 }
 // Every request to `origin` from now on ("" for none). Set as the screen starts, before the worker asks for anything.
 void divert_to(const std::string &origin);

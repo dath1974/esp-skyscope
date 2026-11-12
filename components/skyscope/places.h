@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <string>

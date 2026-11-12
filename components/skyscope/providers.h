@@ -86,7 +86,8 @@ class Providers {
     uint32_t soonest = MOST_WAIT_MS;
     for (const Feed f : order()) {
       State &s = states_[f];
-      if (s.blocked && !before(now, s.until)) s.blocked = false;  // its time is up: asked again, and on failing it waits
+      // Its time is up: asked again, and on failing it waits.
+      if (s.blocked && !before(now, s.until)) s.blocked = false;
       if (!s.blocked) {
         feed = f;
         return true;
@@ -94,7 +95,8 @@ class Providers {
       soonest = std::min(soonest, s.until - now);
       if (!fallback_) break;
     }
-    wait_ms = soonest == MOST_WAIT_MS ? 60000 : soonest;  // none to ask (a receiver without an address): looked at again
+    // None to ask at all (a receiver without an address): looked at again in a minute.
+    wait_ms = soonest == MOST_WAIT_MS ? 60000 : soonest;
     return false;
   }
   // A good answer from `f` at `now`: when to ask next, `refresh_ms` or less often while it announces a pace.
@@ -119,7 +121,8 @@ class Providers {
     } else if (a.retry_after_s > 0) {
       wait = (uint32_t) std::min<int64_t>((int64_t) a.retry_after_s * 1000, MOST_WAIT_MS);
     } else {
-      const uint32_t first = refused ? REFUSED_FIRST_MS : FAILED_FIRST_MS, most = refused ? REFUSED_MOST_MS : FAILED_MOST_MS;
+      const uint32_t first = refused ? REFUSED_FIRST_MS : FAILED_FIRST_MS;
+      const uint32_t most = refused ? REFUSED_MOST_MS : FAILED_MOST_MS;
       wait = std::min<uint64_t>((uint64_t) first << std::min(s.failures, 16), most);
     }
     ++s.failures;
@@ -147,8 +150,8 @@ class Providers {
     const uint32_t pace = feed::min_interval_ms(a.rate_limit);
     if (!pace) return;
     s.paced_ms = pace;
-    s.paced_until = now + (a.rate_reset_s > 0 ? (uint32_t) std::min<int64_t>((int64_t) a.rate_reset_s * 1000, MOST_WAIT_MS)
-                                              : PACE_HOLD_MS);
+    const int64_t quota_ms = (int64_t) a.rate_reset_s * 1000;
+    s.paced_until = now + (a.rate_reset_s > 0 ? (uint32_t) std::min<int64_t>(quota_ms, MOST_WAIT_MS) : PACE_HOLD_MS);
   }
   Feed preferred_ = ADSB_FI;
   bool fallback_ = true;

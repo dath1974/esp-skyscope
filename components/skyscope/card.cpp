@@ -66,8 +66,8 @@ bool write_all(int fd, const uint8_t *from, size_t n) {
 }
 }  // namespace
 
-// Clusters of 32 KB: a tile (most are 10 to 40 KB) wastes little, and the FAT of a large card stays small enough to read
-// its free space quickly.
+// Clusters of 32 KB: a tile (most are 10 to 40 KB) wastes little, and the FAT of a large card stays small enough to
+// read its free space quickly.
 constexpr size_t CLUSTER_BYTES = 32 * 1024;
 
 bool mount(const Config &c, std::string &error, bool format) {

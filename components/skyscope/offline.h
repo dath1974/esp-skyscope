@@ -27,7 +27,9 @@ class Tracker {
       lost_ = true;
       since_ = now;
     }
-    offline_ = now - since_ >= AFTER_MS;
+    // Once offline it stays so until a network is back: asked again each pass, the screen's clock (32 bits of
+    // milliseconds, ticks.h) would turn over after seven weeks off a network and say it had only just lost it.
+    if (!offline_) offline_ = now - since_ >= AFTER_MS;
     return offline_;
   }
   bool offline() const { return offline_; }

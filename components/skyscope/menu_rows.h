@@ -50,6 +50,7 @@ struct Row {
 inline const std::vector<Row> &rows() {
   using namespace keyboard;
   static const std::vector<Row> table = {
+      // Place: where the screen is and how far it looks.
       {.key = "place", .name = "Place", .kind = PLACE, .pad = WORDS,
        .hint = "An airport code (KJFK), an airport's name, a town or an address", .most = 60},
       {.key = "lat", .name = "Latitude", .kind = NUMBER, .pad = DECIMAL,
@@ -62,7 +63,60 @@ inline const std::vector<Row> &rows() {
         {"100", "100 NM"}, {"150", "150 NM"}, {"200", "200 NM"}, {"250", "250 NM"}, {"500", "500 NM"},
         {"1000", "1000 NM"}, {"2000", "2000 NM"}, {"3000", "3000 NM"}, {"5000", "5000 NM"}},
        ALL, WHOLE, " NM", "Nautical miles to the nearer edge, 1 to 5000; planes come from 250 NM around at most"},
-      {.key = "follow", .name = "Follow", .kind = TEXT, .pad = WORDS,
+      {.key = "weather_station", .name = "Weather station", .kind = TEXT, .pad = WORDS,
+       .hint = "A METAR station (KJFK) for the weather page, or none for the nearest to the place", .most = 4},
+
+      // Map: the map under the planes, and how it looks.
+      {"map", "Map", TEXT,
+       {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OSM"}, {"satellite", "Satellite"}, {"topo", "Topo"},
+        {"sectional", "Sectional"}, {"ifr_low", "IFR low"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
+      {.key = "custom_url", .name = "Custom tiles", .kind = TEXT, .pad = WORDS,
+       .hint = "A server's 256-pixel PNG or JPEG tiles, with {z}, {x} and {y}: https://example.com/{z}/{x}/{y}.png",
+       .most = 200},
+      {"theme", "Appearance", TEXT, {{"dark", "Dark"}, {"light", "Light"}}, TILE_MAPS},
+      {"map_brightness", "Map brightness", NUMBER,
+       {{"30", "30%"}, {"40", "40%"}, {"50", "50%"}, {"60", "60%"}, {"70", "70%"}, {"80", "80%"}, {"90", "90%"},
+        {"100", "100%"}},
+       TILE_MAPS, WHOLE, "%", "Percent of the map's light, 10 to 100"},
+      {"tile_scale", "Map text", NUMBER, {{"0", "Default"}, {"1", "Small"}, {"2", "Large"}}, DRAWN},
+      {"place_names", "Place names", FLAG, {}, NAMED},
+      {"tint", "Phosphor", TEXT, {{"green", "Green"}, {"amber", "Amber"}, {"blue", "Blue"}, {"white", "White"}}, SCOPE},
+      {"scope", "Scope", FLAG, {}, SCOPE},
+      {"sweep", "Beam sweeps", FLAG, {}, SCOPE},
+
+      // Over the map: what is drawn on top of it.
+      {"rings", "Range rings", FLAG, {}},
+      {"airspace", "Airspace", FLAG, {}},
+      {"radar_overlay", "Weather radar", FLAG, {}, TILE_MAPS},
+      {.key = "radar_loop", .name = "Radar loop", .kind = FLAG, .maps = TILE_MAPS, .needs = {"radar_overlay"}},
+
+      // Aircraft: how each plane is drawn.
+      {"marker", "Marker", TEXT, {{"type", "By type"}, {"plane", "Plane"}, {"arrow", "Arrow"}, {"dot", "Dot"}}},
+      {"label", "Labels", TEXT,
+       {{"auto", "Auto"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"}, {"full", "Full"},
+        {"scope", "Scope"}}},
+      {"by_altitude", "Color by altitude", FLAG, {}},
+      {"track_s", "Tracks", NUMBER, {{"0", "Off"}, {"30", "30 s"}, {"60", "1 min"}, {"120", "2 min"}, {"300", "5 min"}},
+       ALL, WHOLE, " s", "Seconds of track behind each plane, 0 to 300"},
+      {"glide", "Smooth motion", FLAG, {}},
+      {"photos", "Photos", FLAG, {}},
+
+      // Which aircraft: the planes shown, and the ones always shown.
+      {"most", "Most planes", NUMBER,
+       {{"5", "5"}, {"10", "10"}, {"15", "15"}, {"20", "20"}, {"30", "30"}, {"40", "40"}, {"60", "60"}},
+       ALL, WHOLE, "", "1 to 60"},
+      {.key = "alt_min", .name = "Lowest", .kind = NUMBER, .pad = WHOLE, .unit = " ft",
+       .hint = "Feet, 0 to 60000, and no higher than the highest"},
+      {.key = "alt_max", .name = "Highest", .kind = NUMBER, .pad = WHOLE, .unit = " ft",
+       .hint = "Feet, 0 to 60000, and no lower than the lowest"},
+      {"ground", "On the ground", FLAG, {}},
+      {.key = "watch", .name = "Watched", .kind = TEXT, .pad = WORDS,
+       .hint = "A registration, callsign or ICAO hex and a color (red, orange, amber, green, blue, purple), with a "
+               "comma between: N12345 red, BAW123 blue",
+       .most = 240},
+
+      // Follow a plane: one plane, wherever it flies.
+      {.key = "follow", .name = "Plane", .kind = TEXT, .pad = WORDS,
        .hint = "A plane to follow anywhere: its registration (N12345, G-EUPT), callsign (BAW286) or flight number "
                "(BA 286). Empty to stop",
        .most = 12},
@@ -73,57 +127,23 @@ inline const std::vector<Row> &rows() {
       {.key = "follow_track_min", .name = "Its track", .kind = NUMBER,
        .choices = {{"0", "Whole flight"}, {"15", "15 min"}, {"30", "30 min"}, {"60", "1 hour"}, {"120", "2 hours"},
                    {"240", "4 hours"}, {"480", "8 hours"}},
-       .pad = WHOLE, .unit = " min", .hint = "Minutes of the followed plane's track, up to 1440; 0 for its whole flight",
+       .pad = WHOLE, .unit = " min",
+       .hint = "Minutes of the followed plane's track, up to 1440; 0 for its whole flight",
        .needs = {"follow"}},
-      {"map", "Map", TEXT,
-       {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OSM"}, {"satellite", "Satellite"}, {"topo", "Topo"},
-        {"sectional", "Sectional"}, {"ifr_low", "IFR low"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
-      {.key = "custom_url", .name = "Custom tiles", .kind = TEXT, .pad = WORDS,
-       .hint = "A server's 256-pixel PNG or JPEG tiles, with {z}, {x} and {y}: https://example.com/{z}/{x}/{y}.png",
-       .most = 200},
-      {"theme", "Appearance", TEXT, {{"dark", "Dark"}, {"light", "Light"}}, TILE_MAPS},
-      {"tint", "Phosphor", TEXT, {{"green", "Green"}, {"amber", "Amber"}, {"blue", "Blue"}, {"white", "White"}}, SCOPE},
-      {"scope", "Scope", FLAG, {}, SCOPE},
-      {"sweep", "Beam sweeps", FLAG, {}, SCOPE},
-      {"map_brightness", "Map brightness", NUMBER,
-       {{"30", "30%"}, {"40", "40%"}, {"50", "50%"}, {"60", "60%"}, {"70", "70%"}, {"80", "80%"}, {"90", "90%"}, {"100", "100%"}},
-       TILE_MAPS, WHOLE, "%", "Percent of the map's light, 10 to 100"},
-      {"place_names", "Place names", FLAG, {}, NAMED},
-      {"tile_scale", "Map text", NUMBER, {{"0", "Default"}, {"1", "Small"}, {"2", "Large"}}, DRAWN},
-      {"rings", "Range rings", FLAG, {}},
-      {"airspace", "Airspace", FLAG, {}},
-      {"marker", "Marker", TEXT, {{"type", "By type"}, {"plane", "Plane"}, {"arrow", "Arrow"}, {"dot", "Dot"}}},
-      {"label", "Labels", TEXT,
-       {{"auto", "Auto"}, {"none", "None"}, {"callsign", "Callsign"}, {"altitude", "Altitude"}, {"full", "Full"},
-        {"scope", "Scope"}}},
-      {"track_s", "Tracks", NUMBER, {{"0", "Off"}, {"30", "30 s"}, {"60", "1 min"}, {"120", "2 min"}, {"300", "5 min"}},
-       ALL, WHOLE, " s", "Seconds of track behind each plane, 0 to 300"},
-      {"most", "Most planes", NUMBER,
-       {{"5", "5"}, {"10", "10"}, {"15", "15"}, {"20", "20"}, {"30", "30"}, {"40", "40"}, {"60", "60"}},
-       ALL, WHOLE, "", "1 to 60"},
-      {.key = "alt_min", .name = "Lowest", .kind = NUMBER, .pad = WHOLE, .unit = " ft",
-       .hint = "Feet, 0 to 60000, and no higher than the highest"},
-      {.key = "alt_max", .name = "Highest", .kind = NUMBER, .pad = WHOLE, .unit = " ft",
-       .hint = "Feet, 0 to 60000, and no lower than the lowest"},
-      {"by_altitude", "Color by altitude", FLAG, {}},
-      {"glide", "Glide", FLAG, {}},
-      {"ground", "On the ground", FLAG, {}},
-      {"photos", "Photos", FLAG, {}},
-      {.key = "watch", .name = "Watched", .kind = TEXT, .pad = WORDS,
-       .hint = "A registration, callsign or ICAO hex and a color (red, orange, amber, green, blue, purple), with a "
-               "comma between: N12345 red, BAW123 blue",
-       .most = 240},
+
+      // Source: where the planes come from.
       {"feed", "Source", TEXT,
        {{"adsb_fi", "adsb.fi"}, {"adsb_lol", "adsb.lol"}, {"receiver", "Network receiver"}, {"radio", "USB radio"}}},
-      {"fallback", "Use the other", FLAG, {}},
+      {"fallback", "Fall back", FLAG, {}},
       {.key = "receiver_url", .name = "Receiver address", .kind = TEXT, .pad = WORDS,
        .hint = "A receiver's aircraft.json: http://receiver.local/tar1090/data/aircraft.json", .most = 160},
       {"refresh_s", "Refresh", NUMBER, {{"5", "5 s"}, {"10", "10 s"}, {"15", "15 s"}, {"30", "30 s"}, {"60", "1 min"}},
        ALL, WHOLE, " s", "Seconds between reports, 3 to 300"},
-      {"metric", "Units", FLAG, {}},
+
+      // Screen: the glass itself, and its clock.
       {"brightness", "Brightness", NUMBER,
-       {{"5", "5%"}, {"10", "10%"}, {"20", "20%"}, {"30", "30%"}, {"40", "40%"}, {"50", "50%"}, {"60", "60%"}, {"70", "70%"},
-        {"80", "80%"}, {"90", "90%"}, {"100", "100%"}},
+       {{"5", "5%"}, {"10", "10%"}, {"20", "20%"}, {"30", "30%"}, {"40", "40%"}, {"50", "50%"}, {"60", "60%"},
+        {"70", "70%"}, {"80", "80%"}, {"90", "90%"}, {"100", "100%"}},
        ALL, WHOLE, "%", "Percent, 0 to 100"},
       {"sleep_min", "Screen off", NUMBER,
        {{"0", "Never"}, {"1", "1 min"}, {"5", "5 min"}, {"10", "10 min"}, {"15", "15 min"}, {"30", "30 min"},
@@ -135,6 +155,7 @@ inline const std::vector<Row> &rows() {
       {.key = "bed_wake", .name = "On again", .kind = FLAG, .needs = {"bedtime"}},
       {.key = "bed_on", .name = "On at", .kind = TEXT, .pad = CLOCK, .hint = "The time of day, 07:00",
        .needs = {"bedtime", "bed_wake"}},
+      // Always shown: bedtime goes by it, and so do the day's tally (from midnight) and the weather's times.
       {"timezone", "Time zone", TEXT,
        {{"UTC0", "UTC"}, {"EST5EDT,M3.2.0,M11.1.0", "US Eastern"}, {"CST6CDT,M3.2.0,M11.1.0", "US Central"},
         {"MST7MDT,M3.2.0,M11.1.0", "US Mountain"}, {"MST7", "US Arizona"}, {"PST8PDT,M3.2.0,M11.1.0", "US Pacific"},
@@ -143,30 +164,31 @@ inline const std::vector<Row> &rows() {
         {"EET-2EEST,M3.5.0/3,M10.5.0/4", "Eastern Europe"}, {"IST-5:30", "India"}, {"CST-8", "China"},
         {"JST-9", "Japan, Korea"}, {"AEST-10AEDT,M10.1.0,M4.1.0/3", "Sydney"},
         {"NZST-12NZDT,M9.5.0,M4.1.0/3", "New Zealand"}},
-       ALL, WORDS, "", "Another zone as a POSIX TZ string: CET-1CEST,M3.5.0,M10.5.0/3", {"bedtime"}},
-      // The web page's password: never shown, only whether there is one; typed anew, or left empty for none.
-      {.key = "password", .name = "Web password", .kind = TEXT, .pad = WORDS,
-       .hint = "The web page's and the API's password (the user is admin), up to 32 characters; empty for none",
-       .most = 32},
+       ALL, WORDS, "", "Another zone as a POSIX TZ string: CET-1CEST,M3.5.0,M10.5.0/3"},
+      {"metric", "Units", FLAG, {}},
       // Another way up restarts the screen when the menu is saved.
       {"rotation", "Rotation", NUMBER,
        {{"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
-      {.key = "weather_station", .name = "Station", .kind = TEXT, .pad = WORDS,
-       .hint = "A METAR station (KJFK) for the weather page, or none for the nearest to the place", .most = 4},
-      {"radar_overlay", "Radar", FLAG, {}},
-      {.key = "radar_loop", .name = "Radar loop", .kind = FLAG, .needs = {"radar_overlay"}},
+
+      // Network: the Wi-Fi network comes first in this group (menu.cpp), then the web page's password: never shown,
+      // only whether there is one; typed anew, or left empty for none.
+      {.key = "password", .name = "Web password", .kind = TEXT, .pad = WORDS,
+       .hint = "The web page's and the API's password (the user is admin), up to 32 characters; empty for none",
+       .most = 32},
   };
   return table;
 }
 
-// The menu's groups, each from the row of its first key to the next group's: a heading over its rows.
+// The menu's groups, each from the row of its first key to the next group's: a heading over its rows. The web page's
+// parts have the same names in the same order.
 struct Group {
   const char *first_key, *name;
 };
 inline const std::vector<Group> &groups() {
   static const std::vector<Group> table = {
-      {"place", "Where"}, {"map", "Map"},           {"marker", "Aircraft"},
-      {"feed", "Source"}, {"metric", "Screen"}, {"weather_station", "Weather"}};
+      {"place", "Place"},           {"map", "Map"},                {"rings", "Over the map"},
+      {"marker", "Aircraft"},       {"most", "Which aircraft"},    {"follow", "Follow a plane"},
+      {"feed", "Source"},           {"brightness", "Screen"},      {"password", "Network"}};
   return table;
 }
 // The group a row is the first of, or nullptr.
@@ -177,6 +199,8 @@ inline const Group *group_starting(const Row &row) {
 }
 
 inline bool steps(const Row &row) { return row.kind == FLAG || !row.choices.empty(); }
+// A flag that is on or off is a switch on the glass; Units, the one flag that is neither, keeps its arrows.
+inline bool switched(const Row &row) { return row.kind == FLAG && std::string(row.key) != "metric"; }
 inline bool typed(const Row &row) { return row.pad != keyboard::NONE; }
 inline size_t most_typed(const Row &row) {
   if (row.most) return row.most;
@@ -289,7 +313,8 @@ inline bool stepped(const Row &row, Settings &s, int step) {
         if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "receiver" &&
             s.receiver_url.empty())
           continue;
-        if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "radio" && !radio_fitted) continue;
+        if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "radio" && !radio_fitted)
+          continue;
         break;
       }
       if (next == at) return false;
@@ -345,7 +370,8 @@ inline bool typed_in(const Row &row, Settings &s, const std::string &typed) {
 inline const char *network_refused(const std::string &name, const std::string &password) {
   if (name.empty() || name.size() > 32) return "A network's name is 1 to 32 characters";
   if (password.empty() || (password.size() >= 8 && password.size() <= 63)) return nullptr;
-  if (password.size() == 64 && password.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos) return nullptr;
+  const bool hexadecimal = password.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
+  if (password.size() == 64 && hexadecimal) return nullptr;
   return "A password is 8 to 63 characters, or none for an open network";
 }
 }  // namespace sky::menu

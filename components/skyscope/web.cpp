@@ -22,6 +22,8 @@
 //                          screen's tiles, {"format": true} formats the card (FAT32, erasing it). An area is {"map",
 //                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
+//   POST /api/reset        {"factory": true} erases everything the screen keeps (the settings, the Wi-Fi networks, the
+//                          day's tally) and restarts it as a new screen; the map card is left as it is
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //   GET  /api/screenshot   with the test API: the glass as a BMP (probe.cpp)
 //   POST /api/test         with the test API: {"divert": "http://host:port"} sends every HTTPS request to a test's mock
@@ -111,7 +113,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     }
   }
   if (url == "/" || url == "/index.html") {
-    auto *response = request->beginResponse(200, "text/html", reinterpret_cast<const uint8_t *>(PAGE), sizeof(PAGE) - 1);
+    auto *response = request->beginResponse(200, "text/html", reinterpret_cast<const uint8_t *>(PAGE),
+                                            sizeof(PAGE) - 1);
     response->addHeader("Cache-Control", "no-cache");
     request->send(response);
     return;
@@ -346,7 +349,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       const bool answered = shared_.follower_for == shared_.settings.follow;
       fo["asked"] = shared_.settings.follow;
       fo["state"] = answered ? follow::PHASES[fl.phase(now_ms)] : "looking";
-      fo["status"] = answered ? follow::status(fl, shared_.settings.follow, now_ms) : "Looking for " + shared_.settings.follow;
+      const std::string &asked = shared_.settings.follow;
+      fo["status"] = answered ? follow::status(fl, asked, now_ms) : "Looking for " + asked;
       if (answered && fl.known()) {
         const geo::Place p = fl.where(now_ms);
         fo["hex"] = fl.hex();
@@ -657,7 +661,8 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     }
     const bool broken = unreadable || !in["divert"].is<const char *>();
     const std::string origin = broken ? std::string() : in["divert"].as<std::string>();
-    if (broken || (!origin.empty() && (origin.rfind("http://", 0) != 0 || origin.size() >= 96 || origin.back() == '/'))) {
+    if (broken || (!origin.empty() && (origin.rfind("http://", 0) != 0 || origin.size() >= 96 ||
+                                       origin.back() == '/'))) {
       request->send(400, "application/json", "{\"error\":\"divert\"}");
       return;
     }
@@ -725,6 +730,17 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     send_json(request, 200, out);
     return;
   }
+  if (url == "/api/reset" && post) {
+    // Only when it says what it means: a body sent here by mistake erases nothing.
+    JsonDocument in;
+    if (deserializeJson(in, body) || in["factory"] != true) {
+      request->send(400, "application/json", "{\"error\":\"factory\"}");
+      return;
+    }
+    request->send(200, "application/json", "{\"resetting\":true}");
+    this->defer([this]() { this->factory_reset_(); });
+    return;
+  }
   if (url == "/api/reboot" && post) {
     request->send(200, "application/json", "{\"ok\":true}");
     this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });
@@ -757,7 +773,7 @@ void Skyscope::firmware_changed_() {
   f.summary = info.summary;
   f.release_url = info.release_url;
   f.error = install_.error;
-  shared_.updating = install_.busy();
+  shared_.updating = install_.busy() || resetting_;
 #endif
 }
 
@@ -797,7 +813,7 @@ void Skyscope::on_ota_global_state(ota::OTAState state, float, uint8_t, ota::OTA
   }
   {
     std::lock_guard<std::mutex> guard(lock_);
-    shared_.updating = install_.busy();
+    shared_.updating = install_.busy() || resetting_;
   }
   if (!ui_built_) return;
   update_status_(millis());
@@ -839,10 +855,15 @@ void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
 void Skyscope::stats_json_(JsonObject out) const {
   const sightings::Book &b = shared_.book;
   const sightings::Day &d = b.today();
-  char date[12] = "";
-  if (d.date) std::snprintf(date, sizeof(date), "%04u-%02u-%02u", (unsigned) (d.date / 10000),
-                            (unsigned) (d.date / 100 % 100), (unsigned) (d.date % 100));
-  out["date"] = date;
+  // A day (20261110) as the API writes it, "2026-11-10"; "" for none.
+  auto dashed = [](uint32_t date) {
+    char text[16] = "";
+    if (date)
+      std::snprintf(text, sizeof(text), "%04u-%02u-%02u", (unsigned) (date / 10000 % 10000),
+                    (unsigned) (date / 100 % 100), (unsigned) (date % 100));
+    return std::string(text);
+  };
+  out["date"] = dashed(d.date);
   out["planes"] = d.planes;
   out["visits"] = d.visits;
   out["in_range"] = b.in_range();
@@ -874,10 +895,7 @@ void Skyscope::stats_json_(JsonObject out) const {
   JsonArray days = out["days"].to<JsonArray>();
   for (const auto &day : b.days()) {
     JsonObject o = days.add<JsonObject>();
-    char text[12];
-    std::snprintf(text, sizeof(text), "%04u-%02u-%02u", (unsigned) (day.date / 10000),
-                  (unsigned) (day.date / 100 % 100), (unsigned) (day.date % 100));
-    o["date"] = text;
+    o["date"] = dashed(day.date);
     o["planes"] = day.planes;
   }
   out["log"] = b.log().size();

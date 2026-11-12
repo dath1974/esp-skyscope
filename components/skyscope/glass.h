@@ -25,8 +25,8 @@ inline bool holds_box(const Shape &g, double x, double y, double w, double h) {
   return !g.round || (holds(g, x, y) && holds(g, x + w, y) && holds(g, x, y + h) && holds(g, x + w, y + h));
 }
 
-// How far in from the top (or the bottom) edge a box `w` wide, centerd across the glass, must sit for its corners to be
-// on it: none on a rectangle; on a circle, the more the wider the box, and half the circle for one wider than it.
+// How far in from the top (or the bottom) edge a box `w` wide, centered across the glass, must sit for its corners to
+// be on it: none on a rectangle; on a circle, the more the wider the box, and half the circle for one wider than it.
 inline int edge_inset(const Shape &g, int w) {
   if (!g.round) return 0;
   const double r = g.radius(), half = w / 2.0;

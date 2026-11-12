@@ -1,8 +1,8 @@
 #pragma once
 // One row of a PNG as PNGdec hands it over (its own bytes, unpacked by nothing), into a tile's colors through the
-// map's filter and how opaque each pixel is (decode.cpp). PNGdec does the inflating and the PNG filters a row at a time,
-// far quicker than a pixel at a time; what it leaves is laid out here, for every kind of PNG a map server sends at up to
-// 8 bits a channel (it refuses 16 bits and interlacing, which decode.cpp then gives to pngle).
+// map's filter and how opaque each pixel is (decode.cpp). PNGdec does the inflating and the PNG filters a row at a
+// time, far quicker than a pixel at a time; what it leaves is laid out here, for every kind of PNG a map server sends
+// at up to 8 bits a channel (it refuses 16 bits and interlacing, which decode.cpp then gives to pngle).
 //
 // A palette image (OpenStreetMap's, most charts') has its palette painted once a tile, exactly, rather than each pixel;
 // any other has each color through the filter's table (tiles.h paint_table), or painted when there is none.

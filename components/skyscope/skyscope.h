@@ -35,9 +35,12 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "lvgl.h"
@@ -62,6 +65,7 @@
 #include "sightings.h"
 #include "ticks.h"
 #include "tiles.h"
+#include "tour.h"
 #include "view.h"
 #include "weather.h"
 #ifdef USE_SKYSCOPE_RADIO
@@ -169,8 +173,9 @@ class Skyscope : public Component,
   // A change still waiting its few seconds to be saved is saved before any restart (the API's, a network joined, new
   // firmware): it would be lost otherwise. The radio is stopped too: a restart mid-stream hangs (radio.h).
   void on_safe_shutdown() override {
-    if (save_pending_) save_settings_();
-    save_stats_();
+    // Not on the way out of a factory reset: what was just erased would be written again.
+    if (save_pending_ && !resetting_) save_settings_();
+    if (!resetting_) save_stats_();
 #ifdef USE_SKYSCOPE_RADIO
     if (radio_) radio_->stop();
 #endif
@@ -334,9 +339,22 @@ class Skyscope : public Component,
   void refresh_menu_();
   void menu_step_(int index, int step);
   void menu_action_(int action);
-  void apply_menu_(const Settings &changed);  // the menu's changes, where there are any
+  void apply_menu_(const Settings &menu);  // the menu's changes, where there are any
   void refresh_menu_firmware_();  // the menu's firmware part, from what the update entity last said
   void refresh_menu_wifi_();      // the network the screen is on
+  // A question over everything (menu.cpp), asked before what cannot be undone: Cancel, and a key that does it.
+  void ask_(const std::string &title, const std::string &body, const char *yes, std::function<void()> &&then);
+  void close_ask_();
+  // Everything the screen keeps erased, and a restart as a new screen (skyscope.cpp): the menu's Factory reset, and
+  // POST /api/reset. The map card is left as it is.
+  void factory_reset_();
+  // The tour of what a finger does here (tour.h, tour.cpp): shown over the map while settings_.tour is set.
+  void tour_tick_(uint32_t now);
+  tour::Seen tour_seen_() const;
+  void open_tour_();
+  void show_tour_();  // the card's words, dots and keys for the step the tour is at
+  void close_tour_();
+  void end_tour_();   // taken or ended: not shown again until it is asked for
   // A key of the menu: a row's step back or on (row >= 0), or one of its actions (row < 0, MENU_* in menu.cpp). Its
   // face is `label`, or an arrow drawn (`arrow` one of menu.cpp's ARROW_*) where `label` is nullptr. A primary key is
   // filled with the accent.
@@ -353,7 +371,8 @@ class Skyscope : public Component,
   void refresh_editor_();
   void editor_done_();
   void close_editor_();
-  // A list to pick from, over the keyboard or the menu (editor.cpp): the places a search found, or the networks in reach.
+  // A list to pick from, over the keyboard or the menu (editor.cpp): the places a search found, or the networks in
+  // reach.
   enum Picking : uint8_t { PICKING_PLACES, PICKING_NETWORKS };
   void open_picker_(Picking what);
   void refresh_picker_();       // its line, from the search or the scan under way
@@ -592,7 +611,21 @@ class Skyscope : public Component,
   lv_obj_t *menu_fw_line_{nullptr}, *menu_fw_install_{nullptr}, *menu_fw_check_{nullptr};
   lv_obj_t *menu_save_{nullptr}, *menu_cancel_{nullptr}, *menu_up_{nullptr}, *menu_down_{nullptr};
   std::vector<lv_obj_t *> menu_fields_;  // by row: the field a tap types in, nullptr where the row is not typed
+  std::vector<lv_obj_t *> menu_switches_;  // by row: the switch of a flag that is on or off, nullptr for the others
   lv_obj_t *menu_wifi_{nullptr}, *menu_wifi_value_{nullptr};
+  // The menu's keys that are no setting: the pages, the tour, a restart and the factory reset.
+  lv_obj_t *menu_weather_{nullptr}, *menu_today_{nullptr}, *menu_tour_{nullptr}, *menu_restart_{nullptr};
+  lv_obj_t *menu_reset_{nullptr};
+  // The question asked over the menu, its keys, and what its yes does.
+  lv_obj_t *ask_page_{nullptr}, *ask_yes_{nullptr}, *ask_no_{nullptr}, *ask_title_{nullptr};
+  std::function<void()> ask_then_;
+  uint32_t ask_at_{0};  // when it came up: its keys take no tap in its first moment
+  bool resetting_{false};  // a factory reset is under way: the screen says so, and nothing more is stored
+  // The tour: where it is, its card and the card's parts, and when the glass was last looked at for it.
+  tour::Guide tour_guide_;
+  lv_obj_t *tour_{nullptr}, *tour_dots_{nullptr}, *tour_title_{nullptr}, *tour_body_{nullptr};
+  lv_obj_t *tour_end_{nullptr}, *tour_next_{nullptr};
+  uint32_t tour_looked_at_{0};
   // The keyboard: what is typed, for which row, and its objects. Its keys by index, as built for the page showing.
   lv_obj_t *editor_{nullptr}, *editor_title_{nullptr}, *editor_field_{nullptr}, *editor_text_{nullptr};
   lv_obj_t *editor_cursor_{nullptr}, *editor_hint_{nullptr}, *editor_keys_{nullptr}, *editor_done_key_{nullptr};

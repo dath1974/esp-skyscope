@@ -32,24 +32,27 @@ struct Source {
   const char *credit;  // what the screen credits, as the server's terms ask
   const char *labels = nullptr;  // a layer of place names over it (transparent PNG, same squares), where it has one
   const char *labels_credit = nullptr;  // what that layer credits, where it is not the map's own
-  // A scan of a printed chart (the FAA's): its words are part of the chart, at the chart's scale, so its tiles are drawn
-  // at their own pixels from the level nearest the view (the server's own resampling of the scan is smooth), never one
-  // level out and enlarged as a drawn map's are to make its words readable.
+  // A scan of a printed chart (the FAA's): its words are part of the chart, at the chart's scale, so its tiles are
+  // drawn at their own pixels from the level nearest the view (the server's own resampling of the scan is smooth),
+  // never one level out and enlarged as a drawn map's are to make its words readable.
   bool scanned = false;
   Night night = NIGHT_NONE;
 };
 #define SKYSCOPE_ESRI "https://server.arcgisonline.com/ArcGIS/rest/services/"
 
 // The FAA's charts and the USGS topographic map are United States government services and cover the United States.
-// The sectional is scanned at about zoom 10 and the IFR charts at 8 (high) and 10 (low); one level closer is still sharp.
+// The sectional is scanned at about zoom 10 and the IFR charts at 8 (high) and 10 (low); one level closer is still
+// sharp.
 #define SKYSCOPE_FAA "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/"
 // The tile servers behind the maps a person chooses (settings.h MapStyle): `streets` is one of two, by the appearance.
-enum SourceId : uint8_t { SRC_NONE, SRC_OSM, SRC_GRAY_LIGHT, SRC_GRAY_DARK, SRC_SATELLITE, SRC_TOPO, SRC_SECTIONAL, SRC_IFR_LOW,
-                          SRC_IFR_HIGH, SRC_CUSTOM };
+enum SourceId : uint8_t {
+  SRC_NONE, SRC_OSM, SRC_GRAY_LIGHT, SRC_GRAY_DARK, SRC_SATELLITE, SRC_TOPO, SRC_SECTIONAL, SRC_IFR_LOW, SRC_IFR_HIGH,
+  SRC_CUSTOM
+};
 inline constexpr Source SOURCES[] = {
     /* SRC_NONE (the radar) */ {"", 0, 0, ""},
-    /* SRC_OSM */ {"https://tile.openstreetmap.org/{z}/{x}/{y}.png", 0, 19, "\xC2\xA9 OpenStreetMap contributors", nullptr,
-                   nullptr, false, NIGHT_INVERT},
+    /* SRC_OSM */ {"https://tile.openstreetmap.org/{z}/{x}/{y}.png", 0, 19, "\xC2\xA9 OpenStreetMap contributors",
+                   nullptr, nullptr, false, NIGHT_INVERT},
     // Esri's gray canvas maps: streets and water, no place names (Esri keeps those in a layer of their own).
     /* SRC_GRAY_LIGHT */ {SKYSCOPE_ESRI "Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", 0, 16,
                       "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap",
@@ -58,14 +61,18 @@ inline constexpr Source SOURCES[] = {
                      "Esri, HERE, Garmin, \xC2\xA9 OpenStreetMap",
                      SKYSCOPE_ESRI "Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"},
     // The credits are Esri's own (each service's copyrightText), shortened.
-    /* SRC_SATELLITE */ {SKYSCOPE_ESRI "World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19, "Esri, Vantor, Earthstar Geographics",
+    /* SRC_SATELLITE */ {SKYSCOPE_ESRI "World_Imagery/MapServer/tile/{z}/{y}/{x}", 0, 19,
+                     "Esri, Vantor, Earthstar Geographics",
                      SKYSCOPE_ESRI "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
                      "HERE, Garmin, \xC2\xA9 OpenStreetMap"},
-    /* SRC_TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16, "USGS",
-                    nullptr, nullptr, false, NIGHT_INVERT},
-    /* SRC_SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA", nullptr, nullptr, true, NIGHT_DIM},
-    /* SRC_IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA", nullptr, nullptr, true, NIGHT_COLORS},
-    /* SRC_IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA", nullptr, nullptr, true, NIGHT_COLORS},
+    /* SRC_TOPO */ {"https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 0, 16,
+                    "USGS", nullptr, nullptr, false, NIGHT_INVERT},
+    /* SRC_SECTIONAL */ {SKYSCOPE_FAA "VFR_Sectional/MapServer/tile/{z}/{y}/{x}", 8, 11, "FAA", nullptr, nullptr, true,
+                         NIGHT_DIM},
+    /* SRC_IFR_LOW */ {SKYSCOPE_FAA "IFR_AreaLow/MapServer/tile/{z}/{y}/{x}", 7, 11, "FAA", nullptr, nullptr, true,
+                       NIGHT_COLORS},
+    /* SRC_IFR_HIGH */ {SKYSCOPE_FAA "IFR_High/MapServer/tile/{z}/{y}/{x}", 5, 9, "FAA", nullptr, nullptr, true,
+                        NIGHT_COLORS},
     // A server of one's own is taken as it is: nothing is known of it.
     /* SRC_CUSTOM */ {"", 0, 19, ""},
 };
@@ -132,7 +139,8 @@ inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   const int zoom = (int) std::floor(wanted + 0.5);
   out.view = geo::View(s.lat, s.lon, zoom, w, h);
   const Source &src = source(s);
-  // A drawn map one level out, enlarged twice, on a dense glass (its words readable); a scanned chart at its own pixels.
+  // A drawn map one level out, enlarged twice, on a dense glass (its words readable); a scanned chart at its own
+  // pixels.
   const int up = tile_scale >= 2 && !src.scanned ? 1 : 0;
   int tz = std::max(src.min_z, std::min(src.max_z, zoom - up));
   const int shift = (int) out.view.zoom - tz;
@@ -149,7 +157,8 @@ inline Plan plan(const Settings &s, int w, int h, int tile_scale) {
   for (int y = std::max(0, y0); y <= std::min(count - 1, y1); ++y)
     for (int x = x0; x <= x1; ++x) {
       const double d = std::hypot((x + 0.5) * span - cx, (y + 0.5) * span - cy);
-      near.push_back({d, {(uint8_t) source_id(s), (uint8_t) tz, (uint32_t) (((x % count) + count) % count), (uint32_t) y}});
+      const uint32_t column = (uint32_t) (((x % count) + count) % count);  // around the date line
+      near.push_back({d, {(uint8_t) source_id(s), (uint8_t) tz, column, (uint32_t) y}});
     }
   if (near.size() > MOST_TILES) return out;
   std::sort(near.begin(), near.end(), [](const Near &a, const Near &b) { return a.d < b.d; });
@@ -210,7 +219,8 @@ inline std::string frame_key(const Settings &s, const Plan &p) {
                 p.view.height, p.keys.size(), p.tile_z);
   std::string key = text;
   for (const Key &k : p.keys) {
-    std::snprintf(text, sizeof(text), "%u/%u/%u/%u ", k.z, (unsigned) k.x, (unsigned) k.y, k.layer);
+    std::snprintf(text, sizeof(text), "%u/%u/%u/%u ", (unsigned) k.z, (unsigned) k.x, (unsigned) k.y,
+                  (unsigned) k.layer);
     key += text;
   }
   return s.map == CUSTOM ? key + s.custom_url : key;
@@ -234,7 +244,9 @@ inline Rgb turned(int r, int g, int b) {
           fit((426 * ir + 1430 * ig - 856 * ib) / 1000)};
 }
 // 255 at or below `full`, 0 from `none`, a straight line between.
-inline int ramp(int v, int full, int none) { return v <= full ? 255 : v >= none ? 0 : 255 * (none - v) / (none - full); }
+inline int ramp(int v, int full, int none) {
+  return v <= full ? 255 : v >= none ? 0 : 255 * (none - v) / (none - full);
+}
 // NIGHT_COLORS: a pixel this gray (saturation, 0 to 255) or this dark (value) is paper or ink, and turned around; a
 // colored one keeps its color, lifted to at least COLOR_VALUE, so it stands out on the dark paper.
 constexpr int GRAY_FULL = 50, GRAY_NONE = 110, INK_FULL = 70, INK_NONE = 120, COLOR_VALUE = 190;

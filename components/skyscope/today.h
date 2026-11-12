@@ -3,6 +3,7 @@
 // midnight (sightings.h), as the web page's Today in range tells it. Plain C++, so the tests read it on a PC.
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -84,7 +85,8 @@ inline std::vector<Line> lines(const sightings::Book &book, bool metric) {
       out.push_back({PLAIN, count(d.watched, "watched plane", "watched planes") + ", " +
                                 count(d.emergencies, "emergency", "emergencies")});
   }
-  auto record = [&](const char *label, const sightings::Record &r, const char *format, double amount, const char *unit) {
+  auto record = [&](const char *label, const sightings::Record &r, const char *format, double amount,
+                    const char *unit) {
     if (!r.set) return;
     std::snprintf(value, sizeof(value), format, amount, unit);
     out.push_back({PLAIN, std::string(label) + "  " + r.name + ", " + value, label, r.name, value});

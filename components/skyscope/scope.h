@@ -1,6 +1,6 @@
 #pragma once
-// What is drawn over the map once a frame: range rings and a compass rose around its middle, on the radar or over a map,
-// and under them the airspace and runways (airspace.h).
+// What is drawn over the map once a frame: range rings and a compass rose around its middle, on the radar or over a
+// map, and under them the airspace and runways (airspace.h).
 #include "lvgl.h"
 #include "airspace.h"
 #include "geo.h"

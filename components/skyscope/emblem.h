@@ -38,7 +38,8 @@ constexpr float HAZE = 0.07f, HAZE_TO = 0.8f;
 constexpr int BLADES = 3;
 constexpr float BLADE_ROOT = 0.05f, BLADE_TIP = 0.585f, BLADE_LONG = BLADE_TIP - BLADE_ROOT;
 constexpr float BLADE_WIDE = 0.074f, BLADE_SWEEP = 0.034f;
-constexpr float BLADE_LEAD = 1.12f, BLADE_TRAIL = 0.88f;  // how much of its breadth lies ahead of its middle, and behind
+// How much of its breadth lies ahead of its middle, and behind.
+constexpr float BLADE_LEAD = 1.12f, BLADE_TRAIL = 0.88f;
 constexpr float BAND_FROM = 0.845f, BAND_TO = 0.905f;     // the painted band, along the blade (0 root, 1 tip)
 // The hub: a dome lit from the upper left, a fine line around its cap.
 constexpr float HUB = 0.1f, HUB_CAP = 0.56f, HUB_LINE = 0.07f;
@@ -218,7 +219,8 @@ class Emblem {
       glow += RIM_BLOOM_LIGHT * std::exp(-off_rim * 1.6f) * (r > RIM ? std::max(0.0f, 1 - off_rim / 2.4f) : 1.0f);
       soft[i] = (uint8_t) std::lround(std::min(1.0f, glow) * 255);
       float line = cover(std::fabs(r - RIM) - RIM_STROKE / 2, unit);
-      for (const float ring : RINGS) line = std::max(line, RING_LIGHT * cover(std::fabs(r - ring) - RING_STROKE / 2, unit));
+      for (const float ring : RINGS)
+        line = std::max(line, RING_LIGHT * cover(std::fabs(r - ring) - RING_STROKE / 2, unit));
       stroke[i] = (uint8_t) std::lround(line * 255);
     }
     const int half = size / 2;  // size is even: the middle lies between four pixels
@@ -248,8 +250,8 @@ class Emblem {
         uint8_t *to = &base_[(size_t) row * size];
         for (int i = 0; i < half; ++i)
           for (const int x : {half + i, half - 1 - i}) {
-            const int lit = row_soft[i] ? std::max(0, row_soft[i] + (DITHER[row & 3][x & 3] * 7 - 52) / 16) : 0;
-            to[x] = (uint8_t) std::max<int>(std::min(255, lit), row_stroke[i]);
+            const int glow = row_soft[i] ? std::max(0, row_soft[i] + (DITHER[row & 3][x & 3] * 7 - 52) / 16) : 0;
+            to[x] = (uint8_t) std::max<int>(std::min(255, glow), row_stroke[i]);
           }
       }
     }
@@ -290,8 +292,8 @@ class Emblem {
           // The pixel in the plane's own size, its nose up.
           const float dx = (x + 0.5f - cx) * pixel, dy = (y + 0.5f - cy) * pixel;
           const float px = dx * hc + dy * hs, py = -dx * hs + dy * hc;
-          const float soft = std::max(0.0f, 1 - far(px, py) / BLIP_HALO);
-          const float alpha = std::max(cover(plane_distance(px, py), pixel), soft * soft * 0.3f);
+          const float fringe = std::max(0.0f, 1 - far(px, py) / BLIP_HALO);
+          const float alpha = std::max(cover(plane_distance(px, py), pixel), fringe * fringe * 0.3f);
           blip_masks_[i][(size_t) (y - box.y) * box.w + (x - box.x)] = (uint8_t) (alpha * 255 + 0.5f);
         }
     }
@@ -331,7 +333,7 @@ class Emblem {
     if (!ready()) return;
     if (changed) changed->clear();
     const bool whole = out != last_out_ || stride != last_stride_;
-    const float middle = size_ / 2.0f, unit = 1 / radius_;
+    const float middle = size_ / 2.0f;
     const uint16_t scope = rgb565(colors_.scope), blade = rgb565(colors_.blade);
     const uint32_t strength = (uint32_t) (std::clamp(light, 0.0f, 1.0f) * 256);
     if (whole) {

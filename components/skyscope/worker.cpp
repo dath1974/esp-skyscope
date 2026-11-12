@@ -33,8 +33,9 @@ namespace {
 // a photo. So a map swiped back to, or the next step of a plane followed, is there without the network or the card.
 constexpr size_t CACHE_BYTES = 3 * 1024 * 1024, CACHE_MOST_BYTES = 12 * 1024 * 1024;
 constexpr size_t CACHE_HEADROOM = 8 * 1024 * 1024;
-// PSRAM the cache leaves free for the rest of the screen: the frames, the feed, the planes' trails. Something that finds
-// none aborts, so a board with little to spare (the LCD 2.8B, whose glass's frames take much of it) keeps fewer tiles.
+// PSRAM the cache leaves free for the rest of the screen: the frames, the feed, the planes' trails. Something that
+// finds none aborts, so a board with little to spare (the LCD 2.8B, whose glass's frames take much of it) keeps fewer
+// tiles.
 constexpr size_t PSRAM_SPARE = 1024 * 1024;
 constexpr uint32_t TILE_TTL_MS = 24 * 3600 * 1000;
 constexpr size_t MOST_TILE_BYTES = 512 * 1024, MOST_FEED_BYTES = 768 * 1024;
@@ -201,7 +202,8 @@ std::vector<places::Found> find_places(const std::string &q, http::Body &body, c
   auto ask = [&](const std::string &url) {
     body.clear();
     const http::Result r = http::get(url, body, MOST_REPLY_BYTES, agent, "application/json");
-    if (r.status != 200 && why.empty()) why = "The search had no answer (" + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")";
+    if (r.status != 200 && why.empty())
+      why = "The search had no answer (" + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")";
     return r.status == 200;
   };
   const char *text = nullptr;
@@ -249,7 +251,8 @@ std::shared_ptr<weather::Report> find_weather(const Settings &settings, http::Bo
       if (r.status == 204) body.clear();
       return true;
     }
-    note("No answer from the weather service (" + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")");
+    const std::string why = r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error;
+    note("No answer from the weather service (" + why + ")");
     return false;
   };
   auto text = [&]() { return reinterpret_cast<const char *>(body.data); };
@@ -431,7 +434,8 @@ void Skyscope::worker_() {
       error = r.error;
       // adsb.lol has answered the routeset with 201 Created, and of late with 201 and nothing at all.
       const char *text = reinterpret_cast<const char *>(body.data);
-      answered = (r.status == 200 || r.status == 201) && follow::read_routeset(text, body.size, doc, plane, route, error);
+      answered = (r.status == 200 || r.status == 201) &&
+                 follow::read_routeset(text, body.size, doc, plane, route, error);
       body.clear();
       if (!answered) {
         routes_down_until = (millis() + ROUTES_DOWN_MS) | 1;
@@ -763,7 +767,8 @@ void Skyscope::worker_() {
         const tiles::Key key = job.at(card_state.next);
         body.clear();
         ui::worker_phase = ui::TILE_FETCH;
-        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
+        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_,
+                                         "image/png,image/jpeg");
         ui::worker_phase = ui::IDLE;
         const bool empty = r.status == 404 || r.status == 204;
         if (r.status == 200 || empty) {
@@ -823,7 +828,8 @@ void Skyscope::worker_() {
       follow_asks = follow::asks(saved.follow, saved.follow_hex);
       follow_next = 0;
       follow_due = millis();
-      if (!follow_for.empty()) ESP_LOGI(TAG, "Following %s: %u ways to ask", follow_for.c_str(), (unsigned) follow_asks.size());
+      if (!follow_for.empty())
+        ESP_LOGI(TAG, "Following %s: %u ways to ask", follow_for.c_str(), (unsigned) follow_asks.size());
       route_for.clear();
       route_due = millis();
       {
@@ -858,7 +864,8 @@ void Skyscope::worker_() {
         } else {
           space_out();
           ui::worker_phase = ui::FEED_FETCH;
-          const http::Result r = http::get(follow::url(exchange, ask), body, MOST_FEED_BYTES, agent_, "application/json");
+          const http::Result r = http::get(follow::url(exchange, ask), body, MOST_FEED_BYTES, agent_,
+                                           "application/json");
           ui::worker_phase = ui::IDLE;
           exchange_at = millis() | 1;
           std::vector<feed::Flight> flights;
@@ -868,8 +875,10 @@ void Skyscope::worker_() {
                           feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, 16);
           body.clear();
           if (!ok) {
-            providers.failed(exchange, millis(), providers::Answer{r.status, r.retry_after_s, r.rate_reset_s, r.rate_limit, error});
-            ESP_LOGW(TAG, "Following %s: %s did not answer (%s)", follow_for.c_str(), feed::credit(exchange), error.c_str());
+            providers.failed(exchange, millis(), providers::Answer{r.status, r.retry_after_s, r.rate_reset_s,
+                                                                   r.rate_limit, error});
+            ESP_LOGW(TAG, "Following %s: %s did not answer (%s)", follow_for.c_str(), feed::credit(exchange),
+                     error.c_str());
             follow_due = millis() + 5000;
           } else {
             const feed::Flight *found = follow::pick(flights);
@@ -1018,8 +1027,8 @@ void Skyscope::worker_() {
     };
     const int radius_nm = std::max(1, (int) std::ceil(plan.view.reach_meters() / geo::NM * 1.05));
     char place[64];
-    std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm, (int) settings.feed,
-                  (int) settings.fallback);
+    std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm,
+                  (int) settings.feed, (int) settings.fallback);
     const std::string key = place + settings.receiver_url;
     if (key != feed_key) {
       feed_key = key;
@@ -1071,7 +1080,8 @@ void Skyscope::worker_() {
           feed_due = done;
         }
       } else {
-        // Following a plane: the planes around it, out to the view's farthest corner from it, as far as the exchanges go.
+        // Following a plane: the planes around it, out to the view's farthest corner from it, as far as the exchanges
+        // go.
         double ask_lat = settings.lat, ask_lon = settings.lon;
         int ask_nm = radius_nm;
         if (center.on && follower.known()) {
@@ -1096,7 +1106,8 @@ void Skyscope::worker_() {
           // As many planes as the largest piece of PSRAM holds, with as much again to spare for their words.
           const size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / sizeof(feed::Flight) / 2;
           ok = feed::parse(reinterpret_cast<const char *>(body.data), body.size, doc, flights, error, room, &simulated);
-          if (ok && flights.size() == room) ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
+          if (ok && flights.size() == room)
+            ESP_LOGW(TAG, "Only %u planes of the reply kept: no room for more", (unsigned) room);
           if (ok) see_followed(flights);
           if (ok) sight(flights, center.on && follower.known());
           if (ok) overlay::keep_showable(flights, settings, plan.view, KEEP_EXTRA);
@@ -1116,8 +1127,9 @@ void Skyscope::worker_() {
           shared_.feed_simulated = simulated && source == RECEIVER;
         } else {
           const uint32_t left = providers.failed(source, done, answer);
-          ESP_LOGW(TAG, "%s: %s (HTTP %d), left alone for %u s%s", feed::credit(source), providers.state(source).error.c_str(),
-                   r.status, (unsigned) (left / 1000), r.rate_limit.empty() ? "" : (" (its limits: " + r.rate_limit + ")").c_str());
+          const std::string limits = r.rate_limit.empty() ? "" : " (its limits: " + r.rate_limit + ")";
+          ESP_LOGW(TAG, "%s: %s (HTTP %d), left alone for %u s%s", feed::credit(source),
+                   providers.state(source).error.c_str(), r.status, (unsigned) (left / 1000), limits.c_str());
           // The next exchange in the list at once, if there is one free; else when the first one is.
           feed_due = done;
         }
@@ -1297,7 +1309,8 @@ void Skyscope::worker_() {
       } else if (!g.tile) {
         ui::worker_phase = ui::TILE_FETCH;
         const int64_t from = esp_timer_get_time();
-        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_, "image/png,image/jpeg");
+        const http::Result r = http::get(tiles::url(settings, key), body, MOST_TILE_BYTES, agent_,
+                                         "image/png,image/jpeg");
         ui::worker_phase = ui::IDLE;
         const bool empty = r.status == 404 || r.status == 204;
         if (r.status == 200) {
@@ -1327,11 +1340,13 @@ void Skyscope::worker_() {
     };
     // A tile's bytes painted into `frame` where `p` puts it; false (with `error`) for bytes that cannot be read, which
     // are not kept, so the next try fetches them again.
-    auto paint_tile = [&](Cached *tile, const tiles::Plan &p, const tiles::Key &key, uint16_t *frame, std::string &error) {
+    auto paint_tile = [&](Cached *tile, const tiles::Plan &p, const tiles::Key &key, uint16_t *frame,
+                          std::string &error) {
       const geo::TileOrigin at = geo::tile_origin(p.view, key.z, key.x, key.y);
       decode::Times t;
       ui::worker_phase = ui::TILE_DECODE;
-      const bool drawn = decode::draw(tile->data, tile->size, frame, width, height, at, tiles::filter_of(settings), error, &t);
+      const bool drawn = decode::draw(tile->data, tile->size, frame, width, height, at, tiles::filter_of(settings),
+                                      error, &t);
       ui::worker_phase = ui::IDLE;
       if (drawn) {
         (t.png ? times.png : times.jpeg).add(t.decode_us);
@@ -1557,7 +1572,8 @@ void Skyscope::worker_() {
       shared_.frames_again = frames_again;
     }
     // The first tile due, nearest the middle first; one that failed waits its turn while the others load.
-    auto due = std::find_if(pending.begin(), pending.end(), [&](const Pending &p) { return (int32_t) (millis() - p.due) >= 0; });
+    auto due = std::find_if(pending.begin(), pending.end(),
+                            [&](const Pending &p) { return (int32_t) (millis() - p.due) >= 0; });
     if (due != pending.end()) {
       Pending &job = *due;
       const tiles::Key key = plan.keys[job.index];
@@ -1582,7 +1598,8 @@ void Skyscope::worker_() {
         if (!fetched_failed) ++job.unreadable;
         ++job.failures;
         given_up = job.unreadable >= TILE_UNREADABLE_MOST;
-        const uint32_t wait = std::min<uint32_t>(TILE_RETRY_MOST_MS, TILE_RETRY_FIRST_MS << std::min(job.failures - 1, 5));
+        const uint32_t doubled = TILE_RETRY_FIRST_MS << std::min(job.failures - 1, 5);
+        const uint32_t wait = std::min<uint32_t>(TILE_RETRY_MOST_MS, doubled);
         ESP_LOGW(TAG, "Tile %u/%u/%u%s: %s; %s", key.z, (unsigned) key.x, (unsigned) key.y, key.layer ? " (names)" : "",
                  error.c_str(), given_up ? "given up" : ("again in " + std::to_string(wait / 1000) + " s").c_str());
         if (given_up) {
@@ -1613,7 +1630,8 @@ void Skyscope::worker_() {
         if (missing) shared_.card.missing++;
         if (drawn || missing) shared_.tiles_done++;
         if (!drawn && !missing) shared_.tile_error = error.empty() ? std::string("tile server") : error;
-        else if (pending.empty() || std::none_of(pending.begin(), pending.end(), [](const Pending &p) { return p.failures; }))
+        else if (pending.empty() || std::none_of(pending.begin(), pending.end(),
+                                                 [](const Pending &p) { return p.failures; }))
           shared_.tile_error.clear();
         shared_.frame_rev++;
       }
@@ -1663,7 +1681,8 @@ void Skyscope::worker_() {
                          return std::find(frames.begin(), frames.end(), o.scan) == frames.end();
                        }),
                        overlays.end());
-        auto known = std::find_if(overlays.begin(), overlays.end(), [&](const radar::Overlay &o) { return o.scan == scan; });
+        auto known = std::find_if(overlays.begin(), overlays.end(),
+                                  [&](const radar::Overlay &o) { return o.scan == scan; });
         if (known != overlays.end() && (scan != radar_shown || !radar_drawn)) {
           // A scan drawn before: what it changed, put back over the map.
           {
@@ -1720,7 +1739,8 @@ void Skyscope::worker_() {
               o.lengths.reserve(radar::RESERVE_RUNS);
               o.pixels.reserve(radar::RESERVE_PIXELS);
               if (used < radar::MOST_OVERLAY_PIXELS &&
-                  radar::difference(base_frame_, clean_frame_, (size_t) width * height, radar::MOST_OVERLAY_PIXELS - used, o)) {
+                  radar::difference(base_frame_, clean_frame_, (size_t) width * height,
+                                    radar::MOST_OVERLAY_PIXELS - used, o)) {
                 o.scan = scan;
                 overlays.push_back(std::move(o));
               }

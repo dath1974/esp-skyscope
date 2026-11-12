@@ -1,6 +1,6 @@
 #pragma once
-// Plane symbols drawn once and stamped many times. A plane was a dozen triangles, and LVGL drew each one (with its halo,
-// twenty-four) through a mask every time a plane was drawn: some 25 ms of a radar frame. Here a kind's outline
+// Plane symbols drawn once and stamped many times. A plane was a dozen triangles, and LVGL drew each one (with its
+// halo, twenty-four) through a mask every time a plane was drawn: some 25 ms of a radar frame. Here a kind's outline
 // (shapes.h) is rasterized once per kind, size and heading step into an alpha mask (anti-aliased, 4 x 4 samples a
 // pixel), and view.cpp draws the mask in the plane's color, which LVGL blends in one pass over its few hundred pixels.
 #include <algorithm>
@@ -45,7 +45,9 @@ struct Mask {
   std::vector<uint8_t> alpha;  // size * size, 0 to 255
 };
 
-inline int heading_step(int heading) { return ((heading < 0 ? 0 : heading) % 360 + HEADING_STEP / 2) / HEADING_STEP % (360 / HEADING_STEP); }
+inline int heading_step(int heading) {
+  return ((heading < 0 ? 0 : heading) % 360 + HEADING_STEP / 2) / HEADING_STEP % (360 / HEADING_STEP);
+}
 
 // Whether `x`, `y` is inside a convex part of `n` corners, wound either way.
 inline bool inside(const shapes::Point *p, int n, float x, float y) {
@@ -77,7 +79,8 @@ inline Mask render(float length, int step, shapes::Kind kind = shapes::AIRLINER)
   m.alpha.assign((size_t) m.size * m.size, 0);
   const float mid = m.size / 2.0f * SAMPLES, scale = length * SAMPLES;
   // In the kind's own frame (x right, y forward), then turned: forward is north at heading 0, up on the glass.
-  const float a = (shapes::TURNS[kind] ? step * HEADING_STEP : 0) * 3.14159265f / 180.0f, sn = std::sin(a), k = std::cos(a);
+  const float a = (shapes::TURNS[kind] ? step * HEADING_STEP : 0) * 3.14159265f / 180.0f;
+  const float sn = std::sin(a), k = std::cos(a);
   const shapes::Outline outline = shapes::outline(kind);
   for (int i = 0; i < outline.count; ++i) {
     const shapes::Part &part = outline.parts[i];

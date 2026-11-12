@@ -99,7 +99,8 @@ inline void line(uint16_t *frame, int fw, int fh, double ax, double ay, double b
 }
 
 // Four RGB565 pixels mixed by weights summing to 256.
-inline uint16_t mix4(uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint32_t wa, uint32_t wb, uint32_t wc, uint32_t wd) {
+inline uint16_t mix4(uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint32_t wa, uint32_t wb, uint32_t wc,
+                     uint32_t wd) {
   const uint32_t r = ((a >> 11) * wa + (b >> 11) * wb + (c >> 11) * wc + (d >> 11) * wd) >> 8;
   const uint32_t g = ((a >> 5 & 0x3F) * wa + (b >> 5 & 0x3F) * wb + (c >> 5 & 0x3F) * wc + (d >> 5 & 0x3F) * wd) >> 8;
   const uint32_t bl = ((a & 0x1F) * wa + (b & 0x1F) * wb + (c & 0x1F) * wc + (d & 0x1F) * wd) >> 8;
@@ -119,9 +120,13 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
     for (int y = y0; y < y1; ++y) {
       uint16_t *out = frame + y * width;
       const uint16_t *c = colors + (y - oy) * stride;
+      if (tile.opaque) {
+        std::copy(c + (x0 - ox), c + (x1 - ox), out + x0);
+        continue;
+      }
+      // Only here: an opaque tile may come with no alphas at all.
       const uint8_t *a = alphas + (y - oy) * stride;
-      if (tile.opaque) std::copy(c + (x0 - ox), c + (x1 - ox), out + x0);
-      else for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
+      for (int x = x0; x < x1; ++x) out[x] = blend(out[x], c[x - ox], a[x - ox]);
     }
     return;
   }
@@ -133,7 +138,8 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
       uint16_t *out = frame + y * width;
       for (int x = x0; x < x1; ++x) {
         const int tx = std::min(tw - 1, (int) ((x - ox + 0.5) * step));
-        out[x] = tile.opaque ? colors[ty * stride + tx] : blend(out[x], colors[ty * stride + tx], alphas[ty * stride + tx]);
+        const int at = ty * stride + tx;
+        out[x] = tile.opaque ? colors[at] : blend(out[x], colors[at], alphas[at]);
       }
     }
     return;
@@ -142,12 +148,14 @@ inline void lay(uint16_t *frame, int width, int height, int ox, int oy, double s
   const int32_t step = (int32_t) std::lround(256.0 / scale);
   for (int y = y0; y < y1; ++y) {
     const int32_t sy = (int32_t) std::lround(((y - oy) + 0.5) * 256.0 / scale) - 128;
-    const int ya = std::max(0, std::min(th - 1, (int) (sy >> 8))), yb = std::max(0, std::min(th - 1, (int) (sy >> 8) + 1));
+    const int ya = std::max(0, std::min(th - 1, (int) (sy >> 8)));
+    const int yb = std::max(0, std::min(th - 1, (int) (sy >> 8) + 1));
     const uint32_t fy = sy < 0 ? 0 : (uint32_t) (sy & 0xFF);
     uint16_t *out = frame + y * width;
     int32_t sx = (int32_t) std::lround(((x0 - ox) + 0.5) * 256.0 / scale) - 128;
     for (int x = x0; x < x1; ++x, sx += step) {
-      const int xa = std::max(0, std::min(tw - 1, (int) (sx >> 8))), xb = std::max(0, std::min(tw - 1, (int) (sx >> 8) + 1));
+      const int xa = std::max(0, std::min(tw - 1, (int) (sx >> 8)));
+      const int xb = std::max(0, std::min(tw - 1, (int) (sx >> 8) + 1));
       const uint32_t fx = sx < 0 ? 0 : (uint32_t) (sx & 0xFF);
       const uint32_t wa = (256 - fx) * (256 - fy) >> 8, wb = fx * (256 - fy) >> 8, wc = (256 - fx) * fy >> 8;
       const uint32_t wd = 256 - wa - wb - wc;

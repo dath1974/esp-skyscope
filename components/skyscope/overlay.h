@@ -4,8 +4,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "feed.h"
@@ -47,7 +51,8 @@ class Tracks {
   void update(const std::vector<feed::Flight> &flights, uint32_t now) {
     for (const auto &f : flights) {
       auto &places = seen_[f.hex];
-      if (places.empty() || places.back().lat != f.lat || places.back().lon != f.lon) places.push_back({now, f.lat, f.lon});
+      const bool moved = places.empty() || places.back().lat != f.lat || places.back().lon != f.lon;
+      if (moved) places.push_back({now, f.lat, f.lon});
     }
     for (auto it = seen_.begin(); it != seen_.end();) {
       auto &places = it->second;
@@ -85,7 +90,8 @@ inline int watch_color(const feed::Flight &f, const std::vector<Watch> &watch) {
 // The planes the frame shows: within the altitudes, on the ground only when asked, inside the frame (on round glass,
 // inside its circle, so a plane in a corner nobody sees takes no place from one they do), the closest to its middle
 // first, at most `most`; then every watched plane inside the frame, whatever the rest says.
-inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &flights, const Settings &s, const geo::View &view) {
+inline std::vector<const feed::Flight *> shown(const std::vector<feed::Flight> &flights, const Settings &s,
+                                               const geo::View &view) {
   std::vector<std::pair<double, const feed::Flight *>> near;
   std::vector<const feed::Flight *> watched;
   const glass::Shape frame{view.width, view.height, view.round};
@@ -163,7 +169,8 @@ inline std::string sight_text(const geo::Sight &s, bool metric) {
   } else {
     if (s.elevation < 0) std::snprintf(part, sizeof(part), "%s, below the horizon, ", geo::compass_point(s.bearing));
     else
-      std::snprintf(part, sizeof(part), "%s, %ld\xC2\xB0 up, ", geo::compass_point(s.bearing), std::lround(s.elevation));
+      std::snprintf(part, sizeof(part), "%s, %ld\xC2\xB0 up, ", geo::compass_point(s.bearing),
+                    std::lround(s.elevation));
     out = part + distance_text(s.meters, metric);
   }
   if (s.nearing && s.closest_meters < SIGHT_PASS_NM * geo::NM && s.closest_s < SIGHT_PASS_S && s.closest_s >= 30 &&
@@ -279,7 +286,7 @@ inline std::string label_of(const feed::Flight &f, LabelKind kind, bool metric) 
 // Where a plane goes in a minute on the frame, in pixels: its heading and ground speed at the view's zoom.
 inline std::pair<int, int> velocity(const feed::Flight &f, const geo::View &view) {
   if (f.on_ground || !f.has_speed || !f.has_heading) return {0, 0};
-  const double per_minute = f.speed * 0.514444 * 60 / geo::meters_per_pixel(f.lat, view.zoom);
+  const double per_minute = f.speed * geo::NM / 60 / geo::meters_per_pixel(f.lat, view.zoom);  // knots: NM an hour
   const double a = geo::radians(f.heading);
   return {(int) std::lround(std::sin(a) * per_minute), (int) std::lround(-std::cos(a) * per_minute)};
 }

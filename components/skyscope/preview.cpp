@@ -103,8 +103,8 @@ void Skyscope::release() {
 #endif
 
 bool Skyscope::can_pinch_() const {
-  return ui_built_ && !menu_ && !splash_ && !asleep_ && (settings_.located || following_()) && !install_.busy() && joining_.empty() &&
-         lv_obj_has_flag(setup_, LV_OBJ_FLAG_HIDDEN);
+  return ui_built_ && !menu_ && !splash_ && !asleep_ && (settings_.located || following_()) && !install_.busy() &&
+         joining_.empty() && lv_obj_has_flag(setup_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void Skyscope::begin_preview_() {

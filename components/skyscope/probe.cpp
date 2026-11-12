@@ -5,8 +5,8 @@
 //                     it takes
 //   GET  /api/ui      what the glass shows: the status line, the plane's card, the brightness level, the menu (its
 //                     rows, values and keys, where each key is), its keyboard (the text, the hint and every key) and
-//                     the list over it (its line and items), the map a swipe went to, and where each plane is, to
-//                     touch them by
+//                     the list over it (its line and items), the question it asks before a restart or a reset, the
+//                     tour's card, the map a swipe went to, and where each plane is, to touch them by
 //   GET  /api/screenshot  what the glass shows, as a picture: a BMP of the screen's own pixels (16-bit, top row first),
 //                     the screen's way up, for docs/screens.md's pictures (tools/screenshots.py)
 //
@@ -121,6 +121,18 @@ void Skyscope::describe_ui_(JsonObject out) {
   if (shown(level_)) out["level"] = text_of(level_text_);
   out["picked"] = picked_;
   if (swipe_name_) out["swipe"] = text_of(swipe_name_);  // the map a swipe went to, until it is planned
+  out["resetting"] = resetting_;  // a factory reset is under way
+  if (tour_) {
+    // The tour's card: the step it is at and whether its touch was made, its words, and its keys.
+    JsonObject t = out["tour"].to<JsonObject>();
+    t["step"] = tour::NAMES[tour_guide_.step()];
+    t["done"] = tour_guide_.done();
+    t["shown"] = shown(tour_);
+    t["title"] = text_of(tour_title_);
+    t["body"] = text_of(tour_body_);
+    if (tour_end_) place(t["end"].to<JsonObject>(), tour_end_);
+    place(t["next"].to<JsonObject>(), tour_next_);
+  }
   if (wx_) {
     // The weather page: its title (the station and its category), its line, the tab shown and its lines, its keys.
     JsonObject wx = out["weather"].to<JsonObject>();
@@ -194,9 +206,10 @@ void Skyscope::describe_ui_(JsonObject out) {
   JsonObject menu = out["menu"].to<JsonObject>();
   menu["scroll_y"] = lv_obj_get_scroll_y(menu_list_);
   JsonObject keys = menu["keys"].to<JsonObject>();
-  const std::pair<const char *, lv_obj_t *> named[] = {{"cancel", menu_cancel_}, {"save", menu_save_},
-                                                       {"up", menu_up_},         {"down", menu_down_},
-                                                       {"check", menu_fw_check_}, {"install", menu_fw_install_}};
+  const std::pair<const char *, lv_obj_t *> named[] = {
+      {"cancel", menu_cancel_},  {"save", menu_save_},          {"up", menu_up_},           {"down", menu_down_},
+      {"check", menu_fw_check_}, {"install", menu_fw_install_}, {"weather", menu_weather_}, {"today", menu_today_},
+      {"tour", menu_tour_},      {"restart", menu_restart_},    {"reset", menu_reset_}};
   for (const auto &k : named) {
     if (!k.second) continue;
     JsonObject key = keys[k.first].to<JsonObject>();
@@ -212,8 +225,13 @@ void Skyscope::describe_ui_(JsonObject out) {
     r["shown"] = shown(menu_rows_[i]);
     r["value"] = text_of(menu_values_[i]);
     r["pending"] = menu::shown(table[i], menu_settings_) != menu::shown(table[i], settings_);
-    // The row's children: its name, the key back, its value (or the field it is typed in), the key on.
-    if (menu::steps(table[i])) {
+    // The row's children: its name, the key back, its value (or the field it is typed in), the key on. A switch is
+    // both keys: a tap turns it over either way.
+    if (menu_switches_[i]) {
+      place(r["back"].to<JsonObject>(), menu_switches_[i]);
+      place(r["on"].to<JsonObject>(), menu_switches_[i]);
+      r["switch"] = true;
+    } else if (menu::steps(table[i])) {
       place(r["back"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 1));
       place(r["on"].to<JsonObject>(), lv_obj_get_child(menu_rows_[i], 3));
     }
@@ -222,6 +240,14 @@ void Skyscope::describe_ui_(JsonObject out) {
   if (menu_wifi_) {
     menu["wifi"] = text_of(menu_wifi_value_);
     place(keys["wifi"].to<JsonObject>(), menu_wifi_);
+  }
+  if (ask_page_) {
+    // The question asked before a restart or a factory reset: its title and its two keys.
+    JsonObject ask = menu["ask"].to<JsonObject>();
+    ask["title"] = text_of(ask_title_);
+    ask["yes_label"] = text_of(lv_obj_get_child(ask_yes_, 0));
+    place(ask["yes"].to<JsonObject>(), ask_yes_);
+    place(ask["no"].to<JsonObject>(), ask_no_);
   }
   if (editor_) {
     JsonObject ed = menu["editor"].to<JsonObject>();
@@ -254,7 +280,8 @@ void Skyscope::describe_ui_(JsonObject out) {
       place(it, item);
       if (row) {
         JsonArray ks = it["keys"].to<JsonArray>();
-        for (uint32_t k = 1; k < lv_obj_get_child_count(row); ++k) place(ks.add<JsonObject>(), lv_obj_get_child(row, k));
+        for (uint32_t k = 1; k < lv_obj_get_child_count(row); ++k)
+          place(ks.add<JsonObject>(), lv_obj_get_child(row, k));
       }
     }
   }
@@ -266,7 +293,8 @@ void Skyscope::handle_probe_(AsyncWebServerRequest *request, const std::string &
     const touch::Script script =
         deserializeJson(in, body)
             ? touch::Script{}
-            : touch::gesture(in["gesture"] | "", in["x"] | -1, in["y"] | -1, in["x1"] | -1, in["y1"] | -1, in["ms"] | 0);
+            : touch::gesture(in["gesture"] | "", in["x"] | -1, in["y"] | -1, in["x1"] | -1, in["y1"] | -1,
+                             in["ms"] | 0);
     const int x = in["x"] | -1, y = in["y"] | -1;
     if (script.empty() || x < 0 || y < 0 || x >= width_ || y >= height_ ||
         (in["gesture"] == "drag" && ((in["x1"] | -1) < 0 || (in["y1"] | -1) < 0))) {

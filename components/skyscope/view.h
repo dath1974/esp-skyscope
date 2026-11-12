@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "plan.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>

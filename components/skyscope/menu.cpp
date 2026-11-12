@@ -1,11 +1,15 @@
-// The screen's own settings menu: a long press on the map opens it. One row a setting (menu_rows.h): its name, and its
-// value between two keys that step it back and on, or in a field a tap opens the keyboard on (editor.cpp), or both.
-// The changes wait in a copy of the settings and are applied together by Save (Cancel drops them), so the map is drawn
-// again once, not at every step; rows that do not apply to the map chosen in the menu are hidden, as on the web page.
-// The rows are grouped under headings, a changed value shows in the accent until Save, and the arrows at the foot turn
-// the list a page at a time. Then come the Wi-Fi network, whose field opens the networks in reach (editor.cpp), and the
-// firmware: the version running, the newest release, Check and Install (a second tap installs; the menu's changes are
-// dropped).
+// The screen's own settings menu: a long press on the map opens it. At its top are the pages a swipe opens too (the
+// weather, the day's tally). Then one row a setting (menu_rows.h), grouped under headings as the web page groups them:
+// its name, and its value between two keys that step it back and on, or a switch for one that is on or off, or a field
+// a tap opens the keyboard on (editor.cpp), or both. The changes wait in a copy of the settings and are applied
+// together by Save (Cancel drops them), so the map is drawn again once, not at every step; rows that do not apply to
+// the map chosen in the menu are hidden, as on the web page. A changed value shows in the accent until Save, and the
+// arrows at the foot turn the list a page at a time.
+//
+// The Network group begins with the Wi-Fi network, whose field opens the networks in reach (editor.cpp). The last
+// group, About, has the firmware (the version running, the newest release, Check and Install: a second tap installs,
+// and the menu's changes are dropped), the tour again (tour.cpp), a restart and the factory reset. The last two ask
+// first, on a page of their own.
 #include "skyscope.h"
 
 #include "colors.h"
@@ -15,6 +19,8 @@
 #include "widgets.h"
 
 #include "esphome/components/wifi/wifi_component.h"
+#include "esphome/core/application.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 #include <algorithm>
@@ -28,11 +34,25 @@ using namespace widgets;
 namespace {
 // The menu's own keys, by negative ids in their user data.
 constexpr int MENU_SAVE = -1, MENU_CANCEL = -2, MENU_UP = -3, MENU_DOWN = -4, MENU_CHECK = -5, MENU_INSTALL = -6,
-              MENU_WIFI = -7, MENU_WEATHER = -8, MENU_TODAY = -9;
+              MENU_WIFI = -7, MENU_WEATHER = -8, MENU_TODAY = -9, MENU_TOUR = -10, MENU_RESTART = -11,
+              MENU_RESET = -12;
 // A row's keys, by row * 3 and one of these in their user data.
 enum { STEP_BACK, STEP_ON, EDIT };
 constexpr uint32_t ARMED_MS = 4000;     // Install's second tap, within this
 constexpr uint32_t CHECKING_MS = 20000;  // a check unanswered for this long is said no more
+// A question's keys take no tap this long after it comes up: the second tap of a double tap on the key that asked
+// would land on one of them.
+constexpr uint32_t ASK_DEAF_MS = 700;
+// A switch: a pill with a knob in it, at its right end and filled with the accent when on.
+constexpr float SWITCH_WIDE_MM = 11, SWITCH_TALL_MM = 6, SWITCH_PAD_MM = 0.7f;
+
+void set_switch(lv_obj_t *track, bool on, uint32_t accent, uint32_t ink, uint32_t ground) {
+  lv_obj_t *knob = lv_obj_get_child(track, 0);
+  lv_obj_set_style_bg_color(track, lv_color_hex(on ? accent : ink), 0);
+  lv_obj_set_style_bg_opa(track, on ? LV_OPA_COVER : LV_OPA_20, 0);
+  lv_obj_set_style_bg_color(knob, lv_color_hex(on ? ground : ink), 0);
+  lv_obj_align(knob, on ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, 0, 0);
+}
 }  // namespace
 
 void Skyscope::open_menu_() {
@@ -122,11 +142,34 @@ void Skyscope::build_menu_() {
     return row;
   };
 
+  // Keys side by side, each an equal share of a card's width.
+  auto keys_of = [&](lv_obj_t *card) {
+    lv_obj_t *keys = plain(card);
+    lv_obj_set_size(keys, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(keys, ui::mm(1), 0);
+    return keys;
+  };
+  lv_obj_t *card = nullptr, *box = nullptr;
+
+  // The pages first: they are what a menu is most often opened for, and a swipe opens each too (wxpage.cpp,
+  // todaypage.cpp). Not on a screen with no place yet, which has neither: its menu begins with the place.
+  menu_weather_ = menu_today_ = nullptr;
+  if (settings_.located) {
+    card = group("Show", box);
+    lv_obj_t *keys = keys_of(card);
+    menu_weather_ = key_(keys, "Weather", MENU_WEATHER, 0, 0, tall);
+    menu_today_ = key_(keys, "Today's planes", MENU_TODAY, 0, 0, tall);
+    lv_obj_set_flex_grow(menu_weather_, 1);
+    lv_obj_set_flex_grow(menu_today_, 1);
+  }
+
   const auto &rows = menu::rows();
   menu_rows_.assign(rows.size(), nullptr);
   menu_values_.assign(rows.size(), nullptr);
   menu_groups_.assign(rows.size(), nullptr);
   menu_fields_.assign(rows.size(), nullptr);
+  menu_switches_.assign(rows.size(), nullptr);
   // A field: a key as wide as the row leaves it, squarer than the others, its label the value. A tap types in it.
   auto field_of = [&](lv_obj_t *row, int what, int step) {
     lv_obj_t *f = key_(row, "", what, step, 0, tall);
@@ -139,12 +182,26 @@ void Skyscope::build_menu_() {
     lv_label_set_long_mode(value, LV_LABEL_LONG_DOT);
     return f;
   };
-  lv_obj_t *card = nullptr, *box = nullptr;
+  // A switch (set_switch): a tap turns the row over, as either of a row's arrows would.
+  auto switch_of = [&](lv_obj_t *row, int index) {
+    lv_obj_t *track = key_(row, "", index, 1, ui::mm(SWITCH_WIDE_MM), ui::mm(SWITCH_TALL_MM));
+    lv_obj_delete(lv_obj_get_child(track, 0));  // a key's face: a switch has a knob instead
+    lv_obj_set_style_pad_all(track, ui::mm(SWITCH_PAD_MM), 0);
+    lv_obj_set_ext_click_area(track, ui::mm(1));
+    lv_obj_t *knob = plain(track);
+    const int side = ui::mm(SWITCH_TALL_MM) - 2 * ui::mm(SWITCH_PAD_MM);
+    lv_obj_set_size(knob, side, side);
+    lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(knob, LV_OBJ_FLAG_CLICKABLE);
+    return track;
+  };
   for (size_t i = 0; i < rows.size(); ++i) {
     if (const menu::Group *g = menu::group_starting(rows[i])) card = group(g->name, box);
     lv_obj_t *row = row_of(card, rows[i].name);
-    // The value between its keys, whatever room they leave it: in a field where it is typed.
-    const bool steps = menu::steps(rows[i]);
+    // The value between its keys, whatever room they leave it: in a field where it is typed. One that is on or off
+    // says so beside its switch.
+    const bool steps = menu::steps(rows[i]) && !menu::switched(rows[i]);
     if (steps) key_(row, nullptr, (int) i, -1, ui::mm(6.5f), tall, ARROW_LEFT);
     lv_obj_t *value;
     if (menu::typed(rows[i])) {
@@ -157,25 +214,24 @@ void Skyscope::build_menu_() {
       lv_label_set_long_mode(value, LV_LABEL_LONG_DOT);
     }
     if (steps) key_(row, nullptr, (int) i, 1, ui::mm(6.5f), tall, ARROW_RIGHT);
+    if (menu::switched(rows[i])) menu_switches_[i] = switch_of(row, (int) i);
     menu_rows_[i] = row;
     menu_values_[i] = value;
     menu_groups_[i] = box;
   }
 
-  // The last group is the weather's: its page (wxpage.cpp) from here too.
-  set_label(lv_obj_get_child(field_of(row_of(card, "Page"), MENU_WEATHER, 0), 0), "Show the weather");
+  // The last group of rows is the network's: the Wi-Fi network the screen is on comes first in it, and its field
+  // opens the networks in reach (editor.cpp).
+  {
+    lv_obj_t *row = row_of(card, "Wi-Fi");
+    lv_obj_move_to_index(row, 0);
+    menu_wifi_ = field_of(row, MENU_WIFI, 0);
+    menu_wifi_value_ = lv_obj_get_child(menu_wifi_, 0);
+  }
 
-  // The day's tally (todaypage.cpp), which a swipe down from the top edge opens too.
-  card = group("Today in range", box);
-  set_label(lv_obj_get_child(field_of(row_of(card, "Planes"), MENU_TODAY, 0), 0), "Show the day's tally");
-
-  // The Wi-Fi network the screen is on; its field opens the networks in reach (editor.cpp).
-  card = group("Wi-Fi", box);
-  menu_wifi_ = field_of(row_of(card, "Network"), MENU_WIFI, 0);
-  menu_wifi_value_ = lv_obj_get_child(menu_wifi_, 0);
-
-  // The firmware: the version running, and (with updates built in) the newest release, Check and Install.
-  card = group("Firmware", box);
+  // About: the version running and (with updates built in) the newest release, Check and Install; then the tour
+  // again, a restart, and the factory reset, which ask first.
+  card = group("About", box);
   lv_obj_t *version = row_of(card, "Version");
   lv_obj_t *running = text(version, ui::fonts.label, c.ink, version_.c_str());
   lv_obj_set_flex_grow(running, 1);
@@ -187,16 +243,22 @@ void Skyscope::build_menu_() {
     lv_obj_set_width(menu_fw_line_, lv_pct(100));
     lv_obj_set_style_text_align(menu_fw_line_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(menu_fw_line_, LV_LABEL_LONG_WRAP);
-    lv_obj_t *keys = plain(card);
-    lv_obj_set_size(keys, lv_pct(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(keys, ui::mm(1), 0);
+    lv_obj_t *keys = keys_of(card);
     menu_fw_check_ = key_(keys, "Check", MENU_CHECK, 0, 0, tall);
     lv_obj_set_flex_grow(menu_fw_check_, 1);
     menu_fw_install_ = key_(keys, "Install", MENU_INSTALL, 0, 0, tall, -1, true);
     lv_obj_set_flex_grow(menu_fw_install_, 2);
   }
 #endif
+  auto action = [&](const char *name, const char *label, int what) {
+    lv_obj_t *field = field_of(row_of(card, name), what, 0);
+    set_label(lv_obj_get_child(field, 0), label);
+    return field;
+  };
+  menu_tour_ = action("Tour", "Take the tour", MENU_TOUR);
+  menu_restart_ = action("Restart", "Restart the screen", MENU_RESTART);
+  menu_reset_ = action("Start over", "Factory reset", MENU_RESET);
+  set_color(lv_obj_get_child(menu_reset_, 0), colors::ERROR);
 
   // Where else they are set.
   std::string where = "Another way up restarts the screen when saved.";
@@ -240,7 +302,9 @@ lv_obj_t *Skyscope::button_(lv_obj_t *parent, const char *label, int width, int 
 lv_obj_t *Skyscope::key_(lv_obj_t *parent, const char *label, int row, int step, int width, int height, int arrow_of,
                          bool primary) {
   lv_obj_t *b = button_(parent, label, width, height, arrow_of, primary);
-  lv_obj_set_user_data(b, (void *) (intptr_t) (row < 0 ? row : row * 3 + (step < 0 ? STEP_BACK : step > 0 ? STEP_ON : EDIT)));
+  // An action by its own (negative) id; a row's key by its row and which of its three keys it is.
+  const int which = step < 0 ? STEP_BACK : step > 0 ? STEP_ON : EDIT;
+  lv_obj_set_user_data(b, (void *) (intptr_t) (row < 0 ? row : row * 3 + which));
   lv_obj_add_event_cb(b, [](lv_event_t *e) {
     auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
     const intptr_t what = (intptr_t) lv_obj_get_user_data(lv_event_get_current_target_obj(e));
@@ -298,6 +362,38 @@ void Skyscope::menu_action_(int action) {
     open_today_();
     return;
   }
+  if (action == MENU_TOUR) {
+    // The menu's changes kept, as by Save, and the tour from its beginning over the map.
+    const Settings changed = menu_settings_;
+    this->defer([this, changed]() {
+      close_menu_();
+      apply_menu_(changed);
+      close_tour_();
+      Settings s = settings_;
+      s.tour = true;
+      use_settings_(s);
+    });
+    return;
+  }
+  if (action == MENU_RESTART) {
+    const Settings changed = menu_settings_;
+    ask_("Restart the screen?", "It is back in a few seconds. The menu's changes are kept.", "Restart",
+         [this, changed]() {
+           close_menu_();
+           apply_menu_(changed);
+           ESP_LOGI(TAG, "Restarting, asked in the menu");
+           this->set_timeout(400, []() { App.safe_reboot(); });
+         });
+    return;
+  }
+  if (action == MENU_RESET) {
+    ask_("Factory reset?",
+         "Everything the screen keeps is erased: every setting and the place, the Wi-Fi networks, the web password, "
+         "the day's tally and Home Assistant's key. It restarts as a new screen and opens its setup network. The map "
+         "card is left as it is.",
+         "Erase everything", [this]() { factory_reset_(); });
+    return;
+  }
 #ifdef USE_UPDATE
   if (action == MENU_CHECK && firmware_) {
     menu_checking_from_ = firmware_reports_;
@@ -330,7 +426,11 @@ void Skyscope::menu_action_(int action) {
   });
 }
 
-void Skyscope::apply_menu_(const Settings &changed) {
+void Skyscope::apply_menu_(const Settings &menu) {
+  // The tour is no row of the menu: whether it is still to be shown is as the screen has it now, not as it was when
+  // the menu opened (the tour's last step is the menu itself).
+  Settings changed = menu;
+  changed.tour = settings_.tour;
   JsonDocument a, b;
   to_json(changed, a.to<JsonObject>());
   to_json(settings_, b.to<JsonObject>());
@@ -354,6 +454,8 @@ void Skyscope::refresh_menu_() {
     set_label(menu_values_[i], value);
     // Changed in the menu, not yet applied: in the accent until Save.
     set_color(menu_values_[i], value != menu::shown(rows[i], settings_) ? c.accent : c.ink);
+    if (menu_switches_[i])
+      set_switch(menu_switches_[i], menu::text_of(rows[i], menu_settings_) == "true", c.accent, c.ink, c.card);
   }
   for (lv_obj_t *g : menu_groups_)
     set_hidden(g, std::find(shown_groups.begin(), shown_groups.end(), g) == shown_groups.end());
@@ -398,11 +500,78 @@ void Skyscope::refresh_menu_firmware_() {
 #endif
 }
 
+// A question over everything, in the menu's colors: what would happen, in words, with Cancel and the key that does it
+// (in the error color: what is asked first is what cannot be undone). `then` runs after the page has gone.
+void Skyscope::ask_(const std::string &title, const std::string &body, const char *yes, std::function<void()> &&then) {
+  close_ask_();
+  ask_then_ = std::move(then);
+  ask_at_ = millis();
+  const Chrome c = chrome_for_(menu_settings_);
+  const int tall = ui::mm(8);
+  ask_page_ = plain(lv_screen_active());
+  lv_obj_set_size(ask_page_, width_, height_);
+  lv_obj_set_style_bg_color(ask_page_, lv_color_hex(c.card), 0);
+  lv_obj_set_style_bg_opa(ask_page_, LV_OPA_COVER, 0);
+  ui::pad_page(ask_page_, ui::mm(2));
+  lv_obj_set_flex_flow(ask_page_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(ask_page_, ui::mm(1.5f), 0);
+  lv_obj_add_flag(ask_page_, LV_OBJ_FLAG_CLICKABLE);  // nothing under it is touched
+  ask_title_ = text(ask_page_, ui::fonts.title, c.ink, title.c_str());
+  lv_obj_set_width(ask_title_, lv_pct(100));
+  lv_label_set_long_mode(ask_title_, LV_LABEL_LONG_WRAP);
+  // The words in what room the title and the keys leave them, scrolling where a small glass has too little.
+  lv_obj_t *words = lv_obj_create(ask_page_);
+  lv_obj_remove_style_all(words);
+  lv_obj_set_width(words, lv_pct(100));
+  lv_obj_set_flex_grow(words, 1);
+  lv_obj_add_flag(words, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(words, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(words, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_t *said = text(words, ui::fonts.label, c.muted, body.c_str());
+  lv_obj_set_width(said, lv_pct(100));
+  lv_label_set_long_mode(said, LV_LABEL_LONG_WRAP);
+  lv_obj_t *keys = plain(ask_page_);
+  lv_obj_set_size(keys, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(keys, ui::mm(1), 0);
+  ask_no_ = button_(keys, "Cancel", 0, tall);
+  lv_obj_set_flex_grow(ask_no_, 1);
+  ask_yes_ = button_(keys, yes, 0, tall, -1, true);
+  lv_obj_set_flex_grow(ask_yes_, 1);
+  lv_obj_set_style_bg_color(ask_yes_, lv_color_hex(colors::ERROR), 0);
+  // After the event: the key pressed is part of what goes.
+  lv_obj_add_event_cb(ask_no_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (millis() - self->ask_at_ < ASK_DEAF_MS) return;
+    self->defer([self]() { self->close_ask_(); });
+  }, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ask_yes_, [](lv_event_t *e) {
+    auto *self = static_cast<Skyscope *>(lv_event_get_user_data(e));
+    if (millis() - self->ask_at_ < ASK_DEAF_MS) return;
+    self->defer([self]() {
+      if (!self->ask_page_) return;
+      const std::function<void()> then = std::move(self->ask_then_);
+      self->close_ask_();
+      if (then) then();
+    });
+  }, LV_EVENT_CLICKED, this);
+  ESP_LOGI(TAG, "Asked: %s", title.c_str());
+}
+
+void Skyscope::close_ask_() {
+  ask_then_ = nullptr;
+  if (!ask_page_) return;
+  lv_obj_delete(ask_page_);
+  ask_page_ = ask_yes_ = ask_no_ = ask_title_ = nullptr;
+}
+
 void Skyscope::close_menu_() {
   if (!menu_) return;
+  close_ask_();
   close_picker_();
   close_editor_();
   close_today_();
+  close_weather_();
   lv_obj_delete(menu_);
   menu_ = nullptr;
   menu_list_ = nullptr;
@@ -410,7 +579,9 @@ void Skyscope::close_menu_() {
   menu_values_.clear();
   menu_groups_.clear();
   menu_fields_.clear();
+  menu_switches_.clear();
   menu_wifi_ = menu_wifi_value_ = nullptr;
+  menu_weather_ = menu_today_ = menu_tour_ = menu_restart_ = menu_reset_ = nullptr;
   menu_fw_line_ = menu_fw_install_ = menu_fw_check_ = nullptr;
   menu_save_ = menu_cancel_ = menu_up_ = menu_down_ = nullptr;
   // The radar's scope clean again (its beam stopped where it was while the menu was open), then the planes and beam.

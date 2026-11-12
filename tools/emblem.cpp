@@ -170,14 +170,14 @@ static std::string svg(const emblem::Colors &c, bool compact) {
   for (int i = 0; i <= 4; ++i) point(band, BAND_FROM + (BAND_TO - BAND_FROM) * i / 4, true);
   for (int i = 4; i >= 0; --i) point(band, BAND_FROM + (BAND_TO - BAND_FROM) * i / 4, false);
   // The blade lies along +x, which is bearing 90.
-  out += "<g id=\"blade\" transform=\"rotate(" + std::to_string((int) REST_DEGREES - 90) + ")\"><path fill=\"url(#lit)\" d=\"" +
-         outline + "Z\"/>";
+  out += "<g id=\"blade\" transform=\"rotate(" + std::to_string((int) REST_DEGREES - 90) + ")\">";
+  out += "<path fill=\"url(#lit)\" d=\"" + outline + "Z\"/>";
   add("<path fill=\"%s\" fill-opacity=\"0.84\" d=\"%sZ\"/></g>\n", hex(c.blip), band.c_str());
   for (int blade = 1; blade < BLADES; ++blade)
     add("<use href=\"#blade\" transform=\"rotate(%d)\"/>\n", blade * 360 / BLADES);
   add("<circle r=\"%.2f\" fill=\"url(#dome)\"/>\n", HUB * 100);
-  add("<circle r=\"%.2f\" fill=\"none\" stroke=\"%s\" stroke-opacity=\"0.5\" stroke-width=\"%.2f\"/>\n", HUB * HUB_CAP * 100,
-      hex(c.shade), HUB * HUB_LINE * 100);
+  add("<circle r=\"%.2f\" fill=\"none\" stroke=\"%s\" stroke-opacity=\"0.5\" stroke-width=\"%.2f\"/>\n",
+      HUB * HUB_CAP * 100, hex(c.shade), HUB * HUB_LINE * 100);
   out += "</svg>\n";
   return out;
 }

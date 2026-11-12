@@ -17,7 +17,8 @@ struct Point {
   double x = 0, y = 0;
 };
 
-// The range a view shows, as the settings keep it: nautical miles from the middle to the nearer edge, whole, 1 to 250.
+// The range a view shows, as the settings keep it: nautical miles from the middle to the nearer edge, whole,
+// MIN_RANGE_NM to MAX_RANGE_NM.
 inline int range_nm(const geo::View &v) {
   const double nm = v.meters_per_px() * std::min(v.width, v.height) / 2.0 / geo::NM;
   return std::max(MIN_RANGE_NM, std::min(MAX_RANGE_NM, (int) std::lround(nm)));
@@ -35,8 +36,8 @@ struct Fingers {
     b0 = b;
     from = v;
   }
-  // The view with the fingers at `a` and `b`: zoomed by how much farther apart they are (as far as the range goes:
-  // 1 to 250 NM), and moved so the place under their middle at the start is under their middle now.
+  // The view with the fingers at `a` and `b`: zoomed by how much farther apart they are (as far as the range goes,
+  // MIN_RANGE_NM to MAX_RANGE_NM), and moved so the place under their middle at the start is under their middle now.
   geo::View moved(Point a, Point b) const {
     const double d0 = std::hypot(b0.x - a0.x, b0.y - a0.y), d = std::hypot(b.x - a.x, b.y - a.y);
     const int short_px = std::min(from.width, from.height);
@@ -75,8 +76,8 @@ inline Transform transform(const geo::View &drawn, const geo::View &target) {
   return t;
 }
 
-// The frame `from` drawn again into `to` as `t` shows it, each pixel the nearest of `from`'s, `ground` where `from` does
-// not reach; both `w` by `h`. `columns` is kept between calls: each column's column of `from`.
+// The frame `from` drawn again into `to` as `t` shows it, each pixel the nearest of `from`'s, `ground` where `from`
+// does not reach; both `w` by `h`. `columns` is kept between calls: each column's column of `from`.
 inline void stretch(const uint16_t *from, uint16_t *to, int w, int h, const Transform &t, uint16_t ground,
                     std::vector<int> &columns) {
   columns.resize(w);

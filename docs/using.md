@@ -6,6 +6,7 @@ the [README](../README.md).
 - [Maps](#maps)
 - [Aircraft](#aircraft)
 - [On the glass](#on-the-glass)
+- [The tour](#the-tour)
 - [The menu](#the-menu)
 - [Zoom and pan](#zoom-and-pan)
 - [Changing the map with a swipe](#changing-the-map-with-a-swipe)
@@ -91,25 +92,53 @@ at a set time or at a tap. While it is off it fetches nothing.
 since every other angle turns each frame in software. On the AMOLED 2.41 and the LCD 2.8B, 0° is portrait and 90°
 landscape; on the round 4C, 0° keeps the USB ports at the bottom.
 
+## The tour
+
+The first time a new screen shows its map, a card comes up over it and goes through what a finger does here, one
+touch at a time: a tap on a plane, a tap on the map, the brightness strip, zoom and pan, a swipe to another map, the
+weather, the day's tally and the menu. Each step waits for its touch, says what it did, and goes on once what it
+opened is put away. Everything works as usual meanwhile, and a finger on the card's words reaches the map under them.
+**Next** goes on without the touch, and **End tour** puts the tour away for good.
+
+To take it again: **Take the tour** in the menu's About group, or **Show the tour on the screen** on the web page. A
+screen that was set up before the tour existed is not shown it unasked.
+
 ## The menu
 
-A long press on the map (or on the setup screen) opens the menu. Its rows are grouped as on the web page (Where, Map,
-Aircraft, Source, Screen) and hide where they do not apply. A value between two arrows steps through common choices;
-a tap on a value in a field opens the keyboard. Changes show in the accent color and wait for **Save**; **Cancel**
-drops them. A value the screen cannot take is refused, with what it accepts shown under it.
+A long press on the map (or on the setup screen) opens the menu. At its top are two keys for the pages a swipe opens
+too: **Weather** and **Today's planes**. Under them the settings are grouped as on the web page, and rows hide where
+they do not apply:
+
+- **Place**: where the screen is, its range, and the station of the weather page.
+- **Map**: the map and how it looks. **Over the map**: range rings, airspace and the weather radar.
+- **Aircraft**: how planes are drawn. **Which aircraft**: how many, between which altitudes, and the watched ones.
+- **Follow a plane**, **Source** (where the planes come from) and **Screen** (brightness, sleep, bedtime, the time
+  zone, units, rotation).
+- **Network**: the Wi-Fi network and the web page's password.
+- **About**: the firmware and its updates, the tour, **Restart the screen** and **Factory reset**.
+
+A value between two arrows steps through common choices; a setting that is on or off has a switch; a tap on a value
+in a field opens the keyboard. Changes show in the accent color and wait for **Save**; **Cancel** drops them. A value
+the screen cannot take is refused, with what it accepts shown under it.
 
 - **The keyboard** is laid out as on a phone: the up arrow for capitals, **?123** for numbers and punctuation, arrows
   to move the cursor. Numbers and times get a pad of digits.
 - **Place** finds an airport by its code (KJFK, JFK) or name, or anything else through OpenStreetMap, when you press
   **Search**. Pick one of the results, or type a latitude and longitude instead. The screen writes Latin letters only,
   so a place named only in another script is left out.
-- **Follow** takes a plane to follow ([below](#following-a-plane)); empty stops.
+- **Follow a plane** takes a plane to follow ([below](#following-a-plane)); empty stops.
 - **Watched** takes aircraft with a comma between: `N12345 red, BAW123 blue` (red if no color is given).
 - **Wi-Fi** shows the network the screen is on. A tap lists the networks it knows (up to eight, first choice first)
   and the others in reach, and **Other network** for a hidden one. Known networks can be moved up or down or
   forgotten. Joining one makes it the first choice and restarts the screen to join it. At every start the screen joins
   the first known network in reach, so it can be moved between places. With none in reach it opens **Skyscope Setup**
   after a minute.
+- **Time zone** sets the screen's clock: bedtime goes by it, and so do the day's tally (which starts at midnight) and
+  the weather's times.
+- **Factory reset** erases everything the screen keeps: every setting and the place, the Wi-Fi networks, the web
+  password, the day's tally and Home Assistant's key (add the screen there again after). It asks first, then restarts
+  as a new screen and opens **Skyscope Setup**. The map card is left as it is. The web page's **Factory reset** and
+  `make factory-reset DEVICE=<address>` do the same from a computer.
 
 ## Zoom and pan
 
@@ -134,7 +163,7 @@ swipes have stopped for two seconds, so going through several costs only the las
 
 ## Following a plane
 
-Type a plane in the menu's **Follow** field or the web page's **Follow a plane**, or tap a plane and press **Follow**
+Type a plane in **Follow a plane**, in the menu or on the web page, or tap a plane and press **Follow**
 on its card (**Stop following** there, or an empty field, stops). Name it by its registration (`N7209W`, `G-EUPT`), its
 callsign (`BAW286`) or the flight number on a ticket (`BA 286`). Flight numbers are turned into callsigns for the larger
 airlines only; for the others, type the callsign. The screen finds the plane anywhere in the world. One not in the air
@@ -162,8 +191,8 @@ restart or the screen going to sleep.
 
 ## Aviation weather
 
-A swipe up from the bottom edge (or **Show the weather** in the menu's Weather group) opens the weather page, for the
-station set in the settings or, with none set, the nearest one to the place. Its title shows the flight category in
+A swipe up from the bottom edge (or **Weather** at the top of the menu) opens the weather page, for the **Weather
+station** set in the settings or, with none set, the nearest one to the place. Its title shows the flight category in
 the charts' colors (VFR green, MVFR blue, IFR red, LIFR magenta). Its tabs:
 
 - **METAR**: the latest, as sent and in words.
@@ -173,8 +202,8 @@ the charts' colors (VFR green, MVFR blue, IFR red, LIFR magenta). Its tabs:
 
 The page fetches the weather only while it is open: every ten minutes, and at **Refresh**. Not for flight planning.
 
-**Radar** (in the menu's Weather group, or on the web page) draws the NWS's NEXRAD composite over any map of tiles,
-United States only, refreshed every five minutes. **Radar loop** plays the last hour.
+**Weather radar** (under **Over the map**, in the menu and on the web page) draws the NWS's NEXRAD composite over any
+map of tiles, United States only, refreshed every five minutes. **Radar loop** plays the last hour.
 
 ## Alerts and the day's tally
 
@@ -186,7 +215,7 @@ The screen counts the planes within the range of the place (up to 250 NM), from 
 the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
 planes around the place count, so none are counted while a plane is followed elsewhere.
 
-A swipe down from the top edge of the map (or **Show the day's tally** in the menu) opens the day on the glass:
+A swipe down from the top edge of the map (or **Today's planes** at the top of the menu) opens the day on the glass:
 
 - three numbers at the top: the planes today, those in range now, and the most at once;
 - a bar for each hour, with this hour's the brightest;

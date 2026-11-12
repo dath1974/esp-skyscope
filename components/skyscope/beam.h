@@ -39,16 +39,16 @@ struct Painter {
   // made clean, within `box`: what plan.h's wedge_box(was - TRAIL, now) gives, which the sweep invalidates.
   //
   // How far a pixel is behind the beam comes from the dot and cross products of its offset with the beam's direction
-  // (the tangent of the angle between them), not from its bearing: no arc tangent a pixel, which with a modulo cost some
-  // 50 ms a step over a box of 28,000 pixels and held ESPHome's loop to 12 passes a second.
+  // (the tangent of the angle between them), not from its bearing: no arc tangent a pixel, which with a modulo cost
+  // some 50 ms a step over a box of 28,000 pixels and held ESPHome's loop to 12 passes a second.
   void paint(float was, float now, const plan::Box &box) const {
     if (!canvas || !background) return;
     const float trail = plan::SWEEP_TRAIL;
     const float clean = trail + std::fmod(now - was + 720.0f, 360.0f) + 3.0f;  // degrees behind the beam to repaint
     // Every angle here is under 90 degrees: past `clean` a pixel is left alone, as the box only just holds the wedge.
-    const float tan_clean = std::tan(std::min(clean, 80.0f) * 3.14159265f / 180.0f);
+    const float tan_clean = std::tan(plan::radians(std::min(clean, 80.0f)));
     const float r2 = reach * reach;
-    const float a = now * 3.14159265f / 180.0f, bx = std::sin(a), by = -std::cos(a);  // along the beam
+    const float a = plan::radians(now), bx = std::sin(a), by = -std::cos(a);  // along the beam
     const float half = beam_width / 2;
     const float per_degree = 110.0f / trail;
     const int x0 = std::max(0, box.x), x1 = std::min(width - 1, box.x + box.w - 1);
