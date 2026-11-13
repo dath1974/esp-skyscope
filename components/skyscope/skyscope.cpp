@@ -626,6 +626,7 @@ void Skyscope::loop() {
     firmware_changed_();
     refresh_menu_firmware_();
     refresh_menu_wifi_();
+    refresh_menu_card_();
     refresh_picker_();  // a search answered, a scan given up
     refresh_weather_();
     refresh_today_();

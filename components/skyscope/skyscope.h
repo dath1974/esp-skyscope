@@ -290,15 +290,20 @@ class Skyscope : public Component,
     std::shared_ptr<const weather::Report> weather;
     // The map card (card.h). web -> worker: an area to download (for download_ask), a download to stop (stop_ask), the
     // card to look for again (mount_ask). worker -> loop and web: the card and the download as they are.
-    // clear_ask: the screen's tiles cleared; format_ask: the card formatted (mounted first if it has no FAT32).
+    // clear_ask: the screen's tiles cleared; format_ask: the card formatted (mounted first if it has no FAT32);
+    // count_ask: what is on it counted again, where tiles were written since the last count (the menu or the page
+    // opened on it).
     card::Area download;
-    uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0;
+    uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0, count_ask = 0;
     struct Card {
       bool mounted = false;
       std::string error;  // why there is none
       bool unformatted = false;  // there is a card, with no FAT32 on it: the page offers to format it
       uint64_t total = 0, free = 0;
       uint32_t cluster = 0;  // its clusters' bytes, 0 while not known
+      card::About about;  // what the card says of itself
+      card::Tally tally;  // what the screen keeps on it, as last counted
+      bool formatting = false;
       // Tiles cleared away and still being deleted, and how many files and folders went so far.
       bool clearing = false;
       uint32_t cleared = 0;
@@ -343,6 +348,8 @@ class Skyscope : public Component,
   void menu_action_(int action);
   void apply_menu_(const Settings &menu);  // the menu's changes, where there are any
   void refresh_menu_firmware_();  // the menu's firmware part, from what the update entity last said
+  void refresh_menu_card_();  // the menu's map card: what it is, its space and what is on it, from the worker
+  void ask_card_(uint32_t Shared::*ask);  // one of the card's asks to the worker (Shared's clear_ask, ...)
   void refresh_menu_wifi_();      // the network the screen is on
   // A question over everything (menu.cpp), asked before what cannot be undone: Cancel, and a key that does it.
   void ask_(const std::string &title, const std::string &body, const char *yes, std::function<void()> &&then);
@@ -620,6 +627,16 @@ class Skyscope : public Component,
   // The menu's keys that are no setting: the pages, the tour, a restart and the factory reset.
   lv_obj_t *menu_weather_{nullptr}, *menu_today_{nullptr}, *menu_tour_{nullptr}, *menu_restart_{nullptr};
   lv_obj_t *menu_reset_{nullptr};
+  // The map card's part of the menu (menu.cpp): its lines, its space as a bar of four parts (the tiles, the log,
+  // everything else, and free) over their legend, and its keys. menu_card_shown_ holds what shows only with a card.
+  struct MenuCard {
+    lv_obj_t *box{nullptr}, *about{nullptr}, *bus{nullptr}, *space{nullptr}, *bar{nullptr}, *kept{nullptr};
+    lv_obj_t *since{nullptr}, *download_row{nullptr}, *download{nullptr}, *note{nullptr};
+    lv_obj_t *parts[4]{}, *legend[4]{}, *legend_items[4]{};
+    lv_obj_t *mount{nullptr}, *clear{nullptr}, *format{nullptr}, *stop{nullptr};
+    std::vector<lv_obj_t *> shown;
+    uint32_t looking_until = 0;  // Look again tapped: "Looking for the card..." until this
+  } menu_card_;
   // The question asked over the menu, its keys, and what its yes does.
   lv_obj_t *ask_page_{nullptr}, *ask_yes_{nullptr}, *ask_no_{nullptr}, *ask_title_{nullptr};
   std::function<void()> ask_then_;

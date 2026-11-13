@@ -172,6 +172,29 @@ test("the day's tally is told in words", () => {
   assert.equal(records_words({}, false), '');
 });
 
+test("the map card says what it is, shares out its space, and lists what the screen keeps", () => {
+  const { about_words, space_parts, legend_html, kept_words } =
+    load('gb', 'kb', 'thousands', 'about_words', 'space_parts', 'legend_html', 'kept_words');
+  const about = { maker: 'SanDisk', name: 'SD32G', kind: 'SDHC', made: 'April 2023', mhz: 40, lines: 4 };
+  assert.equal(about_words({ mounted: true, cluster_kb: 32, about }),
+    'SanDisk SD32G, SDHC, made April 2023; 40 MHz on 4 lines; FAT32 in 32 KB clusters.');
+  assert.equal(about_words({ mounted: true, cluster_kb: 0, about: { name: 'X', kind: 'SDXC', made: '', mhz: 20, lines: 1 } }),
+    'X, SDXC; 20 MHz on 1 line.');
+  assert.equal(about_words({ mounted: false }), '');
+  // In KB: a count older than files deleted since is held to what is used.
+  const p = space_parts({ total_mb: 1000, free_mb: 900, kept: { tiles_kb: 50 * 1024, log_kb: 64 } });
+  assert.deepEqual({ ...p }, { tiles: 51200, log: 64, other: 51136, free: 921600 });
+  assert.deepEqual({ ...space_parts({ total_mb: 10, free_mb: 9, kept: { tiles_kb: 99999 } }) },
+    { tiles: 1024, log: 0, other: 0, free: 9216 });
+  assert.equal(legend_html({ tiles: 512, log: 0, other: 2048, free: 2 * 1024 * 1024 }),
+    '<span class="sw s0"></span>Tiles 512 KB<span class="sw s2"></span>Other 2 MB<span class="sw s3"></span>Free 2.0 GB');
+  assert.equal(kept_words({ counted: false, counting: true }), 'Counting what is on the card...');
+  assert.equal(kept_words({ counted: true, maps: [], logs: 0 }), 'No map tiles on the card yet.');
+  assert.equal(kept_words({ counted: true, logs: 3, log_kb: 96,
+    maps: [{ label: 'Sectional', tiles: 12345, kb: 480 * 1024 }, { label: 'OSM', tiles: 1, kb: 32 }] }),
+    'Sectional: 12,345 tiles, 480 MB\nOSM: 1 tile, 32 KB\nLog of the planes seen: 3 days, 96 KB');
+});
+
 test("the page's parts are the menu's groups, in the menu's order", () => {
   // The menu's groups (menu_rows.h groups()), each with the settings under its heading.
   const rows = readFileSync(new URL('../components/skyscope/menu_rows.h', import.meta.url), 'utf8');

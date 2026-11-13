@@ -115,6 +115,8 @@ they do not apply:
 - **Follow a plane**, **Source** (where the planes come from) and **Screen** (brightness, sleep, bedtime, the time
   zone, units, rotation).
 - **Network**: the Wi-Fi network and the web page's password.
+- **Map card**: what the card is, its space and what is on it, and **Look again**, **Clear tiles** and **Format**
+  ([below](#the-map-card)). These act at once, not with Save.
 - **About**: the firmware and its updates, the tour, **Restart the screen** and **Factory reset**.
 
 A value between two arrows steps through common choices; a setting that is on or off has a switch; a tap on a value
@@ -255,12 +257,21 @@ map seen once comes back without downloading it again, even after a restart. Eac
 terms allow, and fetched again after that. The screen keeps its tiles in a `tiles` folder and its
 [log](#alerts-and-the-days-tally) in a `log` folder, and leaves everything else on the card alone.
 
-On the web page, **Map card** shows the card's free space and can **download an area ahead of time**: the sectional,
+The menu's **Map card** group, and the web page's, show what the card is (its maker, name and kind, when it was made,
+and how fast the screen talks to it), its space as a bar in four parts (the screen's tiles, its log, everything else
+on the card, and free), and what the screen keeps on it map by map: so many sectional tiles taking so many megabytes,
+and so on. That count goes through the card a file at a time in the background when the menu or the page opens, and
+only if tiles were written since the last one; until it is done the last count shows. The menu also shows a download
+under way, with **Stop**.
+
+On the web page, **Map card** can also **download an area ahead of time**: the sectional,
 the IFR charts or the USGS map, around the place, up to 250 NM, every zoom down to the one chosen. The page estimates
 the size and time first (a 100 NM sectional is about 950 tiles, 52 MB of the card and a quarter of an hour). The
 download carries on while the screen is off and after a restart. Only these maps can be downloaded ahead: they are
 works of the United States government, free to copy, while OpenStreetMap and Esri ask that their tiles are fetched
 only as they are looked at.
 
-**Format the card** formats it FAT32 whatever its size, with no computer (cards over 32 GB come as exFAT); it erases
-everything on the card. **Clear the screen's tiles** deletes only the screen's own, a few at a time in the background.
+**Format** (the page's **Format the card**) formats it FAT32 whatever its size, with no computer (cards over 32 GB
+come as exFAT); it erases everything on the card. **Clear tiles** (**Clear the screen's tiles**) deletes only the
+screen's own, a few at a time in the background, and leaves its log. Both ask first, in the menu and on the page.
+**Look again** looks for a card put in since the start.

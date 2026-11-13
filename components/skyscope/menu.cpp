@@ -6,8 +6,10 @@
 // the map chosen in the menu are hidden, as on the web page. A changed value shows in the accent until Save, and the
 // arrows at the foot turn the list a page at a time.
 //
-// The Network group begins with the Wi-Fi network, whose field opens the networks in reach (editor.cpp). The last
-// group, About, has the firmware (the version running, the newest release, Check and Install: a second tap installs,
+// The Network group begins with the Wi-Fi network, whose field opens the networks in reach (editor.cpp). On a board
+// with a card slot the map card follows, as on the web page: what the card is, its space as a bar (the tiles, the log
+// of planes seen, everything else, and free), what the screen keeps on it map by map, and keys to look for it again,
+// clear the tiles, format it, and stop a download; clearing and formatting ask first. The last group, About, has the firmware (the version running, the newest release, Check and Install: a second tap installs,
 // and the menu's changes are dropped), the tour again (tour.cpp), a restart and the factory reset. The last two ask
 // first, on a page of their own.
 #include "skyscope.h"
@@ -35,11 +37,13 @@ namespace {
 // The menu's own keys, by negative ids in their user data.
 constexpr int MENU_SAVE = -1, MENU_CANCEL = -2, MENU_UP = -3, MENU_DOWN = -4, MENU_CHECK = -5, MENU_INSTALL = -6,
               MENU_WIFI = -7, MENU_WEATHER = -8, MENU_TODAY = -9, MENU_TOUR = -10, MENU_RESTART = -11,
-              MENU_RESET = -12;
+              MENU_RESET = -12, MENU_CARD_MOUNT = -13, MENU_CARD_CLEAR = -14, MENU_CARD_FORMAT = -15,
+              MENU_CARD_STOP = -16;
 // A row's keys, by row * 3 and one of these in their user data.
 enum { STEP_BACK, STEP_ON, EDIT };
 constexpr uint32_t ARMED_MS = 4000;     // Install's second tap, within this
 constexpr uint32_t CHECKING_MS = 20000;  // a check unanswered for this long is said no more
+constexpr uint32_t LOOKING_MS = 3000;    // the card looked for again: said this long
 // A question's keys take no tap this long after it comes up: the second tap of a double tap on the key that asked
 // would land on one of them.
 constexpr uint32_t ASK_DEAF_MS = 700;
@@ -60,6 +64,11 @@ void Skyscope::open_menu_() {
   end_preview_(false);  // the view two fingers chose goes, as the menu shows the settings saved
   finish_swipe_();      // the map swiped to stays, and the menu shows it
   menu_settings_ = settings_;
+  // What is on the map card, counted again if tiles were written since (worker.cpp), for the menu's card part.
+  if (card_fitted_) {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.count_ask++;
+  }
   build_menu_();
   // The planes stop being drawn under it.
   view::set_hidden(view_, true);
@@ -229,6 +238,84 @@ void Skyscope::build_menu_() {
     menu_wifi_value_ = lv_obj_get_child(menu_wifi_, 0);
   }
 
+  // The map card, on a board with a slot: its lines, its space and its keys (refresh_menu_card_ fills them).
+  menu_card_ = MenuCard{};
+  if (card_fitted_) {
+    card = group("Map card", box);
+    menu_card_.box = box;
+    auto line = [&](const char *name) {
+      lv_obj_t *row = row_of(card, name);
+      lv_obj_t *value = text(row, ui::fonts.label, c.ink, "");
+      lv_obj_set_flex_grow(value, 1);
+      lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
+      menu_card_.shown.push_back(row);
+      return value;
+    };
+    menu_card_.about = line("Card");
+    menu_card_.bus = line("Bus");
+    menu_card_.space = line("Space");
+    // The bar: the free part is its ground, the other three drawn over it from the left.
+    const uint32_t part_colors[4] = {c.accent, colors::mix(c.accent, surface, 120), colors::mix(c.ink, surface, 110),
+                                     colors::mix(c.ink, surface, 40)};
+    menu_card_.bar = plain(card);
+    lv_obj_set_size(menu_card_.bar, lv_pct(100), ui::mm(3));
+    lv_obj_set_style_radius(menu_card_.bar, ui::mm(1.5f), 0);
+    lv_obj_set_style_clip_corner(menu_card_.bar, true, 0);
+    lv_obj_set_style_bg_color(menu_card_.bar, lv_color_hex(part_colors[3]), 0);
+    lv_obj_set_style_bg_opa(menu_card_.bar, LV_OPA_COVER, 0);
+    lv_obj_set_flex_flow(menu_card_.bar, LV_FLEX_FLOW_ROW);
+    for (int i = 0; i < 3; ++i) {
+      menu_card_.parts[i] = plain(menu_card_.bar);
+      lv_obj_set_size(menu_card_.parts[i], 0, lv_pct(100));
+      lv_obj_set_style_bg_color(menu_card_.parts[i], lv_color_hex(part_colors[i]), 0);
+      lv_obj_set_style_bg_opa(menu_card_.parts[i], LV_OPA_COVER, 0);
+    }
+    menu_card_.shown.push_back(menu_card_.bar);
+    // Its legend under it: a swatch and words a part, wrapping onto a second line on a narrow glass.
+    lv_obj_t *legend = plain(card);
+    lv_obj_set_size(legend, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(legend, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(legend, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(legend, ui::mm(2), 0);
+    lv_obj_set_style_pad_row(legend, ui::mm(0.4f), 0);
+    for (int i = 0; i < 4; ++i) {
+      lv_obj_t *item = plain(legend);
+      lv_obj_set_size(item, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+      lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
+      lv_obj_set_flex_align(item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+      lv_obj_set_style_pad_column(item, ui::mm(0.6f), 0);
+      lv_obj_t *swatch = plain(item);
+      lv_obj_set_size(swatch, ui::mm(1.8f), ui::mm(1.8f));
+      lv_obj_set_style_radius(swatch, ui::mm(0.4f), 0);
+      lv_obj_set_style_bg_color(swatch, lv_color_hex(part_colors[i]), 0);
+      lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+      menu_card_.legend[i] = text(item, ui::fonts.small, c.muted, "");
+      menu_card_.legend_items[i] = item;
+    }
+    menu_card_.shown.push_back(legend);
+    menu_card_.kept = line("Kept");
+    menu_card_.since = line("Since start");
+    // A download under way, and its Stop.
+    menu_card_.download_row = row_of(card, "Download");
+    menu_card_.download = text(menu_card_.download_row, ui::fonts.label, c.ink, "");
+    lv_obj_set_flex_grow(menu_card_.download, 1);
+    lv_label_set_long_mode(menu_card_.download, LV_LABEL_LONG_WRAP);
+    menu_card_.stop = key_(menu_card_.download_row, "Stop", MENU_CARD_STOP, 0, LV_SIZE_CONTENT, tall);
+    // What it is doing, or why there is none.
+    menu_card_.note = text(card, ui::fonts.label, c.muted, "");
+    lv_obj_set_width(menu_card_.note, lv_pct(100));
+    lv_obj_set_style_text_align(menu_card_.note, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(menu_card_.note, LV_LABEL_LONG_WRAP);
+    lv_obj_t *keys = keys_of(card);
+    lv_obj_set_flex_flow(keys, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_row(keys, ui::mm(0.6f), 0);
+    menu_card_.mount = key_(keys, "Look again", MENU_CARD_MOUNT, 0, LV_SIZE_CONTENT, tall);
+    menu_card_.clear = key_(keys, "Clear tiles", MENU_CARD_CLEAR, 0, LV_SIZE_CONTENT, tall);
+    menu_card_.format = key_(keys, "Format", MENU_CARD_FORMAT, 0, LV_SIZE_CONTENT, tall);
+    set_color(lv_obj_get_child(menu_card_.format, 0), colors::ERROR);
+    for (lv_obj_t *k : {menu_card_.mount, menu_card_.clear, menu_card_.format}) lv_obj_set_flex_grow(k, 1);
+  }
+
   // About: the version running and (with updates built in) the newest release, Check and Install; then the tour
   // again, a restart, and the factory reset, which ask first.
   card = group("About", box);
@@ -280,6 +367,11 @@ void Skyscope::build_menu_() {
 
   menu_install_armed_until_ = 0;
   refresh_menu_();
+  // The card's bar is shared out by its width, known once the menu is laid out.
+  if (menu_card_.bar) {
+    lv_obj_update_layout(menu_);
+    refresh_menu_card_();
+  }
 }
 
 lv_obj_t *Skyscope::button_(lv_obj_t *parent, const char *label, int width, int height, int arrow_of, bool primary) {
@@ -386,6 +478,31 @@ void Skyscope::menu_action_(int action) {
          });
     return;
   }
+  if (action == MENU_CARD_MOUNT) {
+    ask_card_(&Shared::mount_ask);
+    menu_card_.looking_until = millis() + LOOKING_MS;
+    refresh_menu_card_();
+    return;
+  }
+  if (action == MENU_CARD_STOP) {
+    ask_card_(&Shared::stop_ask);
+    return;
+  }
+  if (action == MENU_CARD_CLEAR) {
+    ask_("Clear the map tiles?",
+         "Every map tile the screen keeps on the card is deleted, a few at a time while it has nothing else to do, and "
+         "a download under way stops. Maps are fetched again as they are shown. The log of the planes seen and "
+         "anything else on the card stay.",
+         "Clear tiles", [this]() { ask_card_(&Shared::clear_ask); });
+    return;
+  }
+  if (action == MENU_CARD_FORMAT) {
+    ask_("Format the map card?",
+         "Everything on the card is erased, not only the screen's tiles: the log of the planes seen and any other "
+         "files too. The card is made FAT32, which takes some seconds.",
+         "Format", [this]() { ask_card_(&Shared::format_ask); });
+    return;
+  }
   if (action == MENU_RESET) {
     ask_("Factory reset?",
          "Everything the screen keeps is erased: every setting and the place, the Wi-Fi networks, the web password, "
@@ -461,6 +578,57 @@ void Skyscope::refresh_menu_() {
     set_hidden(g, std::find(shown_groups.begin(), shown_groups.end(), g) == shown_groups.end());
   refresh_menu_wifi_();
   refresh_menu_firmware_();
+  refresh_menu_card_();
+}
+
+void Skyscope::ask_card_(uint32_t Shared::*ask) {
+  std::lock_guard<std::mutex> guard(lock_);
+  (shared_.*ask)++;
+}
+
+void Skyscope::refresh_menu_card_() {
+  if (!menu_ || !menu_card_.box) return;
+  Shared::Card k;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    k = shared_.card;
+  }
+  for (lv_obj_t *o : menu_card_.shown) set_hidden(o, !k.mounted);
+  if (k.mounted) {
+    set_label(menu_card_.about, card::about_words(k.about));
+    std::string bus = card::bus_words(k.about);
+    if (k.cluster) bus += "; FAT32, " + card::size_words(k.cluster) + " clusters";
+    set_label(menu_card_.bus, bus);
+    set_label(menu_card_.space, card::space_words(k.total, k.free));
+    const card::Space space = card::space_of(k.total, k.free, k.tally);
+    const uint64_t sizes[4] = {space.tiles, space.log, space.other, space.free};
+    static const char *const NAMES[4] = {"Tiles", "Log", "Other", "Free"};
+    const std::vector<int> wide =
+        card::widths({space.tiles, space.log, space.other, space.free}, lv_obj_get_content_width(menu_card_.bar));
+    for (int i = 0; i < 3; ++i)
+      if (lv_obj_get_width(menu_card_.parts[i]) != wide[i]) lv_obj_set_width(menu_card_.parts[i], wide[i]);
+    // Before the first count the tiles are not told from the rest: no tiles nor log, and the used part all other.
+    for (int i = 0; i < 4; ++i) {
+      set_hidden(menu_card_.legend_items[i], i == 1 && !sizes[i]);
+      set_label(menu_card_.legend[i], std::string(NAMES[i]) + " " + card::size_words(sizes[i]));
+    }
+    set_label(menu_card_.kept, card::kept_words(k.tally));
+    set_label(menu_card_.since, card::since_words(k.read, k.written, k.failed));
+  }
+  set_hidden(menu_card_.download_row, !k.downloading);
+  if (k.downloading) set_label(menu_card_.download, card::download_words(k.area.style, k.next, k.total_tiles));
+  // Look again: said for a few seconds, while the worker looks (it says nothing new when it finds none again).
+  const bool looking = !k.mounted && menu_card_.looking_until && (int32_t) (millis() - menu_card_.looking_until) < 0;
+  if (!looking) menu_card_.looking_until = 0;
+  const std::string note = looking ? std::string("Looking for the card...")
+                                   : card::note_words(k.mounted, k.error, k.formatting, k.clearing, k.cleared);
+  set_label(menu_card_.note, note);
+  set_hidden(menu_card_.note, note.empty());
+  set_color(menu_card_.note, !k.mounted || (!k.error.empty() && !k.clearing) ? colors::ERROR
+                                                                               : chrome_for_(menu_settings_).muted);
+  set_hidden(menu_card_.mount, k.mounted || k.formatting || looking);
+  set_hidden(menu_card_.clear, !k.mounted || k.clearing || k.formatting);
+  set_hidden(menu_card_.format, k.formatting || (!k.mounted && !k.unformatted));
 }
 
 void Skyscope::refresh_menu_wifi_() {
@@ -582,6 +750,7 @@ void Skyscope::close_menu_() {
   menu_switches_.clear();
   menu_wifi_ = menu_wifi_value_ = nullptr;
   menu_weather_ = menu_today_ = menu_tour_ = menu_restart_ = menu_reset_ = nullptr;
+  menu_card_ = MenuCard{};
   menu_fw_line_ = menu_fw_install_ = menu_fw_check_ = nullptr;
   menu_save_ = menu_cancel_ = menu_up_ = menu_down_ = nullptr;
   // The radar's scope clean again (its beam stopped where it was while the menu was open), then the planes and beam.

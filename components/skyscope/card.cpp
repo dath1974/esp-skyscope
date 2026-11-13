@@ -34,6 +34,21 @@ namespace {
 sdmmc_card_t *card_ = nullptr;
 uint32_t errors_ = 0;
 bool unformatted_ = false;
+// The count under way (tally_step): FAT's folders open, the outermost first, each with what its files count as.
+enum Holds : int8_t { MAPS = -1, LOG = -2 };  // or a map's tiles, by its style
+struct Folder {
+  FF_DIR dir;
+  std::string path;
+  int8_t holds;
+};
+std::vector<Folder> walk_;
+int walk_stage_ = 0;  // 0 the tiles, 1 the log, 2 done
+uint32_t walk_cluster_ = 0;
+// The count let go without closing its folders: the card is gone, and FAT's own record of it with it.
+void forget_walk() {
+  walk_.clear();
+  walk_stage_ = 2;
+}
 // Failures in a row before the card is taken as gone.
 constexpr uint32_t MOST_ERRORS = 8;
 
@@ -42,6 +57,7 @@ void failed(const char *what, const std::string &path) {
   ESP_LOGW(TAG, "%s %s: %s", what, path.c_str(), strerror(errno));
   if (errors_ >= MOST_ERRORS && card_) {
     ESP_LOGW(TAG, "The card no longer answers: unmounted");
+    forget_walk();
     esp_vfs_fat_sdcard_unmount(sky::card::ROOT, card_);
     card_ = nullptr;
   }
@@ -164,6 +180,8 @@ bool format(std::string &error) {
   m.max_files = 2;
   m.allocation_unit_size = CLUSTER_BYTES;
   ESP_LOGI(TAG, "Formatting the map card");
+  tally_start();
+  forget_walk();
   const esp_err_t err = esp_vfs_fat_sdcard_format_cfg(sky::card::ROOT, card_, &m);
   if (err != ESP_OK) {
     error = std::string("the card could not be formatted (") + esp_err_to_name(err) + ")";
@@ -195,6 +213,76 @@ bool space(uint64_t &total, uint64_t &free, uint32_t &cluster) {
 #endif
   }
   return true;
+}
+
+bool about(sky::card::About &out) {
+  if (!card_) return false;
+  out = sky::card::About{};
+  out.name = card_->cid.name;
+  out.maker = (uint8_t) card_->cid.mfg_id;
+  out.made = (uint16_t) card_->cid.date;
+  out.mmc = card_->is_mmc;
+  out.high_capacity = (card_->ocr & SD_OCR_SDHC_CAP) != 0;
+  out.bytes = (uint64_t) card_->csd.capacity * card_->csd.sector_size;
+  out.khz = card_->real_freq_khz ? (uint32_t) card_->real_freq_khz : card_->max_freq_khz;
+  out.lines = 1 << card_->log_bus_width;
+  return true;
+}
+
+void tally_start() {
+  if (card_)
+    for (Folder &f : walk_) f_closedir(&f.dir);
+  walk_.clear();
+  walk_stage_ = 0;
+  uint64_t total = 0, free = 0;
+  if (!space(total, free, walk_cluster_)) walk_cluster_ = 0;
+}
+
+int tally_step(sky::card::Tally &t, int budget) {
+  if (!card_) {
+    forget_walk();
+    return -1;
+  }
+  // FAT's own paths: the card's drive, then the folder.
+  const std::string drive = std::string(1, (char) ('0' + ff_diskio_get_pdrv_card(card_))) + ":";
+  auto open = [&](const std::string &path, int8_t holds) {
+    if (walk_.size() >= 6) return;  // deeper than the screen makes them: left uncounted
+    walk_.push_back(Folder{{}, path, holds});
+    if (f_opendir(&walk_.back().dir, (drive + path).c_str()) != FR_OK) walk_.pop_back();
+  };
+  FILINFO info;
+  while (budget-- > 0) {
+    if (walk_.empty()) {
+      if (walk_stage_ >= 2) return 1;
+      open(walk_stage_ == 0 ? "/tiles" : "/log", walk_stage_ == 0 ? MAPS : LOG);
+      ++walk_stage_;
+      continue;
+    }
+    Folder &top = walk_.back();
+    if (f_readdir(&top.dir, &info) != FR_OK || !info.fname[0]) {
+      f_closedir(&top.dir);
+      walk_.pop_back();
+      continue;
+    }
+    if (!std::strcmp(info.fname, ".") || !std::strcmp(info.fname, "..")) continue;
+    const int8_t holds = top.holds;
+    if (info.fattrib & AM_DIR) {
+      uint8_t style = 0;
+      if (holds != MAPS) open(top.path + "/" + info.fname, holds);
+      else if (sky::card::style_folder(info.fname, style)) open(top.path + "/" + info.fname, (int8_t) style);
+      continue;
+    }
+    const uint64_t bytes = sky::card::on_card(info.fsize, walk_cluster_);
+    if (holds == LOG) {
+      ++t.logs;
+      t.log_bytes += bytes;
+    } else if (holds >= 0) {
+      ++t.tiles[holds];
+      t.bytes[holds] += bytes;
+    }
+    // A file in the tiles folder itself (a download's record, a write under way) is no map's.
+  }
+  return 0;
 }
 
 bool read(const sky::tiles::Key &k, sky::card::Header &h, sky::http::Body &body) {
@@ -350,6 +438,9 @@ int remove_some(const std::string &, int) { return -1; }
 bool mounted() { return false; }
 uint32_t errors() { return 0; }
 bool space(uint64_t &, uint64_t &, uint32_t &) { return false; }
+bool about(sky::card::About &) { return false; }
+void tally_start() {}
+int tally_step(sky::card::Tally &, int) { return -1; }
 bool read(const sky::tiles::Key &, sky::card::Header &, sky::http::Body &body) {
   body.clear();
   return false;

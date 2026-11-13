@@ -10,6 +10,7 @@
 // Every name fits 8.3, so the card needs no long names (ESP-IDF's FAT is built without them), and no folder holds more
 // files than a column of an area has. Each file starts with a Header, then the tile's bytes as the server sent them.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -255,6 +256,241 @@ inline const char *map_of(uint8_t style) {
     case tiles::SRC_TOPO: return "topo";
     default: return "";
   }
+}
+
+// ---- What is on the card, for the menu (menu.cpp) and the page.
+
+// The card itself, as it says when it is mounted: its name and maker, when it was made, its kind and size, and the
+// bus it talks on.
+struct About {
+  std::string name;  // the few letters its maker gives it: "SD32G"
+  uint8_t maker = 0;  // the SD Association's number for its maker
+  uint16_t made = 0;  // the year since 2000 times 16, and the month, as the card keeps it
+  bool high_capacity = false, mmc = false;
+  uint64_t bytes = 0;
+  uint32_t khz = 0;  // the clock it runs at
+  int lines = 1;  // its data lines
+};
+// The makers most cards come from, by the numbers they are commonly known to carry (the SD Association does not
+// publish its list); nullptr for another.
+inline const char *maker_name(uint8_t id) {
+  switch (id) {
+    case 0x01: return "Panasonic";
+    case 0x02: return "Toshiba";
+    case 0x03: return "SanDisk";
+    case 0x1B: return "Samsung";
+    case 0x1D: return "ADATA";
+    case 0x27: return "Phison";
+    case 0x28: return "Lexar";
+    case 0x31: return "Silicon Power";
+    case 0x41: return "Kingston";
+    case 0x74: return "Transcend";
+    case 0x76: return "Patriot";
+    case 0x82: return "Sony";
+    default: return nullptr;
+  }
+}
+// Its kind, as printed on it: SDSC to 2 GB, SDHC to 32, SDXC above.
+inline const char *kind_of(const About &a) {
+  if (a.mmc) return "MMC";
+  if (!a.high_capacity) return "SDSC";
+  return a.bytes > 32ULL * 1024 * 1024 * 1024 ? "SDXC" : "SDHC";
+}
+// When it was made, "April 2023", or "" where it does not say.
+inline std::string made_words(uint16_t made) {
+  static const char *const MONTHS[] = {"January", "February", "March",     "April",   "May",      "June",
+                                       "July",    "August",   "September", "October", "November", "December"};
+  if (!made) return "";
+  const int year = 2000 + (made >> 4), month = made & 0xF;
+  const std::string y = std::to_string(year);
+  return month >= 1 && month <= 12 ? std::string(MONTHS[month - 1]) + " " + y : y;
+}
+// The card in a line: "SanDisk SD32G, SDHC, made April 2023".
+inline std::string about_words(const About &a) {
+  std::string out;
+  if (const char *m = maker_name(a.maker)) out = m;
+  if (!a.name.empty()) out += (out.empty() ? "" : " ") + a.name;
+  out += (out.empty() ? "" : ", ") + std::string(kind_of(a));
+  const std::string made = made_words(a.made);
+  if (!made.empty()) out += ", made " + made;
+  return out;
+}
+// The bus it talks on: "40 MHz on 4 lines".
+inline std::string bus_words(const About &a) {
+  char text[40];
+  std::snprintf(text, sizeof(text), "%u MHz on %d line%s", (unsigned) ((a.khz + 500) / 1000), a.lines,
+                a.lines == 1 ? "" : "s");
+  return text;
+}
+
+// A size as the page writes it too: "640 KB", "52 MB", "1.2 GB" (of 1024 each).
+inline std::string size_words(uint64_t bytes) {
+  constexpr uint64_t KB = 1024, MB = KB * 1024, GB = MB * 1024;
+  char text[24];
+  if (bytes < MB) std::snprintf(text, sizeof(text), "%u KB", (unsigned) ((bytes + KB / 2) / KB));
+  else if (bytes < GB) std::snprintf(text, sizeof(text), "%u MB", (unsigned) ((bytes + MB / 2) / MB));
+  else std::snprintf(text, sizeof(text), "%.1f GB", (double) bytes / GB);
+  return text;
+}
+// A count with commas between its thousands: "12,345".
+inline std::string count_words(uint64_t n) {
+  std::string digits = std::to_string(n), out;
+  for (size_t i = 0; i < digits.size(); ++i) {
+    if (i && (digits.size() - i) % 3 == 0) out += ',';
+    out += digits[i];
+  }
+  return out;
+}
+
+// What the screen keeps on the card, counted file by file (card.cpp walks it a few files at a time): each map's
+// tiles (its names with it) and the log of the planes seen, by what they take of the card, in whole clusters.
+constexpr int STYLES = tiles::SRC_CUSTOM + 1;
+struct Tally {
+  uint32_t tiles[STYLES] = {};
+  uint64_t bytes[STYLES] = {};
+  uint32_t logs = 0;
+  uint64_t log_bytes = 0;
+  bool counted = false;   // a count has finished: the numbers are the card's
+  bool counting = false;  // one is under way: the numbers are the last count's
+  uint32_t tile_count() const {
+    uint32_t n = 0;
+    for (uint32_t t : tiles) n += t;
+    return n;
+  }
+  uint64_t tile_bytes() const {
+    uint64_t n = 0;
+    for (uint64_t b : bytes) n += b;
+    return n;
+  }
+};
+// What a file of `size` bytes takes of the card: whole clusters.
+inline uint64_t on_card(uint64_t size, uint32_t cluster) {
+  if (!cluster) cluster = CLUSTER_GUESS;
+  return (size + cluster - 1) / cluster * cluster;
+}
+// The map a folder under tiles holds, by its name ("06_0", as path() makes it), or false for another name.
+inline bool style_folder(const char *name, uint8_t &style) {
+  if (std::strlen(name) != 4 || name[2] != '_' || name[0] < '0' || name[0] > '9' || name[1] < '0' || name[1] > '9' ||
+      name[3] < '0' || name[3] > '9')
+    return false;
+  const int s = (name[0] - '0') * 10 + (name[1] - '0');
+  if (s >= STYLES) return false;
+  style = (uint8_t) s;
+  return true;
+}
+
+// Each map's share of the tiles, the largest first: its name as the settings have it, as the menu shows it, its tiles
+// and their bytes. Esri's light and dark streets are one map.
+struct MapShare {
+  const char *map, *label;
+  uint32_t tiles;
+  uint64_t bytes;
+};
+inline std::vector<MapShare> by_map(const Tally &t) {
+  struct Name {
+    uint8_t style;
+    const char *map, *label;
+  };
+  static const Name NAMES[] = {{tiles::SRC_OSM, "osm", "OSM"},
+                               {tiles::SRC_GRAY_LIGHT, "streets", "Streets"},
+                               {tiles::SRC_GRAY_DARK, "streets", "Streets"},
+                               {tiles::SRC_SATELLITE, "satellite", "Satellite"},
+                               {tiles::SRC_TOPO, "topo", "Topo"},
+                               {tiles::SRC_SECTIONAL, "sectional", "Sectional"},
+                               {tiles::SRC_IFR_LOW, "ifr_low", "IFR low"},
+                               {tiles::SRC_IFR_HIGH, "ifr_high", "IFR high"}};
+  std::vector<MapShare> out;
+  for (const Name &n : NAMES) {
+    if (!t.tiles[n.style] && !t.bytes[n.style]) continue;
+    auto same = std::find_if(out.begin(), out.end(), [&](const MapShare &m) { return !std::strcmp(m.map, n.map); });
+    if (same == out.end()) {
+      out.push_back({n.map, n.label, t.tiles[n.style], t.bytes[n.style]});
+    } else {
+      same->tiles += t.tiles[n.style];
+      same->bytes += t.bytes[n.style];
+    }
+  }
+  std::stable_sort(out.begin(), out.end(), [](const MapShare &a, const MapShare &b) { return a.bytes > b.bytes; });
+  return out;
+}
+
+// The card's space in four: the screen's tiles, its log, everything else (other files, and FAT's own tables), and
+// what is free. A count from before files went makes no share larger than what is used.
+struct Space {
+  uint64_t tiles = 0, log = 0, other = 0, free = 0;
+};
+inline Space space_of(uint64_t total, uint64_t free, const Tally &t) {
+  Space s;
+  s.free = std::min(free, total);
+  const uint64_t used = total - s.free;
+  s.tiles = std::min(t.tile_bytes(), used);
+  s.log = std::min(t.log_bytes, used - s.tiles);
+  s.other = used - s.tiles - s.log;
+  return s;
+}
+// The widths of a bar `px` wide shared out among `parts`, in proportion: one that is not nothing at least `least`
+// pixels (where there is room), and together exactly `px`, the largest taking or giving what rounding leaves.
+inline std::vector<int> widths(const std::vector<uint64_t> &parts, int px, int least = 2) {
+  std::vector<int> out(parts.size(), 0);
+  uint64_t sum = 0;
+  for (uint64_t p : parts) sum += p;
+  if (!sum || px <= 0) return out;
+  int used = 0;
+  size_t largest = 0;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    if (parts[i] > parts[largest]) largest = i;
+    if (!parts[i]) continue;
+    out[i] = std::max(least, (int) ((double) parts[i] * px / sum + 0.5));
+    used += out[i];
+  }
+  out[largest] = std::max(0, out[largest] + px - used);
+  return out;
+}
+
+// ---- The menu's lines for the card (menu.cpp); the page has its own (page.h).
+
+// "1.4 GB used of 29.7 GB".
+inline std::string space_words(uint64_t total, uint64_t free) {
+  return size_words(total - std::min(free, total)) + " used of " + size_words(total);
+}
+// Each map's tiles a line, the largest first: "Sectional: 12,345 tiles, 480 MB"; and the log's. "Counting..." before
+// the first count is done.
+inline std::string kept_words(const Tally &t) {
+  if (!t.counted) return t.counting ? "Counting..." : "Not counted yet";
+  std::string out;
+  for (const MapShare &m : by_map(t))
+    out += (out.empty() ? "" : "\n") + std::string(m.label) + ": " + count_words(m.tiles) + (m.tiles == 1 ? " tile, " : " tiles, ") +
+           size_words(m.bytes);
+  if (t.logs)
+    out += (out.empty() ? "" : "\n") + std::string("Log: ") + count_words(t.logs) + (t.logs == 1 ? " day, " : " days, ") +
+           size_words(t.log_bytes);
+  return out.empty() ? "No tiles yet" : out;
+}
+// The tiles read from it and written to it since the start: "12 read, 340 written, 2 failed".
+inline std::string since_words(uint32_t read, uint32_t written, uint32_t failed) {
+  std::string out = count_words(read) + " read, " + count_words(written) + " written";
+  if (failed) out += ", " + count_words(failed) + " failed";
+  return out;
+}
+// A download under way: "Sectional: 215 of 860 tiles (25%)".
+inline std::string download_words(uint8_t style, size_t next, size_t total) {
+  const char *name = style == tiles::SRC_TOPO ? "Topo"
+                   : style == tiles::SRC_IFR_LOW ? "IFR low"
+                   : style == tiles::SRC_IFR_HIGH ? "IFR high"
+                   : "Sectional";
+  const size_t done = std::min(next, total);
+  return std::string(name) + ": " + count_words(done) + " of " + count_words(total) + " tiles (" +
+         std::to_string(total ? done * 100 / total : 0) + "%)";
+}
+// What the card is doing or why it is not there, or "" when all is well.
+inline std::string note_words(bool mounted, const std::string &error, bool formatting, bool clearing,
+                              uint32_t cleared) {
+  if (formatting) return "Formatting the card (some seconds)...";
+  std::string why = error;
+  if (!why.empty()) why[0] = (char) std::toupper((unsigned char) why[0]);
+  if (!mounted) return why.empty() ? "No map card." : "No map card: " + error + ".";
+  if (clearing) return "Deleting the old tiles: " + count_words(cleared) + " files so far.";
+  return why.empty() ? "" : why + ".";
 }
 
 }  // namespace sky::card

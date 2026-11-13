@@ -154,6 +154,8 @@ constexpr uint32_t CARD_SPACE_EVERY = 100;
 // Tiles cleared are deleted this many files at a turn, while the map shown is whole; a turn that deletes none (a file
 // the card will not let go) counts, and after CLEAR_STALLS of them the rest is left.
 constexpr int CLEAR_A_TURN = 24, CLEAR_STALLS = 50;
+// What is on the card is counted this many files and folders at a turn, while the map shown is whole.
+constexpr int COUNT_A_TURN = 96;
 const std::string JOB_PATH = std::string(card::ROOT) + "/tiles/job.txt";
 // The clock's Unix seconds for the card's tiles, 0 while it is not set (no network has set it yet).
 uint32_t unix_now() {
@@ -498,13 +500,18 @@ void Skyscope::worker_() {
   };
 
   // ---- The map card: mounted at the start, and a download left unfinished (by a restart) carried on.
-  uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0;
+  uint32_t download_ask = 0, stop_ask = 0, mount_ask = 0, clear_ask = 0, format_ask = 0, count_ask = 0;
   card::Plan job;
   bool downloading = false;
   int job_failures = 0;
   uint32_t job_due = 0, card_writes = 0;
   bool card_room = true;
   int clear_stalls = 0;
+  // The count of what is on the card (card.h Tally): under way into `counting`, and the tiles written when the last
+  // one began, so a card nothing was written to since is not counted again.
+  bool tallying = false;
+  card::Tally counting;
+  uint32_t counted_written = 0;
   Shared::Card card_state;
   auto card_space = [&]() {
     uint64_t total = 0, free = 0;
@@ -554,6 +561,13 @@ void Skyscope::worker_() {
     ESP_LOGI(TAG, "Download: %s, %d NM, zoom %d, %u tiles from %u", card::map_of(area.style), area.radius_nm,
              area.z_max, (unsigned) job.total, (unsigned) card_state.next);
   };
+  auto start_count = [&]() {
+    card_io::tally_start();
+    counting = card::Tally{};
+    tallying = true;
+    counted_written = card_state.written;
+    card_state.tally.counting = true;
+  };
   auto mount_card = [&]() {
     std::string error;
     const bool mounted = card_io::mount(card_config_, error);
@@ -561,6 +575,8 @@ void Skyscope::worker_() {
     if (mounted) {
       card_state.error.clear();
       card_space();
+      card_io::about(card_state.about);
+      start_count();
       // Tiles cleared before a restart, not all deleted yet.
       card_state.clearing = card_io::remove_some(card::trash_path(), 0) >= 0;
       std::string text;
@@ -591,7 +607,8 @@ void Skyscope::worker_() {
     std::string search;
     bool search_here = false;
     bool connected, wants_weather = false;
-    bool new_download = false, stop_download = false, remount = false, clear_tiles = false, format_card = false;
+    bool new_download = false, stop_download = false, remount = false, clear_tiles = false, format_card = false,
+         count_card = false;
     card::Area download;
     {
       std::lock_guard<std::mutex> guard(lock_);
@@ -616,6 +633,10 @@ void Skyscope::worker_() {
       if (shared_.format_ask != format_ask) {
         format_ask = shared_.format_ask;
         format_card = true;
+      }
+      if (shared_.count_ask != count_ask) {
+        count_ask = shared_.count_ask;
+        count_card = true;
       }
       // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
       // download has the network to itself. A screen running on its radio alone (offline.h) needs no network.
@@ -739,8 +760,12 @@ void Skyscope::worker_() {
     // Formatted: everything on the card goes, a card with no FAT32 on it too. The tiles in memory go with it.
     if (format_card && card_fitted_) {
       if (downloading) stop_job("");
+      tallying = false;
+      card_state.formatting = true;
+      publish_card();
       std::string error;
       const bool ok = card_io::mounted() ? card_io::format(error) : card_io::mount(card_config_, error, true);
+      card_state.formatting = false;
       card_state.unformatted = !ok && card_io::unformatted();
       card_state.error = ok ? std::string() : error;
       if (ok) {
@@ -750,6 +775,11 @@ void Skyscope::worker_() {
         card_state.total_tiles = 0;
         job = card::Plan{};
         card_space();
+        card_io::about(card_state.about);
+        // Nothing on it now but an empty folder of tiles.
+        card_state.tally = card::Tally{};
+        card_state.tally.counted = true;
+        counted_written = card_state.written;
         ESP_LOGI(TAG, "Map card formatted: %u MB free", (unsigned) (card_state.free / (1024 * 1024)));
       }
       publish_card();
@@ -765,6 +795,7 @@ void Skyscope::worker_() {
         cache.clear();
         card_state.clearing = true;
         clear_stalls = 0;
+        start_count();  // the folder of tiles is empty now: counted at once
         ESP_LOGI(TAG, "Map card: the tiles cleared");
       } else {
         card_state.error = "the tiles could not be cleared";
@@ -784,6 +815,28 @@ void Skyscope::worker_() {
         card_space();
       }
       if (n != 0) publish_card();
+    }
+    // Counted again when asked, where tiles were written since the last count (or none has finished), and a few
+    // files at a time while the map shown is whole.
+    if (count_card && card_io::mounted() && !tallying &&
+        (!card_state.tally.counted || card_state.written != counted_written)) {
+      start_count();
+      publish_card();
+    }
+    if (tallying && (pending.empty() || !online)) {
+      const int done = card_io::tally_step(counting, COUNT_A_TURN);
+      if (done) {
+        tallying = false;
+        if (done > 0) {
+          card_state.tally = counting;
+          card_state.tally.counted = true;
+          card_space();
+          ESP_LOGI(TAG, "Map card: %u tiles in %u MB, a log of %u MB", (unsigned) counting.tile_count(),
+                   (unsigned) (counting.tile_bytes() / (1024 * 1024)), (unsigned) (counting.log_bytes / (1024 * 1024)));
+        }
+        card_state.tally.counting = false;
+        publish_card();
+      }
     }
     // A tile of the download, while on a network and the map shown is whole (the screen asleep too: it was asked for).
     if (downloading && connected && !updating && (pending.empty() || !online) && (int32_t) (millis() - job_due) >= 0) {

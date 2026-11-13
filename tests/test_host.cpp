@@ -396,6 +396,91 @@ static void test_offline() {
   CHECK(offline::shown(s, true).map == RADAR);
 }
 
+// The map card as the menu and the page tell of it: what it is, its space in four, and what the screen keeps on it.
+static void test_card_words() {
+  using namespace tiles;
+  card::About a;
+  a.name = "SD32G";
+  a.maker = 0x03;
+  a.made = (23 << 4) | 4;
+  a.high_capacity = true;
+  a.bytes = 31914983424ULL;
+  a.khz = 40000;
+  a.lines = 4;
+  CHECK(card::about_words(a) == "SanDisk SD32G, SDHC, made April 2023");
+  CHECK(card::bus_words(a) == "40 MHz on 4 lines");
+  a.bytes = 64ULL * 1000 * 1000 * 1000;
+  a.maker = 0xEE;
+  a.made = 0;
+  a.lines = 1;
+  CHECK(card::about_words(a) == "SD32G, SDXC");
+  CHECK(card::bus_words(a) == "40 MHz on 1 line");
+  a.high_capacity = false;
+  a.name.clear();
+  CHECK(card::about_words(a) == "SDSC");
+  CHECK(card::made_words((10 << 4) | 13) == "2010");
+
+  CHECK(card::size_words(40 * 1024) == "40 KB" && card::size_words(52ULL << 20) == "52 MB");
+  CHECK(card::size_words(31914983424ULL) == "29.7 GB");
+  CHECK(card::count_words(0) == "0" && card::count_words(999) == "999" && card::count_words(12345) == "12,345");
+  CHECK(card::count_words(1234567) == "1,234,567");
+
+  // Folders under tiles: two digits of map, its layer.
+  uint8_t style = 0;
+  CHECK(card::style_folder("06_0", style) && style == SRC_SECTIONAL);
+  CHECK(card::style_folder("04_1", style) && style == SRC_SATELLITE);
+  CHECK(!card::style_folder("job.txt", style) && !card::style_folder("6_0", style) && !card::style_folder("99_0", style));
+  CHECK(card::path(Key{SRC_TOPO, 9, 1, 2}).find("/05_0/") != std::string::npos);
+  CHECK(card::on_card(1, 32768) == 32768 && card::on_card(32768, 32768) == 32768 && card::on_card(0, 32768) == 0);
+  CHECK(card::on_card(40000, 0) == 65536);  // a cluster not known yet: the usual one
+
+  // Each map's share: the streets' light and dark one map, the largest first.
+  card::Tally t;
+  CHECK(card::kept_words(t) == "Not counted yet");
+  t.counting = true;
+  CHECK(card::kept_words(t) == "Counting...");
+  t.counted = true;
+  CHECK(card::kept_words(t) == "No tiles yet");
+  t.tiles[SRC_GRAY_LIGHT] = 10;
+  t.bytes[SRC_GRAY_LIGHT] = 10 << 15;
+  t.tiles[SRC_GRAY_DARK] = 1;
+  t.bytes[SRC_GRAY_DARK] = 1 << 15;
+  t.tiles[SRC_SECTIONAL] = 12345;
+  t.bytes[SRC_SECTIONAL] = 480ULL << 20;
+  t.logs = 1;
+  t.log_bytes = 32768;
+  const auto maps = card::by_map(t);
+  CHECK(maps.size() == 2 && std::string(maps[0].map) == "sectional" && std::string(maps[1].label) == "Streets");
+  CHECK(maps[1].tiles == 11 && maps[1].bytes == 11 << 15);
+  CHECK(t.tile_count() == 12356 && t.tile_bytes() == (480ULL << 20) + (11 << 15));
+  CHECK(card::kept_words(t) == "Sectional: 12,345 tiles, 480 MB\nStreets: 11 tiles, 352 KB\nLog: 1 day, 32 KB");
+
+  // The space in four, which together are the card; a count older than files deleted since is held to what is used.
+  const uint64_t GB = 1ULL << 30;
+  card::Space sp = card::space_of(30 * GB, 28 * GB, t);
+  CHECK(sp.tiles == t.tile_bytes() && sp.log == 32768 && sp.free == 28 * GB);
+  CHECK(sp.tiles + sp.log + sp.other + sp.free == 30 * GB);
+  sp = card::space_of(1000, 900, t);
+  CHECK(sp.tiles == 100 && sp.log == 0 && sp.other == 0 && sp.free == 900);
+  CHECK(card::space_words(30 * GB, 28 * GB) == "2.0 GB used of 30.0 GB");
+
+  // A bar's widths: in proportion, a sliver still seen, and together the whole bar.
+  std::vector<int> w = card::widths({50, 0, 1, 949}, 200);
+  CHECK(w[1] == 0 && w[2] == 2 && w[0] == 10 && w[0] + w[1] + w[2] + w[3] == 200);
+  w = card::widths({0, 0, 0, 0}, 200);
+  CHECK(w[0] == 0 && w[3] == 0);
+
+  CHECK(card::since_words(12, 340, 0) == "12 read, 340 written");
+  CHECK(card::since_words(0, 1500, 2) == "0 read, 1,500 written, 2 failed");
+  CHECK(card::download_words(SRC_SECTIONAL, 215, 860) == "Sectional: 215 of 860 tiles (25%)");
+  CHECK(card::download_words(SRC_TOPO, 0, 0) == "Topo: 0 of 0 tiles (0%)");
+  CHECK(card::note_words(false, "no card in the slot", false, false, 0) == "No map card: no card in the slot.");
+  CHECK(card::note_words(true, "", false, false, 0).empty());
+  CHECK(card::note_words(true, "", true, false, 0) == "Formatting the card (some seconds)...");
+  CHECK(card::note_words(true, "", false, true, 4800) == "Deleting the old tiles: 4,800 files so far.");
+  CHECK(card::note_words(true, "the tiles could not be cleared", false, false, 0) == "The tiles could not be cleared.");
+}
+
 // The map card: where a tile goes, how long it is good for, and which tiles an area takes.
 static void test_card() {
   using namespace tiles;
@@ -3229,6 +3314,7 @@ int main(int argc, char **argv) {
   test_settings();
   test_offline();
   test_card();
+  test_card_words();
   test_scope();
   test_airspace();
   test_feed();

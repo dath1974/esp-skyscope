@@ -30,6 +30,14 @@ bool mounted();
 bool unformatted();
 // The card's size and free bytes, and its clusters' bytes (false when it is not mounted).
 bool space(uint64_t &total, uint64_t &free, uint32_t &cluster);
+// What the card says of itself: its name, maker, kind and bus (false when it is not mounted).
+bool about(sky::card::About &out);
+
+// The count of what the screen keeps on the card (card.h Tally), a few files at a time: tally_start begins it again,
+// and each tally_step reads up to `budget` entries into `t`: 1 when the count is done, 0 while there is more, -1 when
+// the card went before it was.
+void tally_start();
+int tally_step(sky::card::Tally &t, int budget);
 
 // A tile's header and bytes (into `body`, without the header), or false: not on the card, or not readable.
 bool read(const sky::tiles::Key &k, sky::card::Header &h, sky::http::Body &body);

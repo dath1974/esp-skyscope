@@ -209,13 +209,24 @@ void Skyscope::describe_ui_(JsonObject out) {
   const std::pair<const char *, lv_obj_t *> named[] = {
       {"cancel", menu_cancel_},  {"save", menu_save_},          {"up", menu_up_},           {"down", menu_down_},
       {"check", menu_fw_check_}, {"install", menu_fw_install_}, {"weather", menu_weather_}, {"today", menu_today_},
-      {"tour", menu_tour_},      {"restart", menu_restart_},    {"reset", menu_reset_}};
+      {"tour", menu_tour_},      {"restart", menu_restart_},    {"reset", menu_reset_},
+      {"card_mount", menu_card_.mount}, {"card_clear", menu_card_.clear}, {"card_format", menu_card_.format},
+      {"card_stop", menu_card_.stop}};
   for (const auto &k : named) {
     if (!k.second) continue;
     JsonObject key = keys[k.first].to<JsonObject>();
     place(key, k.second);
   }
   if (menu_fw_line_) menu["firmware"] = text_of(menu_fw_line_);
+  // The map card's lines, as the glass shows them.
+  if (menu_card_.box) {
+    JsonObject card = menu["card"].to<JsonObject>();
+    const std::pair<const char *, lv_obj_t *> lines[] = {{"about", menu_card_.about}, {"bus", menu_card_.bus},
+                                                         {"space", menu_card_.space}, {"kept", menu_card_.kept},
+                                                         {"since", menu_card_.since}, {"note", menu_card_.note}};
+    for (const auto &l : lines)
+      if (shown(l.second) && shown(lv_obj_get_parent(l.second))) card[l.first] = text_of(l.second);
+  }
   if (shown(menu_fw_install_)) menu["install"] = text_of(lv_obj_get_child(menu_fw_install_, 0));
   JsonArray rows = menu["rows"].to<JsonArray>();
   const auto &table = menu::rows();

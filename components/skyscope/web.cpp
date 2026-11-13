@@ -16,10 +16,12 @@
 //   GET  /api/networks     the Wi-Fi networks the screen knows, first choice first: their names (never a password)
 //   POST /api/networks     with the test API: {"move": [i, step]}, {"forget": i}, {"join": {"name", "password"}} (no
 //                          restart: the first choice at the next start)
-//   GET  /api/card         the map card (card.h): its space, the tiles read and written, and the download under way
+//   GET  /api/card         the map card (card.h): what it says of itself, its space, what the screen keeps on it, the
+//                          tiles read and written, and the download under way
 //   POST /api/card         {"estimate": area} the tiles an area takes, {"download": area} downloads it, {"stop": true}
 //                          stops the download, {"mount": true} looks for the card again, {"clear": true} deletes the
-//                          screen's tiles, {"format": true} formats the card (FAT32, erasing it). An area is {"map",
+//                          screen's tiles, {"format": true} formats the card (FAT32, erasing it), {"count": true}
+//                          counts what is on it again (where tiles were written since). An area is {"map",
 //                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
 //   POST /api/reboot
 //   POST /api/reset        {"factory": true} erases everything the screen keeps (the settings, the Wi-Fi networks, the
@@ -444,6 +446,7 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       if (in["stop"] | false) shared_.stop_ask++;
       if (in["mount"] | false) shared_.mount_ask++;
       if (in["clear"] | false) shared_.clear_ask++;
+      if (in["count"] | false) shared_.count_ask++;
       if (in["format"] | false) {
         ESP_LOGI(TAG, "Formatting the map card, asked from the page");
         shared_.format_ask++;
@@ -829,6 +832,33 @@ void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
   out["total_mb"] = (uint32_t) (c.total / (1024 * 1024));
   out["free_mb"] = (uint32_t) (c.free / (1024 * 1024));
   out["cluster_kb"] = c.cluster / 1024;
+  out["formatting"] = c.formatting;
+  if (c.mounted) {
+    // What the card says of itself.
+    JsonObject about = out["about"].to<JsonObject>();
+    about["name"] = c.about.name;
+    if (const char *maker = card::maker_name(c.about.maker)) about["maker"] = maker;
+    about["kind"] = card::kind_of(c.about);
+    about["made"] = card::made_words(c.about.made);
+    about["mhz"] = (c.about.khz + 500) / 1000;
+    about["lines"] = c.about.lines;
+    // What the screen keeps on it, as last counted (whole clusters, in KB).
+    JsonObject kept = out["kept"].to<JsonObject>();
+    kept["counted"] = c.tally.counted;
+    kept["counting"] = c.tally.counting;
+    kept["tiles"] = c.tally.tile_count();
+    kept["tiles_kb"] = (uint32_t) (c.tally.tile_bytes() / 1024);
+    kept["log_kb"] = (uint32_t) (c.tally.log_bytes / 1024);
+    kept["logs"] = c.tally.logs;
+    JsonArray maps = kept["maps"].to<JsonArray>();
+    for (const card::MapShare &m : card::by_map(c.tally)) {
+      JsonObject o = maps.add<JsonObject>();
+      o["map"] = m.map;
+      o["label"] = m.label;
+      o["tiles"] = m.tiles;
+      o["kb"] = (uint32_t) (m.bytes / 1024);
+    }
+  }
   // Tiles since the start: read from the card, written to it, and writes that failed; off a network, the frame's
   // tiles the card does not have.
   out["read"] = c.read;
