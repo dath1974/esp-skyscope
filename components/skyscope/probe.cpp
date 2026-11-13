@@ -256,6 +256,7 @@ void Skyscope::describe_ui_(JsonObject out) {
     ed["hint"] = text_of(editor_hint_);
     ed["refused"] = !editor_error_.empty();
     place(ed["done"].to<JsonObject>(), editor_done_key_);
+    if (editor_locate_) place(ed["locate"].to<JsonObject>(), editor_locate_);
     JsonArray ks = ed["keys"].to<JsonArray>();
     for (size_t i = 0; i < board_keys_.size() && i < board_key_objs_.size(); ++i) {
       JsonObject k = ks.add<JsonObject>();

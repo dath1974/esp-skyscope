@@ -16,6 +16,7 @@
 
 #include "feed.h"
 #include "geo.h"
+#include "locate.h"
 #include "modes.h"
 
 namespace sky::adsb {
@@ -244,6 +245,8 @@ class Tracker {
       if (now - it->second.seen >= FORGET_MS) it = planes_.erase(it);
       else ++it;
     }
+
+    locator_.expire(now);
   }
   // The planes with a place heard in the last minute, as an exchange would report them.
   std::vector<feed::Flight> flights(uint32_t now) const {
@@ -276,6 +279,10 @@ class Tracker {
   size_t size() const { return planes_.size(); }
   const std::map<uint32_t, Aircraft> &planes() const { return planes_; }
   const TrackCounts &counts() const { return counts_; }
+  // Where the receiver may be, from the planes heard (locate.h).
+  locate::Fix fix() const { return locator_.fix(); }
+  // How many planes that place would be worked out from, for why there is none yet.
+  size_t locating() const { return locator_.size(); }
 
  private:
   // An extended squitter's ME field, by its type code (ME bits 1 to 5).
@@ -385,10 +392,6 @@ class Tracker {
       found = local(c, ref_lat_, ref_lon_, lat, lon);
     }
     if (!found) return;
-    if (has_ref_ && nm_between(lat, lon, ref_lat_, ref_lon_) > MOST_RANGE_NM) {
-      ++counts_.bad_positions;
-      return;
-    }
     if (from_own) {
       const double hours = std::max<uint32_t>(now - a.position_at, 1000) / 3600000.0;
       if (nm_between(lat, lon, a.lat, a.lon) > FASTEST_KT * hours + 1) {
@@ -397,6 +400,13 @@ class Tracker {
         a.has_position = false;
         return;
       }
+    }
+    // Where the receiver may be (locate.h), from the airborne places alone: they need no reference, so a screen
+    // moved far from its place still finds where it is now, though its planes are thrown away just below.
+    if (!surface) locator_.add(a.address, lat, lon, a.has_altitude ? a.altitude : -1, a.signal, now);
+    if (has_ref_ && nm_between(lat, lon, ref_lat_, ref_lon_) > MOST_RANGE_NM) {
+      ++counts_.bad_positions;
+      return;
     }
     a.has_position = true;
     a.lat = lat;
@@ -407,6 +417,7 @@ class Tracker {
 
   std::map<uint32_t, Aircraft> planes_;
   TrackCounts counts_;
+  locate::Locator locator_;
   double ref_lat_ = 0, ref_lon_ = 0;
   bool has_ref_ = false;
 };

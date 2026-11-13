@@ -65,6 +65,8 @@ class Radio {
   std::vector<sky::feed::Flight> flights(uint32_t now);
   // The receiver's place (the screen's): surface positions are worked out from it, and far-off ones thrown away.
   void set_reference(double lat, double lon);
+  // Where the planes heard put the screen (locate.h), and how many planes it has to go on.
+  sky::locate::Fix fix(size_t &heard);
   Stats stats();
 
  private:

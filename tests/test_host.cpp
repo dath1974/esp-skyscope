@@ -23,6 +23,7 @@
 #include "../components/skyscope/http.h"
 #include "../components/skyscope/pinch.h"
 #include "../components/skyscope/keyboard.h"
+#include "../components/skyscope/locate.h"
 #include "../components/skyscope/menu_rows.h"
 #include "../components/skyscope/modes.h"
 #include "../components/skyscope/offline.h"
@@ -2022,6 +2023,116 @@ static void test_places() {
   CHECK(all.size() == 3 && all[0].name == "KJFK" && all[1].name == "ZRH" && all[2].name == "Zürich");
 }
 
+// Where the screen is from the planes its radio hears (locate.h), and from its internet address (places.h).
+static void test_locate() {
+  using locate::Locator;
+  // Too few planes: no place.
+  Locator few;
+  for (uint32_t i = 0; i < locate::FEWEST_PLANES - 1; ++i) few.add(i + 1, 40 + i * 0.1, -74, 10000, 1000, 1000);
+  CHECK(!few.fix().found && few.size() == locate::FEWEST_PLANES - 1);
+  // A plane heard again keeps its loudest place; a fainter one later does not move it.
+  Locator one;
+  one.add(7, 40, -74, 10000, 500, 1000);
+  one.add(7, 41, -74, 10000, 900, 2000);
+  one.add(7, 42, -74, 10000, 100, 3000);
+  CHECK(one.size() == 1);
+  // Six planes around a place on the date line, all as loud: their middle, not the far side of the world.
+  Locator line;
+  for (int i = 0; i < 6; ++i) {
+    const geo::Place p = geo::destination(10, 180, i * 60, 30 * locate::NM);
+    line.add(i + 1, p.lat, p.lon, 20000, 1000, 1000);
+  }
+  locate::Fix f = line.fix();
+  CHECK(f.found && f.planes == 6 && geo::meters_between(f.lat, f.lon, 10, 180) < 100 && f.within_nm >= 1);
+  // One far off (a bad position, or one from another receiver's ocean) is left out.
+  line.add(99, 10, 160, 20000, 1000, 1000);
+  f = line.fix();
+  CHECK(f.found && f.planes == 6 && geo::meters_between(f.lat, f.lon, 10, 180) < 100);
+  // Let go when not heard for KEEP_MS, also across millis() turning over.
+  Locator turn;
+  turn.add(1, 40, -74, 10000, 1000, 0xFFFFF000u);
+  turn.expire(0xFFFFF000u + locate::KEEP_MS - 1);
+  CHECK(turn.size() == 1);
+  turn.expire(0xFFFFF000u + locate::KEEP_MS);
+  CHECK(turn.size() == 0);
+  // Full: a louder plane takes the faintest's place, a fainter one is not taken.
+  Locator full;
+  for (uint32_t i = 0; i < locate::MOST_PLANES; ++i) full.add(i + 1, 40, -74, 10000, 100 + i, 1000);
+  full.add(1000, 40, -74, 10000, 50, 1000);
+  CHECK(full.size() == locate::MOST_PLANES);
+  full.add(1001, 40, -74, 10000, 5000, 1000);
+  CHECK(full.size() == locate::MOST_PLANES);
+
+  // Simulated traffic: planes flying straight past a receiver at random heights, distances and headings, each heard
+  // every 10 seconds while within its horizon, louder by the square of how near (with a few decibels of fading), and
+  // a few bad positions far off. The place found should be within the distance it says, nearly every time.
+  uint64_t seed = 12345;
+  auto random = [&]() {
+    seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+    return (seed >> 11) / 9007199254740992.0;
+  };
+  const int trials = 300;
+  int within = 0, found = 0;
+  double worst = 0;
+  for (int trial = 0; trial < trials; ++trial) {
+    const double lat = -60 + 120 * random(), lon = -180 + 360 * random();
+    Locator loc;
+    const int planes = 8 + (int) (40 * random());
+    uint32_t now = 1000;
+    for (int i = 0; i < planes; ++i) {
+      const int feet = 2000 + (int) (38000 * random());
+      const double reach = locate::horizon_nm(feet) - 10;
+      // Where it passes nearest, and which way it flies.
+      const geo::Place nearest = geo::destination(lat, lon, 360 * random(), reach * std::sqrt(random()) * locate::NM);
+      const double heading = 360 * random(), knots = 150 + 350 * random();
+      for (double t = -1800; t <= 1800; t += 10) {
+        const geo::Place p = geo::destination(nearest.lat, nearest.lon, t < 0 ? heading + 180 : heading,
+                                              std::fabs(t) / 3600 * knots * locate::NM);
+        const double d = geo::meters_between(lat, lon, p.lat, p.lon) / locate::NM;
+        if (d > reach) continue;
+        const double fading = std::pow(10, (random() - 0.5) * 0.6);
+        const double power = 4e8 / std::max(d * d + (feet / 6076.0) * (feet / 6076.0), 0.01) * fading;
+        loc.add(i + 1, p.lat, p.lon, feet, (uint32_t) std::min(power, 4e9), now + (uint32_t) (t + 1800) * 1000 / 60);
+      }
+    }
+    for (int i = 0; i < 2; ++i) loc.add(5000 + i, lat + 20 * (random() - 0.5), lon + 20, 30000, 3000, now);
+    const locate::Fix fix = loc.fix();
+    if (!fix.found) continue;
+    ++found;
+    const double off = geo::meters_between(lat, lon, fix.lat, fix.lon) / locate::NM;
+    worst = std::max(worst, off);
+    if (off <= fix.within_nm) ++within;
+  }
+  std::printf("  locate: %d of %d found, %d within what they said, the worst %.1f NM off\n", found, trials, within,
+              worst);
+  CHECK(found >= trials * 95 / 100 && within >= found * 95 / 100);
+
+  // As a place to pick, and why there is none yet.
+  f.planes = 12;
+  f.within_nm = 4.2;
+  const places::Found here = places::radio_place(f, false);
+  CHECK(here.name.empty() && here.title == "Radio-based location" && here.source == "this screen's radio" &&
+        here.detail.find("from 12 planes heard, within about 5 NM") != std::string::npos);
+  CHECK(places::radio_place(f, true).detail.find("within about 8 km") != std::string::npos);
+  CHECK(places::radio_waiting(2) == "The radio has heard 2 of the 6 planes it needs to say where the screen is");
+
+  // freeipapi.com's answers: a town, one with only its country, one it cannot place, and one that is not JSON.
+  JsonDocument doc;
+  std::string error;
+  places::Found town;
+  const std::string sydney = R"({"latitude":-33.8688,"longitude":151.209,"cityName":"Sydney",
+      "regionName":"New South Wales","countryName":"Australia","ipAddress":"1.1.1.1"})";
+  CHECK(places::read_ip_place(sydney.c_str(), sydney.size(), doc, town, error) && town.name == "Sydney" &&
+        town.detail.rfind("Sydney, New South Wales, Australia, from the internet address", 0) == 0 &&
+        town.title == "Network-based location" && town.source == "freeipapi.com" && !town.airport);
+  const std::string country = R"({"latitude":51.5,"longitude":10.5,"cityName":"-","regionName":"",
+      "countryName":"Germany"})";
+  CHECK(places::read_ip_place(country.c_str(), country.size(), doc, town, error) && town.name == "Germany");
+  const std::string nowhere = R"({"latitude":0,"longitude":0,"cityName":"-","countryName":"-"})";
+  CHECK(!places::read_ip_place(nowhere.c_str(), nowhere.size(), doc, town, error) && !error.empty());
+  CHECK(!places::read_ip_place("<html>", 6, doc, town, error) && !error.empty());
+}
+
 static void test_pinch() {
   using namespace pinch;
   Settings st;
@@ -3079,6 +3190,13 @@ static void test_mock_answers() {
   found.clear();
   CHECK(places::read_nominatim(osm.c_str(), osm.size(), "testville", doc, found, error) && found.size() == 1 &&
         found[0].name == "Testville");
+  // Where the screen's address is: the mock's town, a little south of its place.
+  places::Found here;
+  const std::string ip = read("ip-place");
+  CHECK(places::read_ip_place(ip.c_str(), ip.size(), doc, here, error) && here.name == "Testville" &&
+        here.title == "Network-based location" &&
+        here.detail.rfind("Testville, New York, United States of America, from", 0) == 0 && here.lat < lat &&
+        near(here.lon, lon, 1e-3));
   std::vector<feed::Flight> flights;
   const std::string exchange = read("exchange");
   CHECK(feed::parse(exchange.c_str(), exchange.size(), doc, flights, error) && flights.size() == 1);
@@ -3133,6 +3251,7 @@ int main(int argc, char **argv) {
   test_menu();
   test_keyboard();
   test_places();
+  test_locate();
   test_pinch();
   test_swipe();
   test_wifi_list();

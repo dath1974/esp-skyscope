@@ -163,6 +163,15 @@ def places(q: str, lat, lon) -> list:
              "New York, United States", "class": "boundary", "type": "administrative", "extratags": {}}]
 
 
+def ip_place(lat, lon) -> dict:
+    """freeipapi.com's place for the screen's address: the mock's town, a little south of its place, as a provider's
+    address is often a town away."""
+    south = offset(lat, lon, -4, 0)
+    return {"ipVersion": 4, "ipAddress": "192.0.2.1", "latitude": round(south[0], 4), "longitude": round(south[1], 4),
+            "countryName": "United States of America", "countryCode": "US", "zipCode": "00000",
+            "cityName": PLACE_NAME, "regionName": "New York", "isProxy": False}
+
+
 def tile_numbers(parts, xy: bool):
     """z, x, y from the end of a tile's path: {z}/{x}/{y}(.png) or ArcGIS's {z}/{y}/{x}."""
     z, a, b = (int(p.split(".")[0]) for p in parts[-3:])
@@ -195,6 +204,8 @@ def answer(path: str, lat: float, lon: float, now: float, aircraft):
                 return as_json("airports", airports(" ".join(query.get("where", [""])), lat, lon))
         if server == "nominatim.openstreetmap.org" and rest == "search":
             return as_json("places", places(" ".join(query.get("q", [""])), lat, lon))
+        if server == "free.freeipapi.com" and rest == "api/v1/json":
+            return as_json("ip-place", ip_place(lat, lon))
         if server == "aviationweather.gov" and rest.startswith("api/data/"):
             kind = rest.removeprefix("api/data/")
             found = weather(kind, lat, lon, now)
@@ -321,6 +332,7 @@ def write_fixtures(folder: str, lat: float = 40.6413, lon: float = -73.7781, now
              "airports": "/services6.arcgis.com/x/arcgis/rest/services/US_Airport/FeatureServer/0/query?f=json&where="
                          "ICAO_ID%3D%27KTST%27",
              "places": "/nominatim.openstreetmap.org/search?format=json&q=Testville",
+             "ip-place": "/free.freeipapi.com/api/v1/json",
              "metar": "/aviationweather.gov/api/data/metar?format=json&ids=KTST",
              "taf": "/aviationweather.gov/api/data/taf?format=json&ids=KTST",
              "airsigmet": "/aviationweather.gov/api/data/airsigmet?format=json",

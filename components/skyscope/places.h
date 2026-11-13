@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "keyboard.h"
+#include "locate.h"
 
 namespace sky::places {
 using keyboard::trimmed;
@@ -23,6 +24,7 @@ using keyboard::trimmed;
 struct Found {
   double lat = 0, lon = 0;
   std::string name, detail, source;
+  std::string title;  // what the list calls it, when not its name (where the screen is: by radio, by network)
   bool airport = false;
 };
 constexpr size_t MOST_FOUND = 6;
@@ -201,5 +203,69 @@ inline std::vector<Found> in_order(const std::vector<Found> &named, const std::v
     for (const auto &p : osm)
       if (p.airport == airports && out.size() < MOST_FOUND) out.push_back(p);
   return out;
+}
+
+// ---------------------------------------------------------------- where the screen is
+
+// Where the screen's internet address is, from freeipapi.com: asked only when someone asks where the screen is (a
+// search with nothing typed), never by itself. Its free service takes no key, allows any use and up to 60 requests a
+// minute; it puts a town to an address at best, and a provider's address may be a town or two away, or farther.
+inline const char *const IP_PLACE_URL = "https://free.freeipapi.com/api/v1/json";
+
+// The town freeipapi.com puts the address in: named by the town, else the region, else the country.
+inline bool read_ip_place(const char *text, size_t length, JsonDocument &doc, Found &out, std::string &error) {
+  JsonDocument keep;
+  for (const char *k : {"latitude", "longitude", "cityName", "regionName", "countryName"}) keep[k] = true;
+  const DeserializationError e = deserializeJson(doc, text, length, DeserializationOption::Filter(keep));
+  if (e || !doc.is<JsonObjectConst>()) {
+    error = std::string("freeipapi.com's answer could not be read: ") + (e ? e.c_str() : "not an object");
+    return false;
+  }
+  if (!doc["latitude"].is<double>() || !doc["longitude"].is<double>()) {
+    error = "freeipapi.com did not know where this address is";
+    return false;
+  }
+  out = Found{};
+  out.lat = doc["latitude"].as<double>();
+  out.lon = doc["longitude"].as<double>();
+  // An address it cannot place comes back at 0, 0, out in the ocean.
+  if (out.lat == 0 && out.lon == 0) {
+    error = "freeipapi.com did not know where this address is";
+    return false;
+  }
+  std::string parts;
+  for (const char *k : {"cityName", "regionName", "countryName"}) {
+    const std::string part = trimmed(doc[k] | "");
+    if (part.empty() || part == "-" || !latin(part)) continue;
+    if (out.name.empty()) out.name = keyboard::clipped(part, MOST_NAME);
+    parts += (parts.empty() ? "" : ", ") + part;
+  }
+  out.title = "Network-based location";
+  // A provider's address is often in a town nearby, not the screen's own: said, so the place is checked before use.
+  out.detail = (parts.empty() ? "Somewhere" : parts) + ", from the internet address: often a town or two off";
+  out.source = "freeipapi.com";
+  return true;
+}
+
+// The place the radio's planes put the screen at (locate.h), as a place to pick: no name of its own, so the screen
+// shows its coordinates; how many planes it came from and about how far out it may be, in the screen's units.
+inline Found radio_place(const locate::Fix &fix, bool metric) {
+  Found out;
+  out.title = "Radio-based location";
+  out.lat = fix.lat;
+  out.lon = fix.lon;
+  char words[96];
+  const double far = metric ? fix.within_nm * 1.852 : fix.within_nm;
+  std::snprintf(words, sizeof(words), "%.3f, %.3f: from %u planes heard, within about %.0f %s", fix.lat, fix.lon,
+                (unsigned) fix.planes, std::ceil(far), metric ? "km" : "NM");
+  out.detail = words;
+  out.source = "this screen's radio";
+  return out;
+}
+
+// Why the radio offers no place yet: the planes it has heard with a position, and how many it needs.
+inline std::string radio_waiting(size_t heard) {
+  return "The radio has heard " + std::to_string(heard) + " of the " + std::to_string(locate::FEWEST_PLANES) +
+         " planes it needs to say where the screen is";
 }
 }  // namespace sky::places

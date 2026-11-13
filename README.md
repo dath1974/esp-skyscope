@@ -124,6 +124,7 @@ Everything the screen shows comes from free public services. Please keep to thei
 | [FAA ADDS](https://adds-faa.opendata.arcgis.com) | airspace and runways (optional) | public domain, United States; not for navigation |
 | [FAA airports](https://adds-faa.opendata.arcgis.com) | the menu's place search: airports by code or name | public domain, United States |
 | [Nominatim](https://operations.osmfoundation.org/policies/nominatim/) | the menu's place search: anything else | at most one request a second, with a User-Agent, none as you type, OpenStreetMap credited (all done) |
+| [freeipapi.com](https://freeipapi.com/terms) | the place's **Locate**: the town of the screen's internet address | free, no key, any use; at most 60 requests a minute; asked only when you press Locate |
 | [Aviation Weather Center](https://aviationweather.gov/data/api/) | METARs, TAFs, SIGMETs, G-AIRMETs, pilot reports | US government; at most 100 requests a minute, with a User-Agent |
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu) | the GFS MOS, and the NEXRAD radar (optional) | Iowa State University; free, credited on the glass |
 

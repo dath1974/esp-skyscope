@@ -52,7 +52,8 @@ inline const std::vector<Row> &rows() {
   static const std::vector<Row> table = {
       // Place: where the screen is and how far it looks.
       {.key = "place", .name = "Place", .kind = PLACE, .pad = WORDS,
-       .hint = "An airport code (KJFK), an airport's name, a town or an address", .most = 60},
+       .hint = "An airport code (KJFK), an airport's name, a town or an address; or Locate, for where the screen is",
+       .most = 60},
       {.key = "lat", .name = "Latitude", .kind = NUMBER, .pad = DECIMAL,
        .hint = "Degrees, -85 to 85: north positive, south negative"},
       {.key = "lon", .name = "Longitude", .kind = NUMBER, .pad = DECIMAL,

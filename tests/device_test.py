@@ -34,7 +34,8 @@ It never prints the screen's place. Python's standard library only. Nothing here
   without its scope in each phosphor, and no beam turning then;
 - touches (unless --no-touch), through /api/touch and /api/ui: a long press opens the menu; its arrows step a value
   without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
-  is refused out of reach and shown, not applied, within it; the Wi-Fi list finds networks and goes back; another
+  is refused out of reach and shown, not applied, within it; the place's Locate offers the network-based location
+  (the mock's town), shown when picked and not applied; the Wi-Fi list finds networks and goes back; another
   appearance rebuilds the menu in its colors; Check asks the update server, and Install takes a second tap (never
   given); the pages' keys at the menu's top, a switch, and the factory reset asking first (never answered yes); the
   tour asked for, a step done by its touch, and ended; a tap on a plane opens its card and a second closes it; a tap on the map shows the screen's address; a drag
@@ -407,6 +408,36 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
             run.check(row["value"] == "12 NM" and row["pending"], f"and the range shows what was typed ({row['value']})")
     run.check(glass.close_menu("cancel"), "Cancel closes the menu")
     run.check(not differing(screen, original), "and what was typed is not applied", differing(screen, original))
+
+    # The place's Locate: where the screen is, the mock's town for its internet address (and on a screen with a radio,
+    # perhaps where its planes put it, which is never printed: it is the screen's place). One picked shows in the menu
+    # by its town, not applied; Cancel drops it.
+    glass.open_menu()
+    row = glass.reach_row("place", "edit")
+    if run.check(row is not None, "the place has a field to search from"):
+        since = time.time()
+        glass.tap_key(row["edit"])
+        editor = wait_for(lambda: (glass.menu() or {}).get("editor"), 5, 0.3)
+        if run.check(editor is not None and editor.get("locate"), "a tap on it opens the keyboard, with Locate"):
+            glass.tap_key(editor["locate"])
+            done = lambda: (lambda p: p if p and not p["line"].startswith("Looking") else None)(
+                (glass.menu() or {}).get("picker"))
+            picker = wait_for(done, 20, 0.5)
+            names = [i["name"] for i in picker["items"]] if picker else []
+            run.check("Network-based location" in names, "Locate offers the network-based location",
+                      f"{len(names)} found")
+            if server:
+                asked = [r for r in server.feed.log(since) if r[3] == "ip-place"]
+                run.check(len(asked) == 1, f"asking freeipapi.com once ({len(asked)})")
+            town = next((i for i in picker["items"] if i["name"] == "Network-based location"), None) if picker else None
+            if town:
+                glass.tap_key(town)
+                row = wait_for(lambda: (lambda m: glass.row("place") if m and not m.get("picker") else None)(
+                    glass.menu()), 5, 0.3)
+                run.check(row is not None and row["value"] == "Testville" and row["pending"],
+                          "a tap on it shows its town as the place, not yet applied")
+    run.check(glass.close_menu("cancel"), "Cancel closes the menu")
+    run.check(not differing(screen, original), "and the place picked is not applied", differing(screen, original))
 
     # The Wi-Fi list: the networks in reach and Other network; Back goes back to the menu. Nothing is joined, and no
     # network's name is printed.

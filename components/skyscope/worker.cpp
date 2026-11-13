@@ -234,6 +234,31 @@ std::vector<places::Found> find_places(const std::string &q, http::Body &body, c
   return all;
 }
 
+// Where the screen may be, for a search with nothing typed: `found` holds where its own radio's planes put it
+// (locate.h), if they do, and `why` why not; then where its internet address is (freeipapi.com, asked only now). Each
+// is offered to pick, never set by itself.
+std::vector<places::Found> find_here(std::vector<places::Found> found, std::string why, bool connected,
+                                     http::Body &body, const std::string &agent, std::string &error) {
+  if (connected) {
+    body.clear();
+    const http::Result r = http::get(places::IP_PLACE_URL, body, places::MOST_REPLY_BYTES, agent, "application/json");
+    places::Found place;
+    std::string e;
+    JsonDocument doc;
+    if (r.status == 200 && places::read_ip_place(reinterpret_cast<const char *>(body.data), body.size, doc, place, e))
+      found.push_back(place);
+    else if (why.empty())
+      why = r.status != 200 ? "freeipapi.com had no answer (" +
+                                  (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error) + ")"
+                            : e;
+    body.clear();
+  } else if (why.empty()) {
+    why = "The screen is not on a network";
+  }
+  if (found.empty()) error = why;
+  return found;
+}
+
 // The weather for the weather page (weather.h): the station set, or the nearest to the place that reports, its METAR,
 // TAF and MOS, and the advisories and pilot reports over the map. A part that fails leaves the rest.
 std::shared_ptr<weather::Report> find_weather(const Settings &settings, http::Body &body, const std::string &agent) {
@@ -564,6 +589,7 @@ void Skyscope::worker_() {
     cache.trim();  // PSRAM taken since by anything else comes out of the cache
     bool online, updating;
     std::string search;
+    bool search_here = false;
     bool connected, wants_weather = false;
     bool new_download = false, stop_download = false, remount = false, clear_tiles = false, format_card = false;
     card::Area download;
@@ -606,6 +632,7 @@ void Skyscope::worker_() {
       }
       if (shared_.search_rev != search_rev) {
         search = shared_.search;
+        search_here = shared_.search_here;
         search_rev = shared_.search_rev;
       }
       if (shared_.weather_ask != weather_ask) {
@@ -657,10 +684,21 @@ void Skyscope::worker_() {
     }
     // ---- A place to find, typed in the menu: before anything else, as someone is waiting for it, and with no place
     // set yet (it is how one is set).
-    if (!search.empty()) {
+    if (!search.empty() || search_here) {
       std::vector<places::Found> found;
       std::string error;
-      if (connected) found = find_places(search, body, agent_, nominatim_at, error);
+      if (search_here) {
+        std::string why;
+#ifdef USE_SKYSCOPE_RADIO
+        if (radio_ && radio_->streaming()) {
+          size_t heard = 0;
+          const sky::locate::Fix fix = radio_->fix(heard);
+          if (fix.found) found.push_back(places::radio_place(fix, settings.metric));
+          else why = places::radio_waiting(heard);
+        }
+#endif
+        found = find_here(std::move(found), why, connected, body, agent_, error);
+      } else if (connected) found = find_places(search, body, agent_, nominatim_at, error);
       else error = "The screen is not on a network";
       if (found.empty() && error.empty()) error = "Nothing found";
       ESP_LOGI(TAG, "Search: %u places found", (unsigned) found.size());

@@ -278,8 +278,10 @@ class Skyscope : public Component,
     sightings::Book book;
     uint32_t book_rev = 0;
     std::vector<sightings::Alert> alerts;
-    // loop -> worker: a place to find, typed in the menu; worker -> loop: what was found for the search found_rev.
+    // loop -> worker: a place to find, typed in the menu, or where the screen is (`search_here`, nothing typed);
+    // worker -> loop: what was found for the search found_rev.
     std::string search;
+    bool search_here = false;
     uint32_t search_rev = 0, found_rev = 0;
     std::vector<places::Found> found;
     std::string search_error;
@@ -363,6 +365,8 @@ class Skyscope : public Component,
   lv_obj_t *button_(lv_obj_t *parent, const char *label, int width, int height, int arrow = -1, bool primary = false);
   // The keyboard (editor.cpp), over the menu: a row's value, a place to find, or a Wi-Fi network's name or password.
   enum Typing : uint8_t { TYPING_ROW, TYPING_PLACE, TYPING_NETWORK, TYPING_PASSWORD };
+  // A place to find (editor.cpp): `q` typed, or nothing for where the screen is; its list opened to wait for it.
+  void search_place_(const std::string &q);
   void open_row_editor_(int row);
   void open_editor_(Typing what, const std::string &title, const std::string &text, keyboard::Pad pad, size_t most,
                     const std::string &hint);
@@ -630,6 +634,7 @@ class Skyscope : public Component,
   lv_obj_t *editor_{nullptr}, *editor_title_{nullptr}, *editor_field_{nullptr}, *editor_text_{nullptr};
   lv_obj_t *editor_cursor_{nullptr}, *editor_hint_{nullptr}, *editor_keys_{nullptr}, *editor_done_key_{nullptr};
   lv_obj_t *editor_show_{nullptr};
+  lv_obj_t *editor_locate_{nullptr};  // the place's Locate: where the screen is, for nothing typed
   Typing typing_{TYPING_ROW};
   int typing_row_{-1};
   keyboard::Board board_;

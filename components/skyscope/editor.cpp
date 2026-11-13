@@ -140,7 +140,8 @@ void Skyscope::open_editor_(Typing what, const std::string &title, const std::st
   lv_obj_set_style_bg_color(editor_cursor_, lv_color_hex(c.accent), 0);
   lv_obj_set_style_bg_opa(editor_cursor_, LV_OPA_COVER, 0);
 
-  // What the value may be (or why it was refused), and for a password a key to show it.
+  // What the value may be (or why it was refused); for a password a key to show it, for the place one to find where
+  // the screen is.
   lv_obj_t *under = plain(editor_);
   lv_obj_set_size(under, lv_pct(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(under, LV_FLEX_FLOW_ROW);
@@ -149,7 +150,7 @@ void Skyscope::open_editor_(Typing what, const std::string &title, const std::st
   editor_hint_ = widgets::text(under, ui::fonts.small, c.muted, "");
   lv_obj_set_flex_grow(editor_hint_, 1);
   lv_label_set_long_mode(editor_hint_, LV_LABEL_LONG_WRAP);
-  editor_show_ = nullptr;
+  editor_show_ = editor_locate_ = nullptr;
   if (what == TYPING_PASSWORD) {
     editor_show_ = button_(under, "Show", LV_SIZE_CONTENT, ui::mm(6));
     on_click(editor_show_, this, [](lv_event_t *e) {
@@ -158,6 +159,10 @@ void Skyscope::open_editor_(Typing what, const std::string &title, const std::st
       set_label(lv_obj_get_child(self->editor_show_, 0), self->editor_masked_ ? "Show" : "Hide");
       self->refresh_editor_();
     });
+  }
+  if (what == TYPING_PLACE) {
+    editor_locate_ = button_(under, "Locate", LV_SIZE_CONTENT, ui::mm(6));
+    on_click(editor_locate_, this, [](lv_event_t *e) { self_of(e)->search_place_(""); });
   }
 
   // The keys, in what room is left.
@@ -259,20 +264,9 @@ void Skyscope::editor_done_() {
       });
       return;
     }
-    case TYPING_PLACE: {
-      const std::string q = keyboard::trimmed(text);
-      if (q.empty()) return;
-      {
-        std::lock_guard<std::mutex> guard(lock_);
-        shared_.search = q;
-        search_rev_ = ++shared_.search_rev;
-      }
-      searching_ = true;
-      found_.clear();
-      found_error_.clear();
-      this->defer([this]() { open_picker_(PICKING_PLACES); });
+    case TYPING_PLACE:
+      search_place_(keyboard::trimmed(text));
       return;
-    }
     case TYPING_NETWORK:
       if (const char *why = menu::network_refused(text, "")) {
         editor_error_ = why;
@@ -296,11 +290,26 @@ void Skyscope::editor_done_() {
   }
 }
 
+void Skyscope::search_place_(const std::string &q) {
+  // Nothing typed asks where the screen is (worker.cpp): its radio's planes, its internet address.
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    shared_.search = q;
+    shared_.search_here = q.empty();
+    search_rev_ = ++shared_.search_rev;
+  }
+  searching_ = true;
+  found_.clear();
+  found_error_.clear();
+  // After this event: the key pressed is part of what the list covers.
+  this->defer([this]() { open_picker_(PICKING_PLACES); });
+}
+
 void Skyscope::close_editor_() {
   if (!editor_) return;
   lv_obj_delete(editor_);
   editor_ = editor_title_ = editor_field_ = editor_text_ = editor_cursor_ = nullptr;
-  editor_hint_ = editor_keys_ = editor_done_key_ = editor_show_ = nullptr;
+  editor_hint_ = editor_keys_ = editor_done_key_ = editor_show_ = editor_locate_ = nullptr;
   board_keys_.clear();
   board_key_objs_.clear();
 }
@@ -387,7 +396,8 @@ void Skyscope::fill_picker_() {
   };
   if (picking_ == PICKING_PLACES) {
     for (size_t i = 0; i < found_.size(); ++i)
-      item(found_[i].name, found_[i].detail + " (" + found_[i].source + ")", (int) i);
+      item(found_[i].title.empty() ? found_[i].name : found_[i].title,
+           found_[i].detail + " (" + found_[i].source + ")", (int) i);
     return;
   }
   std::string on;
@@ -498,7 +508,7 @@ void Skyscope::refresh_picker_() {
         }
       }
       if (!searching_) fill_picker_();
-      else set_label(picker_line_, "Looking for \"" + q + "\"...");
+      else set_label(picker_line_, q.empty() ? "Looking for where the screen is..." : "Looking for \"" + q + "\"...");
     }
     if (!searching_)
       set_label(picker_line_, !found_error_.empty() ? found_error_ : found_.empty() ? "Nothing found" : "Pick one:");

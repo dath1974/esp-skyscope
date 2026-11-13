@@ -16,7 +16,7 @@ are the user guide; read them for what the screen does and how it is set up.
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
     `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
-    `ticks.h`, `tour.h` (namespace `sky`).
+    `ticks.h`, `tour.h`, `locate.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `tour.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`,
@@ -51,8 +51,8 @@ are the user guide; read them for what the screen does and how it is set up.
   in PSRAM (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`). Watch for leaks: the soak test exists
   because of one.
 - **Public services.** adsb.fi, adsb.lol (its planes and its routes), Esri, OSM, USGS, FAA, the Aviation Weather
-  Center and the Iowa Environmental Mesonet have terms; keep to them. Respect rate-limit headers and backoff in
-  `feed.h`, keep the User-Agent and tile caching, and keep attribution as each source requires.
+  Center, the Iowa Environmental Mesonet and freeipapi.com have terms; keep to them. Respect rate-limit headers and
+  backoff in `feed.h`, keep the User-Agent and tile caching, and keep attribution as each source requires.
 - **Test endpoints** (`/api/touch`, `/api/ui`, `/api/screenshot`, `/api/test`) are compiled out with
   `test_api: false`; keep them behind that flag.
 - **Tests against the mock.** The device tests (all but `--public`) send the screen to `tests/mock_feed.py`, which

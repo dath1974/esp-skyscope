@@ -125,7 +125,15 @@ the screen cannot take is refused, with what it accepts shown under it.
   to move the cursor. Numbers and times get a pad of digits.
 - **Place** finds an airport by its code (KJFK, JFK) or name, or anything else through OpenStreetMap, when you press
   **Search**. Pick one of the results, or type a latitude and longitude instead. The screen writes Latin letters only,
-  so a place named only in another script is left out.
+  so a place named only in another script is left out. **Locate**, beside the hint under the field (or **Search**
+  with nothing typed), asks where the screen is, and offers up to two places:
+  - **Radio-based location**, on a screen with its own radio: the middle of the planes it has heard. It needs six or
+    more heard with a position, which can take some minutes. The nearer and the more evenly around the planes pass,
+    the closer it comes; it says about how far out it may be.
+  - **Network-based location**: the town freeipapi.com puts the screen's internet address in, often a town or two
+    away, sometimes farther. The screen's address goes to freeipapi.com only when you ask.
+
+  Neither is used until you pick it.
 - **Follow a plane** takes a plane to follow ([below](#following-a-plane)); empty stops.
 - **Watched** takes aircraft with a comma between: `N12345 red, BAW123 blue` (red if no color is given).
 - **Wi-Fi** shows the network the screen is on. A tap lists the networks it knows (up to eight, first choice first)

@@ -273,6 +273,12 @@ void Radio::set_reference(double lat, double lon) {
   tracker_.set_reference(lat, lon);
 }
 
+sky::locate::Fix Radio::fix(size_t &heard) {
+  std::lock_guard<std::mutex> guard(lock_);
+  heard = tracker_.locating();
+  return tracker_.fix();
+}
+
 Radio::Stats Radio::stats() {
   std::lock_guard<std::mutex> guard(lock_);
   Stats s;
