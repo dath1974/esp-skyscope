@@ -30,7 +30,8 @@ Node 18 or newer.
 
 - `make test-host`: the C++ host tests (`tests/test_host.cpp`), with the address and undefined-behavior sanitizers.
   `tests/run.sh reply.json` reads a saved feed reply too.
-- `make test-python`: the release manifest, the mock the device tests use, and `tools/screenshots.py`.
+- `make test-python`: the release manifest, the mock the device tests use, `tools/screenshots.py`, and that the web
+  server prints no floats (`tests/test_web_stack.py`: its task's small stack ran out over one).
 - `make test-page`: the web page's script (`tests/test_page.mjs`).
 - `make test-markers` draws every aircraft shape on a sheet (`tests/build/markers.png`); CI keeps it with each run.
 - `make emblem` draws the emblem (`components/skyscope/emblem.h`) as the screen's own code does, on a sheet to look at
@@ -51,7 +52,8 @@ asks nothing of the public services. `tests/mock_services.py` says what the mock
 fails on any request the mock did not know. The screen must be able to reach this machine
 ([under WSL, see below](#a-screen-reaching-a-test-server-under-wsl)).
 
-- `make test-esp32 DEVICE=<address>`: the page, settings, status and memory, aircraft, airspace, and the glass through
+- `make test-esp32 DEVICE=<address>`: the page, settings, status and memory, aircraft, the day's tally, its log (CSV
+  and JSON) and `/metrics` (clean names, and no restart), airspace, and the glass through
   `/api/touch`: the menu and its keyboard, its switches and the question before a factory reset (never answered
   yes), the Wi-Fi list, firmware, the tour, a plane's card, swiping between maps, the weather page and radar, the
   brightness strip, and on a screen with a speaker the volume strip and `/api/sound`.

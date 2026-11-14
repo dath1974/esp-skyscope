@@ -7,7 +7,7 @@
 //   GET  /api/status       Wi-Fi, memory, the feed and the map, and the plane followed (follow.h)
 //   GET  /api/aircraft     the planes of the last report
 //   GET  /api/stats        what the screen has seen in its range today (sightings.h): planes, by the hour, the
-//                          commonest types and operators, the records, and the planes of the days before
+//                          most common types and operators, the records, and the previous daily totals
 //   GET  /api/log          the latest visits of planes to the range, as CSV (?format=json for JSON)
 //   GET  /metrics          Prometheus's text: planes, memory, the feed and the map
 //   GET  /api/firmware     the firmware running and the newest on the update server
@@ -99,6 +99,10 @@ void Skyscope::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t 
   body_.append(reinterpret_cast<const char *>(data), len);
 }
 
+// The web server's task has a small stack (4.5 KB), and every request comes down through this function. Kept to the
+// password and where to send the request, it takes little of it: all the API in one function was a frame of 1.3 KB,
+// and the log's numbers printed under it ran the stack out (the P4 restarted at "Download the log"). The answers that
+// print numbers have functions of their own, and the rest share answer_; none of them is folded into this one.
 void Skyscope::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = url_of(request);
   const bool post = request->method() == HTTP_POST;
@@ -117,6 +121,12 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       return;
     }
   }
+  if (url == "/api/log") return log_reply_(request);
+  if (url == "/metrics") return metrics_reply_(request);
+  answer_(request, url, post, body);
+}
+
+void Skyscope::answer_(AsyncWebServerRequest *request, const std::string &url, bool post, const std::string &body) {
   if (url == "/" || url == "/index.html") {
     auto *response = request->beginResponse(200, "text/html", reinterpret_cast<const uint8_t *>(PAGE),
                                             sizeof(PAGE) - 1);
@@ -488,93 +498,9 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     JsonDocument out;
     {
       std::lock_guard<std::mutex> guard(lock_);
-      stats_json_(out.to<JsonObject>());
+      sightings::stats_json(shared_.book, out.to<JsonObject>());
     }
     send_json(request, 200, out);
-    return;
-  }
-  if (url == "/api/log") {
-    std::vector<sightings::Visit> log;
-    bool metric;
-    {
-      std::lock_guard<std::mutex> guard(lock_);
-      log = shared_.book.log();
-      metric = shared_.settings.metric;
-    }
-    const bool json = request->arg("format") == "json";
-    auto local = [](int64_t unix_s) {
-      const time_t t = (time_t) unix_s;
-      struct tm l {};
-      localtime_r(&t, &l);
-      char text[24];
-      std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M:%S", &l);
-      return std::string(text);
-    };
-    if (json) {
-      JsonDocument out;
-      JsonArray list = out["visits"].to<JsonArray>();
-      for (auto it = log.rbegin(); it != log.rend(); ++it) {
-        const sightings::Visit &v = *it;
-        JsonObject o = list.add<JsonObject>();
-        o["first"] = v.first;
-        o["last"] = v.last;
-        o["hex"] = v.hex;
-        o["callsign"] = v.callsign;
-        o["registration"] = v.registration;
-        o["type"] = v.type;
-        o["operator"] = v.operator_name;
-        o["closest_nm"] = std::round(v.closest_m / geo::NM * 10) / 10;
-        if (v.lowest_ft != INT32_MAX) {
-          o["lowest_ft"] = v.lowest_ft;
-          o["highest_ft"] = v.highest_ft;
-        }
-        if (v.watched) o["watched"] = true;
-        if (v.emergency) o["emergency"] = v.squawk;
-      }
-      send_json(request, 200, out);
-      return;
-    }
-    std::string text = sightings::csv_header(metric);
-    for (const auto &v : log) text += sightings::csv_line(v, metric, local);
-    auto *response = request->beginResponse(200, "text/csv", text);
-    response->addHeader("Cache-Control", "no-store");
-    response->addHeader("Content-Disposition", "attachment; filename=\"skyscope-log.csv\"");
-    request->send(response);
-    return;
-  }
-  if (url == "/metrics") {
-    std::string text;
-    auto metric = [&](const char *name, const char *help, double value, const char *type = "gauge") {
-      char line[256];
-      std::snprintf(line, sizeof(line), "# HELP skyscope_%s %s\n# TYPE skyscope_%s %s\nskyscope_%s %.10g\n", name,
-                    help, name, type, name, value);
-      text += line;
-    };
-    metric("uptime_seconds", "Seconds since the screen started", millis() / 1000.0, "counter");
-    metric("internal_free_bytes", "Internal RAM free", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    metric("internal_largest_bytes", "The largest block of internal RAM free",
-           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-    metric("psram_free_bytes", "PSRAM free", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    metric("sockets_open", "Sockets open", sockets_open());
-    metric("loop_gap_max_ms", "The longest gap in ESPHome's loop over the last five seconds", loop_gap_max_ms_);
-    metric("frames_per_second", "Frames drawn a second", ui::frame_stats.per_second);
-    metric("asleep", "1 while the screen is off", asleep_ ? 1 : 0);
-    if (wifi::global_wifi_component) metric("wifi_rssi_dbm", "Wi-Fi signal", wifi::global_wifi_component->wifi_rssi());
-    std::lock_guard<std::mutex> guard(lock_);
-    metric("aircraft", "Planes in the last report kept", shared_.flights.size());
-    metric("planes_in_range", "Planes within the range in the last report around the place", shared_.book.in_range());
-    metric("planes_today", "Planes seen in range since local midnight", shared_.book.today().planes);
-    metric("visits_today", "Visits of planes to the range since local midnight", shared_.book.today().visits);
-    metric("feed_age_seconds", "Seconds since the last good report",
-           shared_.feed_at ? (millis() - shared_.feed_at) / 1000.0 : -1);
-    metric("feed_fetch_ms", "The last report's download", shared_.fetch_ms);
-    metric("feed_parse_ms", "The last report's reading", shared_.parse_ms);
-    metric("tiles_fetched_total", "Map tiles fetched from their servers", shared_.tiles_fetched, "counter");
-    metric("tiles_from_cache_total", "Map tiles found in the cache", shared_.tiles_from_cache, "counter");
-    metric("tile_cache_bytes", "The tile cache's bytes", shared_.cache_bytes);
-    auto *response = request->beginResponse(200, "text/plain; version=0.0.4", text);
-    response->addHeader("Cache-Control", "no-store");
-    request->send(response);
     return;
   }
   if (url == "/api/debug" && post) {
@@ -776,6 +702,93 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
+// The latest visits, as CSV (the page's download) or as JSON with ?format=json.
+void Skyscope::log_reply_(AsyncWebServerRequest *request) {
+  std::vector<sightings::Visit> log;
+  bool metric;
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    log = shared_.book.log();
+    metric = shared_.settings.metric;
+  }
+  const bool json = request->arg("format") == "json";
+  auto local = [](int64_t unix_s) {
+    const time_t t = (time_t) unix_s;
+    struct tm l {};
+    localtime_r(&t, &l);
+    char text[24];
+    std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M:%S", &l);
+    return std::string(text);
+  };
+  if (json) {
+    JsonDocument out;
+    JsonArray list = out["visits"].to<JsonArray>();
+    for (auto it = log.rbegin(); it != log.rend(); ++it) {
+      const sightings::Visit &v = *it;
+      JsonObject o = list.add<JsonObject>();
+      o["first"] = v.first;
+      o["last"] = v.last;
+      o["hex"] = v.hex;
+      o["callsign"] = v.callsign;
+      o["registration"] = v.registration;
+      o["type"] = v.type;
+      o["operator"] = v.operator_name;
+      o["closest_nm"] = std::round(v.closest_m / geo::NM * 10) / 10;
+      if (v.lowest_ft != INT32_MAX) {
+        o["lowest_ft"] = v.lowest_ft;
+        o["highest_ft"] = v.highest_ft;
+      }
+      if (v.watched) o["watched"] = true;
+      if (v.emergency) o["emergency"] = v.squawk;
+    }
+    send_json(request, 200, out);
+    return;
+  }
+  std::string text = sightings::csv_header(metric);
+  for (const auto &v : log) text += sightings::csv_line(v, metric, local);
+  auto *response = request->beginResponse(200, "text/csv", text);
+  response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Content-Disposition", "attachment; filename=\"skyscope-log.csv\"");
+  request->send(response);
+}
+
+// The screen's health for Prometheus.
+void Skyscope::metrics_reply_(AsyncWebServerRequest *request) {
+  std::string text;
+  // Put together by hand, not with snprintf: a float printed takes more stack than the web server's task can spare.
+  auto metric = [&](const char *name, const char *help, double value, const char *type = "gauge") {
+    text.append("# HELP skyscope_").append(name).append(" ").append(help).append("\n# TYPE skyscope_").append(name);
+    text.append(" ").append(type).append("\nskyscope_").append(name).append(" ");
+    text.append(sky::numbers::text(value));
+    text += '\n';
+  };
+  metric("uptime_seconds", "Seconds since the screen started", millis() / 1000.0, "counter");
+  metric("internal_free_bytes", "Internal RAM free", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  metric("internal_largest_bytes", "The largest block of internal RAM free",
+         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  metric("psram_free_bytes", "PSRAM free", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  metric("sockets_open", "Sockets open", sockets_open());
+  metric("loop_gap_max_ms", "The longest gap in ESPHome's loop over the last five seconds", loop_gap_max_ms_);
+  metric("frames_per_second", "Frames drawn a second", ui::frame_stats.per_second);
+  metric("asleep", "1 while the screen is off", asleep_ ? 1 : 0);
+  if (wifi::global_wifi_component) metric("wifi_rssi_dbm", "Wi-Fi signal", wifi::global_wifi_component->wifi_rssi());
+  std::lock_guard<std::mutex> guard(lock_);
+  metric("aircraft", "Planes in the last report kept", shared_.flights.size());
+  metric("planes_in_range", "Planes within the range in the last report around the place", shared_.book.in_range());
+  metric("planes_today", "Planes seen in range since local midnight", shared_.book.today().planes);
+  metric("visits_today", "Visits of planes to the range since local midnight", shared_.book.today().visits);
+  metric("feed_age_seconds", "Seconds since the last good report",
+         shared_.feed_at ? (millis() - shared_.feed_at) / 1000.0 : -1);
+  metric("feed_fetch_ms", "The last report's download", shared_.fetch_ms);
+  metric("feed_parse_ms", "The last report's reading", shared_.parse_ms);
+  metric("tiles_fetched_total", "Map tiles fetched from their servers", shared_.tiles_fetched, "counter");
+  metric("tiles_from_cache_total", "Map tiles found in the cache", shared_.tiles_from_cache, "counter");
+  metric("tile_cache_bytes", "The tile cache's bytes", shared_.cache_bytes);
+  auto *response = request->beginResponse(200, "text/plain; version=0.0.4", text);
+  response->addHeader("Cache-Control", "no-store");
+  request->send(response);
+}
+
 // On the loop: what the update entity knows, for the page. While firmware is flashing the loop stands still, but the
 // entity still reports its progress here, and the web server (its own task) still answers.
 #ifdef USE_UPDATE
@@ -905,54 +918,5 @@ void Skyscope::card_json_(JsonObject out, const Shared::Card &c) const {
   d["error"] = c.download_error;
 }
 
-// What the screen has seen today (sightings.h), for /api/stats and the page; lock_ held.
-void Skyscope::stats_json_(JsonObject out) const {
-  const sightings::Book &b = shared_.book;
-  const sightings::Day &d = b.today();
-  // A day (20261110) as the API writes it, "2026-11-10"; "" for none.
-  auto dashed = [](uint32_t date) {
-    char text[16] = "";
-    if (date)
-      std::snprintf(text, sizeof(text), "%04u-%02u-%02u", (unsigned) (date / 10000 % 10000),
-                    (unsigned) (date / 100 % 100), (unsigned) (date % 100));
-    return std::string(text);
-  };
-  out["date"] = dashed(d.date);
-  out["planes"] = d.planes;
-  out["visits"] = d.visits;
-  out["in_range"] = b.in_range();
-  out["busiest"] = d.busiest;
-  out["watched"] = d.watched;
-  out["emergencies"] = d.emergencies;
-  JsonArray hours = out["hours"].to<JsonArray>();
-  for (uint16_t h : d.hours) hours.add(h);
-  auto counts = [&](const char *key, const std::vector<sightings::Count> &list) {
-    JsonArray a = out[key].to<JsonArray>();
-    for (const auto &c : list) {
-      JsonObject o = a.add<JsonObject>();
-      o["name"] = c.name;
-      o["count"] = c.n;
-    }
-  };
-  counts("types", b.top_types());
-  counts("operators", b.top_operators());
-  auto record = [&](const char *key, const sightings::Record &r, double scale) {
-    if (!r.set) return;
-    JsonObject o = out[key].to<JsonObject>();
-    o["name"] = r.name;
-    o["value"] = std::round(r.value * scale * 10) / 10;
-    o["at"] = r.at;
-  };
-  record("closest_nm", d.closest, 1 / geo::NM);
-  record("highest_ft", d.highest, 1);
-  record("fastest_kt", d.fastest, 1);
-  JsonArray days = out["days"].to<JsonArray>();
-  for (const auto &day : b.days()) {
-    JsonObject o = days.add<JsonObject>();
-    o["date"] = dashed(day.date);
-    o["planes"] = day.planes;
-  }
-  out["log"] = b.log().size();
-}
 
 }  // namespace esphome::skyscope

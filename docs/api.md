@@ -70,7 +70,7 @@ kept over a restart.
 - `date`, `planes`, `visits` (a plane heard again after ten minutes away is a new visit), `in_range` now, `busiest`
   (the most at once), `watched` and `emergencies` (visits that raised an alert).
 - `hours`: the planes first seen in each hour, 0:00 to 23:00.
-- `types` and `operators`: the commonest, each `{"name", "count"}`.
+- `types` and `operators`: the most common, each `{"name", "count"}`.
 - `closest_nm`, `highest_ft`, `fastest_kt`: the day's records, each `{"name", "value", "at"}` (Unix seconds).
 - `days`: the planes of the last 14 days, today's last.
 

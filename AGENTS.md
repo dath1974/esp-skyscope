@@ -16,7 +16,7 @@ are the user guide; read them for what the screen does and how it is set up.
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
     `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
-    `ticks.h`, `tour.h`, `locate.h`, `sound.h` (namespace `sky`).
+    `ticks.h`, `tour.h`, `locate.h`, `sound.h`, `numbers.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `tour.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`,
@@ -24,7 +24,7 @@ are the user guide; read them for what the screen does and how it is set up.
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
-  `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
+  `test_web_stack.py` (no floats printed on the web server's task), `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
 - `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `emblem.cpp` (the emblem's
   sheet and `docs/emblem.svg`), `screenshots.py` (`docs/screens.md`'s pictures, from a real screen), `wake_table.py`
   (`wake.h`, each type's wake category from the FAA's list).
@@ -47,6 +47,11 @@ are the user guide; read them for what the screen does and how it is set up.
   on the same core above it; ESPHome's loop owns LVGL and the glass; the web
   server's task only reads a copy of the settings or hands a new one to the loop. Shared state lives in `Shared` under
   `lock_`, the base frame under `frame_lock_`. Never touch LVGL off the loop.
+- **The web server's stack.** Its task has 4.5 KB (ESPHome's), and a float printed with printf takes some 2 KB of it:
+  the P4 restarted at "Download the log". Write numbers there with `numbers.h`, keep `handleRequest` to the password
+  and the routing (the answers in their own `noinline` functions), and `tests/test_web_stack.py` holds web.cpp to it.
+- **ArduinoJson and char arrays.** `o["name"] = some_struct.name` with a `char[N]` stores only the pointer (it is taken
+  for a string literal); cast to `const char *` to have it copied. `/api/stats` once sent freed memory that way.
 - **Memory.** Internal RAM is scarce and has run out before (black screens, broken replies). Large buffers and TLS go
   in PSRAM (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`). Watch for leaks: the soak test exists
   because of one.

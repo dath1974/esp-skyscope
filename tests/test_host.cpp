@@ -25,6 +25,7 @@
 #include "../components/skyscope/keyboard.h"
 #include "../components/skyscope/locate.h"
 #include "../components/skyscope/menu_rows.h"
+#include "../components/skyscope/numbers.h"
 #include "../components/skyscope/modes.h"
 #include "../components/skyscope/offline.h"
 #include "../components/skyscope/overlay.h"
@@ -3314,9 +3315,9 @@ static void test_sightings() {
       if (l.tone != today::HEADING && l.label.empty() && !l.name.empty()) CHECK(l.share > 0 && l.share <= 1 && !l.value.empty());
     }
     CHECK(has(lines, today::PLAIN, "2 watched planes, 1 emergency"));
-    CHECK(has(lines, today::HEADING, "The day's records") && has(lines, today::PLAIN, "Nearest  UAL1, 2.0 NM"));
+    CHECK(has(lines, today::HEADING, "Records today") && has(lines, today::PLAIN, "Nearest  UAL1, 2.0 NM"));
     CHECK(has(lines, today::PLAIN, "Highest  UAL1, 12000 ft") && has(lines, today::PLAIN, "Fastest  UAL1, 300 kt"));
-    CHECK(has(lines, today::HEADING, "Commonest types"));
+    CHECK(has(lines, today::HEADING, "Most common types"));
     // Metric: kilometers, meters and kilometers an hour.
     const auto metric = today::lines(book, true);
     CHECK(has(metric, today::PLAIN, "Nearest  UAL1, 3.7 km") && has(metric, today::PLAIN, "Highest  UAL1, 3658 m") &&
@@ -3351,6 +3352,50 @@ static void test_sightings() {
   CHECK(csv_header(false).rfind("first,last,hex,callsign", 0) == 0);
   CHECK(csv_line(book.log()[0], false, local) ==
         std::to_string(t0) + "," + std::to_string(t0 + 20) + ",a00001,UAL1,,B738,Test Air,2.0,12000,12000,,7700\n");
+  // Its distances in tenths, written without printf's floats (numbers.h), as "%.1f" would write them.
+  {
+    Visit v = book.log()[0];
+    auto closest = [&](double meters, bool metric) {
+      v.closest_m = meters;
+      const std::string line = csv_line(v, metric, local);
+      size_t at = 0;
+      for (int comma = 0; comma < 7; ++comma) at = line.find(',', at) + 1;
+      return line.substr(at, line.find(',', at) - at);
+    };
+    CHECK(closest(0, false) == "0.0" && closest(12.36 * geo::NM, false) == "12.4" && closest(1500, true) == "1.5");
+    CHECK(closest(9.96 * geo::NM, false) == "10.0" && closest(250 * geo::NM, false) == "250.0");
+  }
+  // What /api/stats answers. Its names are copied in: they once pointed into lists gone before the reply was written,
+  // and the page showed whatever had taken their place. Under ASan a name left pointing stops the run here.
+  {
+    std::string text;
+    {
+      JsonDocument doc;
+      stats_json(book, doc.to<JsonObject>());
+      serializeJson(doc, text);
+    }
+    JsonDocument back;
+    CHECK(!deserializeJson(back, text));
+    CHECK(back["date"] == "2026-11-10" && back["planes"] == 2 && back["log"] == book.log().size());
+    CHECK(back["types"].size() == 2 && back["types"][0]["name"] == std::string(book.top_types()[0].name) &&
+          back["types"][0]["count"] == 1);
+    CHECK(back["operators"].size() == 1 && back["operators"][0]["name"] == "Test Air" &&
+          back["operators"][0]["count"] == 2);
+    CHECK(back["closest_nm"]["name"] == "UAL1" && back["closest_nm"]["value"] == 2.0 &&
+          back["highest_ft"]["value"] == 12000 && back["fastest_kt"]["value"] == 300);
+    CHECK(back["days"].size() == 1 && back["days"][0]["date"] == "2026-11-10" && back["days"][0]["planes"] == 2);
+  }
+}
+
+// Numbers as the web server writes them, without printf's floats (numbers.h).
+static void test_numbers() {
+  using sky::numbers::tenths;
+  using sky::numbers::text;
+  CHECK(text(12) == "12" && text(0.5) == "0.5" && text(-3.25) == "-3.25" && text(19.507) == "19.507");
+  CHECK(text(1.0004) == "1" && text(0.9996) == "1" && text(-0.0004) == "0" && text(-39) == "-39");
+  CHECK(text(4294967296.0) == "4294967296" && text(0.05, 1) == "0.1" && text(2.5, 0) == "3" && text(1.25, 9) == "1.25");
+  CHECK(text(NAN) == "NaN" && text(INFINITY) == "+Inf" && text(-INFINITY) == "-Inf");
+  CHECK(tenths(2.04) == "2.0" && tenths(9.96) == "10.0" && tenths(-0.5) == "-0.5" && tenths(0) == "0.0");
 }
 
 static void test_mock_answers() {
@@ -3479,6 +3524,7 @@ int main(int argc, char **argv) {
   test_photos();
   test_sight();
   test_sightings();
+  test_numbers();
   test_sound();
   test_mock_answers();
   for (int i = 1; i < argc; ++i) {

@@ -30,7 +30,7 @@ More pictures, each map and page with a word on it: [docs/screens.md](docs/scree
   over an ocean the screen shows where it is likely to be until it is heard again.
 - **Alerts** along the top of the glass when a watched plane comes into range, one squawks an emergency or (if asked)
   one passes close by, with a chime on the P4 board's speaker, and **the
-  day's tally** on the glass and the web page: planes by the hour, the commonest types, the day's records, and a log
+  day's tally** on the glass and the web page: planes by the hour, the most common types, today's records, and a log
   to download.
 - **Home Assistant** finds the screen by itself: the planes in range, each alert, the screen on or off, and on the P4
   board its speaker as a media player.

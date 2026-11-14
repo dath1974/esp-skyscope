@@ -232,14 +232,14 @@ told of again once it has been out of range for ten minutes.
 by.
 
 The screen counts the planes within the range of the place (up to 250 NM), from midnight by its clock: how many, by
-the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
+the hour, the most common types and operators, the most at once, and the day's nearest, highest and fastest. Only the
 planes around the place count, so none are counted while a plane is followed elsewhere.
 
 A swipe down from the top edge of the map (or **Today's planes** at the top of the menu) opens the day on the glass:
 
 - three numbers at the top: the planes today, those in range now, and the most at once;
 - a bar for each hour, with this hour's the brightest;
-- the day's records, the commonest types and operators, and the days before, each with a bar for its count.
+- today's records, the most common types and operators, and the previous daily totals, each with a bar for its count.
 
 The web page shows the same under **Today in range**, and keeps the latest 400 visits as a log to download (CSV). The
 tally is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to it, a file a day in

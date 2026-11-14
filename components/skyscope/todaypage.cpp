@@ -1,5 +1,5 @@
 // The day's tally on the glass (today.h): the planes the screen has seen in its range since midnight, the hours they
-// came in as a chart, the day's records, the commonest types and operators, and the days before. The web page has
+// came in as a chart, today's records, the most common types and operators, and the previous daily totals. The web page has
 // shown it from the start; here it is without a browser. A swipe down from the top edge of the map opens it, and so
 // does the menu. It costs nothing to keep: the worker counts whether or not anyone looks.
 #include "skyscope.h"

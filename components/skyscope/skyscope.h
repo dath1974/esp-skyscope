@@ -495,9 +495,13 @@ class Skyscope : public Component,
   static Chrome chrome_for_(const Settings &s);
   void restyle_();
   void set_status_color_(uint32_t color);
+  // The web server's answers, out of handleRequest so that its frame stays small (web.cpp).
+  __attribute__((noinline)) void answer_(AsyncWebServerRequest *request, const std::string &url, bool post,
+                                         const std::string &body);
+  __attribute__((noinline)) void log_reply_(AsyncWebServerRequest *request);
+  __attribute__((noinline)) void metrics_reply_(AsyncWebServerRequest *request);
   // The map card's state for the API (web.cpp), from a copy of Shared::Card.
   void card_json_(JsonObject out, const Shared::Card &c) const;
-  void stats_json_(JsonObject out) const;  // what the screen has seen today, lock_ held (web.cpp)
   // Off a network, a screen with a radio shows the radar from it alone (offline.h). shown_ is settings_ as the glass
   // shows them: the same, or offline::shown of them. Drawing goes by shown_; what is saved and edited is settings_.
   // Following a plane (follow.h) moves the view's middle with it, and so shown_ is follow::shown of them too.

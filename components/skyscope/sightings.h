@@ -1,7 +1,7 @@
 #pragma once
 // What the screen has seen in its range: each plane's visit (from when it came within the range to when it was last
-// heard there), the day's tally (how many planes, by the hour, the commonest types and operators, the nearest, highest
-// and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, a
+// heard there), the day's tally (how many planes, by the hour, the most common types and operators, the nearest,
+// highest and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, a
 // plane squawking an emergency, or (where asked for) one passing close by. Only reports around the place count: while
 // a plane is followed the planes come from around it, and they are no sighting of the screen's own.
 //
@@ -18,6 +18,7 @@
 
 #include "feed.h"
 #include "geo.h"
+#include "numbers.h"
 #include "overlay.h"
 #include "psram.h"
 #include "settings.h"
@@ -28,7 +29,7 @@ namespace sky::sightings {
 // counted again in the log, but not in the day's planes).
 constexpr int64_t VISIT_GAP_S = 10 * 60;
 // The visits the log keeps, the newest last, and the planes the day's tally tells apart (past that they are still
-// counted, but one heard again may be counted twice); the commonest types and operators kept with a day.
+// counted, but one heard again may be counted twice); the most common types and operators kept with a day.
 constexpr size_t MOST_LOG = 400, MOST_DAY_PLANES = 6000, MOST_TOP = 12;
 // The days whose number of planes is kept, today's among them.
 constexpr size_t MOST_DAYS = 14;
@@ -205,7 +206,7 @@ class Book {
     return out;
   }
   size_t open_visits() const { return open_.size(); }
-  // The day's commonest, most first, at most MOST_TOP.
+  // The day's most common, most first, at most MOST_TOP.
   std::vector<Count> top_types() const { return top_(types_); }
   std::vector<Count> top_operators() const { return top_(operators_); }
   // The planes of each day kept, oldest first, today's last.
@@ -400,6 +401,58 @@ class Book {
   std::vector<DayCount, InPsram<DayCount>> days_;
 };
 
+// What the screen has seen today, as /api/stats answers it (the web page's "Today in range"). The names are copied
+// into `out`, not pointed at: ArduinoJson takes a char array for a literal that lasts, and the lists here are gone
+// before the reply is written (the page once showed whatever had taken their place).
+inline void stats_json(const Book &b, JsonObject out) {
+  const Day &d = b.today();
+  // A day (20261110) as the API writes it, "2026-11-10"; "" for none.
+  auto dashed = [](uint32_t date) {
+    char text[16] = "";
+    if (date)
+      std::snprintf(text, sizeof(text), "%04u-%02u-%02u", (unsigned) (date / 10000 % 10000),
+                    (unsigned) (date / 100 % 100), (unsigned) (date % 100));
+    return std::string(text);
+  };
+  out["date"] = dashed(d.date);
+  out["planes"] = d.planes;
+  out["visits"] = d.visits;
+  out["in_range"] = b.in_range();
+  out["busiest"] = d.busiest;
+  out["watched"] = d.watched;
+  out["emergencies"] = d.emergencies;
+  JsonArray hours = out["hours"].to<JsonArray>();
+  for (uint16_t h : d.hours) hours.add(h);
+  // Each name as a pointer, so that ArduinoJson copies it (see above).
+  auto counts = [&](const char *key, const std::vector<Count> &list) {
+    JsonArray a = out[key].to<JsonArray>();
+    for (const auto &c : list) {
+      JsonObject o = a.add<JsonObject>();
+      o["name"] = (const char *) c.name;
+      o["count"] = c.n;
+    }
+  };
+  counts("types", b.top_types());
+  counts("operators", b.top_operators());
+  auto record = [&](const char *key, const Record &r, double scale) {
+    if (!r.set) return;
+    JsonObject o = out[key].to<JsonObject>();
+    o["name"] = (const char *) r.name;
+    o["value"] = std::round(r.value * scale * 10) / 10;
+    o["at"] = r.at;
+  };
+  record("closest_nm", d.closest, 1 / geo::NM);
+  record("highest_ft", d.highest, 1);
+  record("fastest_kt", d.fastest, 1);
+  JsonArray days = out["days"].to<JsonArray>();
+  for (const auto &day : b.days()) {
+    JsonObject o = days.add<JsonObject>();
+    o["date"] = dashed(day.date);
+    o["planes"] = day.planes;
+  }
+  out["log"] = b.log().size();
+}
+
 // The log as CSV, a line a visit: what the page downloads and the card keeps (a file a day). Times are the screen's
 // local ones, from `local` (Unix seconds to "2026-11-10 14:05:09").
 template<typename Local> inline std::string csv_line(const Visit &v, bool metric, Local local) {
@@ -413,9 +466,11 @@ template<typename Local> inline std::string csv_line(const Visit &v, bool metric
     std::snprintf(lowest, sizeof(lowest), "%ld", (long) v.lowest_ft);
     std::snprintf(highest, sizeof(highest), "%ld", (long) v.highest_ft);
   }
-  std::snprintf(line, sizeof(line), "%s,%s,%s,%s,%s,%s,%s,%.1f,%s,%s,%s,%s\n", local(v.first).c_str(),
-                local(v.last).c_str(), v.hex, v.callsign, v.registration, v.type, op.c_str(), closest, lowest, highest,
-                v.watched ? "watched" : "", v.emergency ? v.squawk : "");
+  // Not "%.1f": the web server's task writes these, and a float printed takes more stack than it has (numbers.h).
+  std::snprintf(line, sizeof(line), "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", local(v.first).c_str(),
+                local(v.last).c_str(), v.hex, v.callsign, v.registration, v.type, op.c_str(),
+                numbers::tenths(closest).c_str(), lowest, highest, v.watched ? "watched" : "",
+                v.emergency ? v.squawk : "");
   return line;
 }
 inline std::string csv_header(bool metric) {

@@ -66,8 +66,8 @@ inline std::vector<Stat> stats(const sightings::Book &book) {
           {std::to_string(d.busiest), "most at once"}};
 }
 
-// The page's lines under the chart of the hours: the day's records, its commonest types and operators, and the days
-// before. `metric` gives kilometers and meters for nautical miles, knots and feet.
+// The page's lines under the chart of the hours: today's records, its most common types and operators, and the
+// previous daily totals. `metric` gives kilometers and meters for nautical miles, knots and feet.
 inline std::vector<Line> lines(const sightings::Book &book, bool metric) {
   std::vector<Line> out;
   const sightings::Day &d = book.today();
@@ -91,7 +91,7 @@ inline std::vector<Line> lines(const sightings::Book &book, bool metric) {
     std::snprintf(value, sizeof(value), format, amount, unit);
     out.push_back({PLAIN, std::string(label) + "  " + r.name + ", " + value, label, r.name, value});
   };
-  if (d.closest.set || d.highest.set || d.fastest.set) out.push_back({HEADING, "The day's records"});
+  if (d.closest.set || d.highest.set || d.fastest.set) out.push_back({HEADING, "Records today"});
   record("Nearest", d.closest, "%.1f %s", metric ? d.closest.value / 1000.0 : d.closest.value / 1852.0,
          metric ? "km" : "NM");
   record("Highest", d.highest, "%.0f %s", metric ? d.highest.value * 0.3048 : (double) d.highest.value,
@@ -106,12 +106,12 @@ inline std::vector<Line> lines(const sightings::Book &book, bool metric) {
     for (const sightings::Count &c : list)
       out.push_back({PLAIN, std::to_string(c.n) + "  " + c.name, "", c.name, std::to_string(c.n), (float) c.n / most});
   };
-  top("Commonest types", book.top_types());
-  top("Commonest operators", book.top_operators());
-  // The days before, the latest first; today's is the last of the list.
+  top("Most common types", book.top_types());
+  top("Most common operators", book.top_operators());
+  // The previous daily totals, the latest first; today's is the last of the list.
   const auto &days = book.days();
   if (days.size() > 1) {
-    out.push_back({HEADING, "The days before"});
+    out.push_back({HEADING, "Previous daily totals"});
     uint32_t most = 1;
     for (size_t i = 0; i + 1 < days.size(); ++i) most = std::max<uint32_t>(most, days[i].planes);
     for (size_t i = days.size() - 1; i-- > 0;)

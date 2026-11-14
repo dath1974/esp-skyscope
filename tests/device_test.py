@@ -71,6 +71,7 @@ It never prints the screen's place. Python's standard library only. Nothing here
 import argparse
 import json
 import math
+import re
 import socket
 import sys
 import time
@@ -224,6 +225,8 @@ def test_basics(screen: Screen, run: Run, original: dict):
     run.check(status == 200 and isinstance(a.get("aircraft"), list), f"{len(a['aircraft'])} aircraft listed")
     bad = [p for p in a["aircraft"] if not (-90 <= p["lat"] <= 90 and -180 <= p["lon"] <= 180 and p.get("hex"))]
     run.check(not bad, "each has an address and a position", f"{len(bad)} without")
+
+    check_day(screen, run)
 
     print("Debug switch")
     run.check(screen.json("/api/debug", {"planes": False}) == (200, {"planes": False}), "planes hidden")
@@ -785,6 +788,59 @@ def own_address_toward(device: str) -> str:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.connect((host, 80))
         return s.getsockname()[0]
+
+
+def check_day(screen: Screen, run: Run):
+    """The day's tally, its log and the metrics, with the fixed planes in range: each name as the feed gave it, and the
+    screen still up after each. The names once pointed at memory freed before the reply was written, and the log's
+    download ran the web server's task out of stack and restarted the P4."""
+    print("The day's tally, the log and the metrics")
+
+    def clean(name) -> bool:
+        return isinstance(name, str) and len(name) <= 40 and name.isprintable() and not set(name) & set('{}')
+
+    up = screen.json("/api/status")[1]["uptime_s"]
+    # The C172 10 NM south (mock_feed.FIXED): its operator's name, cut to the 40 letters the screen keeps.
+    club = wait_for(lambda: (lambda j: j if any(o["name"].startswith("A FLYING CLUB") for o in j["operators"]) else None)(
+        screen.json("/api/stats")[1]), 30, 2)
+    if not run.check(club is not None, "the day counts the fixed planes' types and operators"):
+        return
+    for _ in range(3):  # what a freed list held changes from one reply to the next
+        status, kind, raw = screen.call("/api/stats")
+        try:
+            j = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as e:
+            run.check(False, "/api/stats is good JSON", str(e))
+            return
+        names = [c["name"] for key in ("types", "operators") for c in j[key]]
+        names += [j[k]["name"] for k in ("closest_nm", "highest_ft", "fastest_kt") if k in j]
+        bad = [n for n in names if not clean(n)]
+        if not run.check(not bad, f"/api/stats: {len(names)} names, each as the feed gave it", repr(bad[:3])):
+            break
+    run.check("C172" in [c["name"] for c in j["types"]], "the C172 among the types")
+
+    status, kind, raw = screen.call("/api/log")
+    lines = raw.decode("utf-8", "replace").splitlines()
+    run.check(status == 200 and kind.startswith("text/csv") and lines and lines[0].startswith("first,last,hex"),
+              f"the log as CSV ({len(lines) - 1} visits)", f"HTTP {status} {kind}")
+    rows = [line.split(",") for line in lines[1:]]
+    run.check(rows and all(len(r) == 12 and re.fullmatch(r"\d+\.\d", r[7]) for r in rows),
+              "each visit in twelve columns, its nearest in tenths", repr(lines[1:3]))
+    c172 = next((r for r in rows if r[2] == "a00003"), None)
+    run.check(c172 is not None and c172[7] == "10.0" and c172[6].startswith("A FLYING CLUB"),
+              "the C172 10.0 NM away, with its operator", repr(c172))
+    for _ in range(2):
+        screen.call("/api/log")
+    status, visits = screen.json("/api/log?format=json")
+    run.check(status == 200 and any(v["hex"] == "a00003" for v in visits["visits"]), "and as JSON")
+
+    status, kind, raw = screen.call("/metrics")
+    samples = [line for line in raw.decode("utf-8", "replace").splitlines() if line and not line.startswith("#")]
+    bad = [line for line in samples if not re.fullmatch(r"skyscope_[a-z_]+ (-?\d+(\.\d+)?|NaN|[+-]Inf)", line)]
+    run.check(status == 200 and samples and not bad, f"the metrics: {len(samples)} numbers", repr(bad[:3]))
+
+    after = screen.json("/api/status")[1]["uptime_s"]
+    run.check(after >= up, f"and the screen goes on (up {after} s)", f"restarted: up {up} s, now {after} s")
 
 
 def test_mock(screen: Screen, run: Run, original: dict, server, install: str = None):

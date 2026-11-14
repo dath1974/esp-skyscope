@@ -153,8 +153,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <section id="stats"><h2>Today in range</h2>
 <p id="stats_text">Nothing seen yet.</p>
 <div id="hours"></div><div class="hlabels"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-<div class="cols"><div><label>Commonest types</label><ol id="stats_types"></ol></div><div><label>Commonest operators</label><ol id="stats_operators"></ol></div></div>
-<p id="stats_records"></p><p class="hint" id="stats_days"></p>
+<div class="cols"><div><label>Most common types</label><ol id="stats_types"></ol></div><div><label>Most common operators</label><ol id="stats_operators"></ol></div></div>
+<div id="stats_records_box" hidden><label>Records today</label><p id="stats_records"></p></div><p class="hint" id="stats_days"></p>
 <p><a href="api/log" download="skyscope-log.csv">Download the log</a> <span class="hint">(the latest visits, as CSV; a screen with a map card keeps every day's in its log folder)</span></p>
 <p class="hint">The planes within the range of the place (up to 250 NM), told apart by their transponders' addresses, since midnight by the screen's clock. Only the planes around the place count: none while a plane is followed elsewhere. A watched plane coming into range, or one squawking an emergency (7500, 7600, 7700), shows along the top of the screen, and Home Assistant hears of it too.</p>
 </section>
@@ -433,11 +433,11 @@ function records_words(j,metric){const r=[];
  return r.length?r.join('; ')+'.':''}
 function list_into(el,items){el.textContent='';items.forEach(c=>{const li=document.createElement('li');li.textContent=c.name+' ('+c.count+')';el.appendChild(li)})}
 async function stats(){try{const j=await(await fetch('api/stats')).json(),metric=$('metric').value==='true';
- $('stats_text').textContent=stats_words(j,metric);$('stats_records').textContent=records_words(j,metric);
+ $('stats_text').textContent=stats_words(j,metric);const rec=records_words(j,metric);$('stats_records').textContent=rec;$('stats_records_box').hidden=!rec;
  const most=Math.max(1,...j.hours);$('hours').textContent='';j.hours.forEach((n,h)=>{const d=document.createElement('div');
   d.style.height=Math.round(100*n/most)+'%';d.title=h+':00, '+n+(n===1?' plane':' planes');$('hours').appendChild(d)});
  list_into($('stats_types'),j.types);list_into($('stats_operators'),j.operators);
- $('stats_days').textContent=j.days.length>1?'The days before: '+j.days.slice(0,-1).reverse().map(d=>d.date+' '+d.planes).join(', ')+'.':''}catch(e){}}
+ $('stats_days').textContent=j.days.length>1?'Previous daily totals: '+j.days.slice(0,-1).reverse().map(d=>d.date+' '+d.planes).join(', ')+'.':''}catch(e){}}
 // The page's icon: the emblem in its heading.
 {const l=document.createElement('link');l.rel='icon';l.href='data:image/svg+xml,'+encodeURIComponent($('emblem').outerHTML);document.head.append(l)}
 load();status();setInterval(status,5000);firmware();stats();setInterval(stats,60000);
