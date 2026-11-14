@@ -110,6 +110,13 @@ void Skyscope::describe_ui_(JsonObject out) {
   out["width"] = width_;
   out["height"] = height_;
   out["asleep"] = asleep_;
+  out["woken_by_alert"] = woken_by_alert_;  // on for an alert, untouched since (asleep.h)
+  // The alerts taken since the start (the one along the top is `alert`, below); the sounds played and the last.
+  out["alerts"] = alerts_seen_;
+#ifdef USE_SKYSCOPE_SPEAKER
+  out["cues"] = cues_played_;
+  if (cues_played_) out["cue"] = sound::CUE_NAMES[playing_cue_];
+#endif
   out["splash"] = splash_ != nullptr;  // the emblem at the start, still over everything
   // The last one shown: a start that kept the loop busy shows few frames and a long wait.
   out["splash_frames"] = splash_last_frames_;

@@ -363,6 +363,7 @@ void Skyscope::worker_() {
   bool radar_drawn = false, radar_looping = false;
   std::vector<radar::Overlay> overlays;  // what each scan drawn over the clean map changed (radar.h)
   uint32_t feed_due = 0;
+  bool was_screen_off = false;  // the planes were last asked for with the screen off, at its slower pace
   std::string feed_key;  // the place, range and sources the last request was for: a new one asks at once
   std::string receiver_url;  // the receiver's address the last request was for
   providers::Providers providers;
@@ -603,7 +604,7 @@ void Skyscope::worker_() {
       ticks::expire(hexdb_down_until, at);
     }
     cache.trim();  // PSRAM taken since by anything else comes out of the cache
-    bool online, updating;
+    bool online, polling, screen_off, updating;
     std::string search;
     bool search_here = false;
     bool connected, wants_weather = false;
@@ -638,10 +639,14 @@ void Skyscope::worker_() {
         count_ask = shared_.count_ask;
         count_card = true;
       }
-      // The screen off counts as offline: nobody sees planes or tiles, so none are asked for. So does an update: its
-      // download has the network to itself. A screen running on its radio alone (offline.h) needs no network.
+      // The screen off counts as offline: nobody sees tiles, so none are asked for, and the planes only where the
+      // person asked for them meanwhile (asleep.h), for the alerts. So does an update: its download has the network to
+      // itself. A screen running on its radio alone (offline.h) needs no network.
       const bool radio_only = shared_.offline;
-      online = (shared_.online || radio_only) && !shared_.asleep && !shared_.updating;
+      const bool reachable = (shared_.online || radio_only) && !shared_.updating;
+      screen_off = shared_.asleep;
+      online = reachable && !screen_off;
+      polling = reachable && asleep::polls(shared_.settings, screen_off);
       connected = shared_.online;
       // Off a network, the settings as the loop shows them: the radio's planes over the card's map or the radar,
       // nothing to fetch.
@@ -1078,12 +1083,13 @@ void Skyscope::worker_() {
     }
 
     const uint32_t now = millis();
-    if (!online || !settings.located || plan.view.width == 0) {
+    if (!polling || !settings.located || plan.view.width == 0) {
       vTaskDelay(pdMS_TO_TICKS(250));
       continue;
     }
 
-    // ---- The planes, every refresh_s, or at once for a new place or range, from the first exchange free
+    // ---- The planes, every refresh_s (an exchange's every sleep_refresh_s with the screen off, asleep.h), or at once
+    // for a new place or range and for the screen on again, from the first exchange free
     // (providers.h): the preferred one, or while it waits the next in the list.
     providers.set_order(settings.feed, settings.fallback, !settings.receiver_url.empty(), radio_fitted);
     // The plane followed, wherever a report has it: seen again, by its hex.
@@ -1100,7 +1106,11 @@ void Skyscope::worker_() {
     // range (sightings.h), and the alerts that raises. A report around a plane followed is none of the screen's own.
     auto sight = [&](const std::vector<feed::Flight> &flights, bool elsewhere) {
       const int64_t unix_s = unix_now();
-      if (elsewhere || !unix_s) return;
+      if (elsewhere || !unix_s) {
+        std::lock_guard<std::mutex> guard(lock_);
+        shared_.alerting = 0;  // none of the screen's own in range is known
+        return;
+      }
       const time_t t = (time_t) unix_s;
       struct tm local {};
       localtime_r(&t, &local);
@@ -1110,6 +1120,8 @@ void Skyscope::worker_() {
         std::lock_guard<std::mutex> guard(lock_);
         shared_.book.see(flights, saved, unix_s, date, local.tm_hour, alerts, ended);
         shared_.book_rev++;
+        shared_.alerting = shared_.book.alerting();
+        shared_.alerting_at = millis();
         for (auto &a : alerts) {
           ESP_LOGI(TAG, "Alert: %s", a.text.c_str());
           if (shared_.alerts.size() < 16) shared_.alerts.push_back(std::move(a));
@@ -1121,10 +1133,11 @@ void Skyscope::worker_() {
     std::snprintf(place, sizeof(place), "%.4f,%.4f,%d,%d,%d,", settings.lat, settings.lon, radius_nm,
                   (int) settings.feed, (int) settings.fallback);
     const std::string key = place + settings.receiver_url;
-    if (key != feed_key) {
+    if (key != feed_key || (was_screen_off && !screen_off)) {
       feed_key = key;
       feed_due = now;
     }
+    was_screen_off = screen_off;
     if (settings.receiver_url != receiver_url) {
       // A corrected address is asked at once, not after the wait the old one earned.
       receiver_url = settings.receiver_url;
@@ -1207,7 +1220,8 @@ void Skyscope::worker_() {
         ui::worker_phase = ui::IDLE;
         providers::Answer answer{r.status, r.retry_after_s, r.rate_reset_s, r.rate_limit, error};
         if (ok) {
-          const uint32_t every = providers.succeeded(source, done, settings.refresh_s * 1000, answer);
+          const uint32_t every =
+              providers.succeeded(source, done, asleep::refresh_s(settings, source, screen_off) * 1000, answer);
           feed_due = done + every;
           std::lock_guard<std::mutex> guard(lock_);
           shared_.flights = std::move(flights);
@@ -1266,6 +1280,12 @@ void Skyscope::worker_() {
         }
       }
       ended.clear();
+    }
+
+    // With the screen off, the planes alone: no airspace, map or radar until it is on again.
+    if (!online) {
+      vTaskDelay(pdMS_TO_TICKS(250));
+      continue;
     }
 
     // ---- The airspace and runways (airspace.h), once for each place and range while they are shown.

@@ -230,3 +230,13 @@ test('the sound shows only on a screen with a speaker, and its buttons play on i
     'distress_always'])
     assert.match(script, new RegExp(`const BOOL=\\[[^\\]]*'${key}'`), key);
 });
+
+test('the settings for the screen off are read and saved, its pace and waking only while it asks for planes', () => {
+  assert.match(script, /const NUM=\[[^\]]*'sleep_refresh_s'/);
+  for (const key of ['sleep_poll', 'alert_wake', 'alert_awake'])
+    assert.match(script, new RegExp(`const BOOL=\\[[^\\]]*'${key}'`), key);
+  const html = page.slice(page.indexOf('<div id="offpoll">'));
+  const part = html.slice(0, html.indexOf('</div>'));
+  assert.ok(part.includes('id="sleep_refresh_s"') && part.includes('id="alert_wake"'));
+  assert.match(script, /function offpoll\(\)\{\$\('offpoll'\)\.style\.display=\$\('sleep_poll'\)\.checked/);
+});

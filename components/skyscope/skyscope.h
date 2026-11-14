@@ -45,6 +45,7 @@
 
 #include "lvgl.h"
 #include "airspace.h"
+#include "asleep.h"
 #include "beam.h"
 #include "card_io.h"
 #include "emblem.h"
@@ -222,7 +223,7 @@ class Skyscope : public Component,
     uint32_t ahead_rev = 0;
     bool online = false;
     bool offline = false;  // the screen runs on its radio alone, off a network (offline.h)
-    bool asleep = false;  // the screen is off: no planes or tiles are asked for
+    bool asleep = false;  // the screen is off: no tiles are asked for, and planes only as asleep.h says
     bool updating = false;  // new firmware is on its way in: nothing else is asked for
     // worker -> loop
     std::vector<feed::Flight> flights;
@@ -237,6 +238,9 @@ class Skyscope : public Component,
     // How long the last report took: its download, reading its JSON (both on the worker), and its bytes.
     uint32_t fetch_ms = 0, parse_ms = 0, reply_bytes = 0;
     uint32_t feed_every_ms = 0;
+    // The watched planes and emergencies in range in the last report around the place (sightings.h alerting), and
+    // millis() of that report: what keeps the screen on (Settings alert_awake).
+    uint32_t alerting = 0, alerting_at = 0;
     size_t cached_tiles = 0;  // the worker's tile cache, entries
     // Since the screen started: tiles fetched from their servers (and their bytes) and found in the cache, the cache's
     // bytes now, and frames shown whole again from the one kept (worker.cpp) with no tile drawn.
@@ -352,6 +356,10 @@ class Skyscope : public Component,
   void go_to_sleep_(const std::string &why);
   bool bedtime_(uint32_t now);
   void wake_by_clock_();
+  // The rest of turning the screen on, once LVGL runs again: at a touch, the clock, Home Assistant or an alert.
+  void wake_(uint32_t now);
+  // A watched plane or an emergency in range, and the person asked for the screen to stay on for one (asleep.h).
+  bool held_awake_(uint32_t now);
   void use_timezone_();  // settings_.timezone to the clock
   // The brightness strip down the right edge.
   void on_dimmer_(lv_event_t *e);
@@ -652,6 +660,10 @@ class Skyscope : public Component,
   void sound_tick_(uint32_t now);
   void apply_volume_();
   bool bed_dark_{false};  // bedtime turned the screen off, and nothing has turned it on since
+  bool bed_held_{false};  // bedtime came while a watched plane or an emergency held the screen on: dark once it goes
+  // An alert turned the screen on at woken_at_, and no finger has touched it since: dark again once it is over.
+  bool woken_by_alert_{false};
+  uint32_t woken_at_{0};
 #ifdef USE_SKYSCOPE_SPEAKER
   speaker::Speaker *speaker_{nullptr};
 #ifdef USE_MEDIA_PLAYER
@@ -660,6 +672,7 @@ class Skyscope : public Component,
   sound::Samples cues_[sound::CUES];
   const sound::Samples *playing_{nullptr};
   sound::Cue playing_cue_{sound::CLICK};
+  uint32_t cues_played_{0};  // since the start: for the tests (/api/ui), with the last one in playing_cue_
   size_t played_{0};
   bool speaker_started_{false};
   uint32_t speaker_idle_at_{0};  // the last cue's samples all handed over: the speaker finishes after a while

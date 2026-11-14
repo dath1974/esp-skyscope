@@ -167,6 +167,16 @@ inline const std::vector<Row> &rows() {
       {.key = "bed_wake", .name = "On again", .kind = FLAG, .needs = {"bedtime"}},
       {.key = "bed_on", .name = "On at", .kind = TEXT, .pad = CLOCK, .hint = "The time of day, 07:00",
        .needs = {"bedtime", "bed_wake"}},
+      // With the screen off: the planes still asked for, and the alerts that turn it on or keep it on.
+      {"sleep_poll", "Planes while off", FLAG, {}},
+      {.key = "sleep_refresh_s", .name = "Refresh while off", .kind = NUMBER,
+       .choices = {{"30", "30 s"}, {"60", "1 min"}, {"120", "2 min"}, {"300", "5 min"}, {"600", "10 min"}},
+       .pad = WHOLE, .unit = " s",
+       .hint = "Seconds between the exchanges' reports with the screen off, 10 to 900; a radio or a receiver keeps "
+               "its own pace",
+       .needs = {"sleep_poll"}},
+      {.key = "alert_wake", .name = "Wake for alerts", .kind = FLAG, .needs = {"sleep_poll"}},
+      {"alert_awake", "On for alerts", FLAG, {}},
       // Always shown: bedtime goes by it, and so do the day's tally (from midnight) and the weather's times.
       {"timezone", "Time zone", TEXT,
        {{"UTC0", "UTC"}, {"EST5EDT,M3.2.0,M11.1.0", "US Eastern"}, {"CST6CDT,M3.2.0,M11.1.0", "US Central"},

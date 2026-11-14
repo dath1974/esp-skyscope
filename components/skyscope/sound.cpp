@@ -85,6 +85,7 @@ void Skyscope::play_(sound::Cue cue, bool asked) {
   if (samples.empty()) samples = sound::render(cue);
   playing_ = &samples;
   playing_cue_ = cue;
+  ++cues_played_;
   played_ = 0;
   if (!speaker_->is_running()) {
     speaker_->set_audio_stream_info(audio::AudioStreamInfo(16, 1, sound::RATE));

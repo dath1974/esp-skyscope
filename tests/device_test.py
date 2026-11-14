@@ -3,7 +3,7 @@
 screen keeps them, its own HTTP client, its memory as it runs).
 
     tests/device_test.py <address> [--port N] [--no-touch] [--maps] [--reboot] [--sleep] [--mock [--install IMAGE]]
-    tests/device_test.py <address> [--port N] --soak MINUTES [--churn MINUTES]
+    tests/device_test.py <address> [--port N] --soak MINUTES [--churn MINUTES] [--asleep MINUTES]
     tests/device_test.py <address> --public
     tests/device_test.py <address> --restore
 
@@ -43,7 +43,12 @@ It never prints the screen's place. Python's standard library only. Nothing here
   the weather page, whose tabs fill in with the mock's station; the weather radar's scan and its loop;
 - --maps: each map in turn, every tile drawn without an error, asked of that map's own server, and memory after;
 - --reboot: a restart keeps every setting, and the screen still sent to the mock;
-- --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap;
+- --sleep: the screen goes off after a minute without a touch, and the touch that wakes it is no tap; with it off,
+  the receiver still asked at its pace and nothing else asked for, an exchange no more often than every
+  sleep_refresh_s, nothing with sleep_poll unset, and the planes at once when it comes on; an alert taken but the
+  screen dark and quiet without alert_wake; with it, an emergency turning the screen on with its sound and dark again
+  by itself; with alert_awake, a watched plane keeping it on while in range, and the screen-off timer waiting for an
+  emergency in range;
 - --mock: the mock's receiver: the planes it lists are the ones the screen keeps, each where it should be on the
   glass; the filters, the most shown and watched planes, a plane's card in both units; 600 planes at once; and every
   failure a feed can have (refusals with Retry-After or a quota's end, a pace, a server error, an answer cut short,
@@ -62,7 +67,8 @@ It never prints the screen's place. Python's standard library only. Nothing here
   circling the test place (so each symbol turns through every heading), two of them watched; failing if it keeps
   falling or the screen restarts; with --churn, the view changed every so many minutes (every map, near and far, dark
   and light), memory compared each time the first of them comes around again, and the records that grow as the
-  screen runs (the plane symbols' memory among them) checked for staying bounded;
+  screen runs (the plane symbols' memory among them) checked for staying bounded; with --asleep, the screen off for
+  that long after each as long on, its planes still coming meanwhile;
 - --public: adsb.fi and adsb.lol answer with planes; the published release manifest is read and the screen finds the
   same version; the FAA's airspace and runways near, none of the runways far; every map drawn whole without a tile
   error; the weather radar's latest scan and its loop; the weather page, with each tab filled, for KJFK.
@@ -777,6 +783,130 @@ def test_sleep(screen: Screen, run: Run, original: dict):
     screen.json("/api/settings", {"sleep_min": original["sleep_min"]})
 
 
+# The settings test_asleep changes, as a new screen has them.
+ASLEEP_KEYS = ("feed", "fallback", "refresh_s", "sleep_min", "bedtime", "sleep_poll", "sleep_refresh_s", "alert_wake",
+               "alert_awake", "watch", "volume", "sound_watched", "sound_emergency")
+
+
+def is_feed(request) -> bool:
+    """A request for planes: of the mock's receiver, or of an exchange it stands in for."""
+    path = request[1]
+    return path.split("?")[0].endswith("aircraft.json") or path.startswith(("/opendata.adsb.fi/", "/api.adsb.lol/v2/"))
+
+
+def screen_off(screen: Screen, off: bool = True) -> bool:
+    """The screen off (or on) through the test API, and true once /api/ui says so."""
+    if screen.call("/api/test", {"screen_off": off})[0] != 200:
+        return False
+    return wait_for(lambda: screen.json("/api/ui")[1].get("asleep") == off, 10, 0.5) is not None
+
+
+def test_asleep(screen: Screen, run: Run, original: dict, server):
+    """With the screen off: the planes still asked for (an exchange at its slower pace, the receiver at its own),
+    nothing else asked, none with the setting off, at once again when it comes on; an alert turning it on only where
+    asked, with its sound, and dark again after; and a watched plane in range keeping it on."""
+    print("Screen off: the planes and alerts")
+    speaker = bool(screen.json("/api/status")[1].get("speaker"))
+    ui = lambda: screen.json("/api/ui")[1]  # noqa: E731
+    base = {"feed": "receiver", "fallback": False, "refresh_s": 5, "sleep_min": 0, "bedtime": False,
+            "sleep_poll": True, "sleep_refresh_s": 20, "alert_wake": False, "alert_awake": False,
+            "watch": [{"id": "N99SLP", "color": "blue"}], "volume": 10, "sound_watched": True,
+            "sound_emergency": True}
+    try:
+        server.feed.set(scenario="fixed")
+        if not run.check(screen.json("/api/settings", base)[0] == 200, "the settings for it taken"):
+            return
+        # The receiver keeps its pace, and nothing but the planes is asked for.
+        if not run.check(screen_off(screen), "the screen off (the test API)"):
+            return
+        since = time.time() + 2
+        time.sleep(32)
+        log = server.feed.log(since)
+        planes = [r for r in log if is_feed(r)]
+        # (The update server may be asked at any time: it is no fetch of the map's.)
+        others = sorted({r[1].split("?")[0][:40] for r in log if not is_feed(r) and ".github.io" not in r[1]})
+        run.check(len(planes) >= 4, f"the receiver still asked at its pace: {len(planes)} in 30 s")
+        run.check(not others, "and nothing else asked for", ", ".join(others))
+        run.check(ui().get("asleep"), "still off")
+
+        # An exchange no more often than every sleep_refresh_s.
+        screen.json("/api/settings", {"feed": "adsb_fi"})
+        since = time.time() + 3
+        time.sleep(68)
+        asked = [r[0] for r in server.feed.log(since) if r[1].startswith("/opendata.adsb.fi/")]
+        gaps = [b - a for a, b in zip(asked, asked[1:])]
+        run.check(2 <= len(asked) <= 5 and all(g >= 18 for g in gaps),
+                  f"adsb.fi asked every 20 s: {len(asked)} in 65 s", f"gaps {[round(g) for g in gaps]}")
+        # On again: asked at once, not at the slower pace.
+        at = time.time()
+        run.check(screen_off(screen, False), "the screen on again")
+        quick = wait_for(lambda: any(r[1].startswith("/opendata.adsb.fi/") for r in server.feed.log(at)), 8, 0.5)
+        run.check(quick is not None, "and the planes asked for at once")
+        screen.json("/api/settings", {"feed": "receiver"})
+
+        # Off with the planes off: nothing asked.
+        screen.json("/api/settings", {"sleep_poll": False})
+        screen_off(screen)
+        since = time.time() + 2
+        time.sleep(20)
+        planes = [r for r in server.feed.log(since) if is_feed(r)]
+        run.check(not planes, "with Planes while off unset, none asked", f"{len(planes)} asked")
+        screen.json("/api/settings", {"sleep_poll": True})
+
+        # An alert with Wake for alerts unset: told (Home Assistant hears of it), the screen dark and quiet.
+        before = ui()
+        server.feed.set(scenario="watched")
+        told = wait_for(lambda: (lambda u: u if u.get("alerts", 0) > before.get("alerts", 0) else None)(ui()), 20, 1)
+        run.check(told is not None, "a watched plane's alert taken with the screen off")
+        time.sleep(3)
+        now = ui()
+        run.check(now.get("asleep"), "and the screen stays off")
+        if speaker:
+            run.check(now.get("cues", 0) == before.get("cues", 0), "and quiet", f"played {now.get('cue')}")
+
+        # Wake for alerts: an emergency turns it on, with its sound; untouched, dark again some 20 s later.
+        server.feed.set(scenario="empty")
+        screen.json("/api/settings", {"alert_wake": True})
+        time.sleep(8)
+        before = ui()
+        server.feed.set(scenario="squawk")
+        woke = wait_for(lambda: (lambda u: u if not u.get("asleep") else None)(ui()), 20, 0.5)
+        if run.check(woke is not None, "an emergency turns the screen on"):
+            run.check(woke.get("woken_by_alert"), "woken by the alert")
+            run.check("7700" in (woke.get("alert") or {}).get("text", ""), "and shows it along the top",
+                      str(woke.get("alert")))
+            if speaker:
+                run.check(woke.get("cues", 0) > before.get("cues", 0) and woke.get("cue") == "distress",
+                          "with the distress sound", f"cue {woke.get('cue')}")
+            dark = wait_for(lambda: ui().get("asleep"), 45, 1)
+            run.check(dark is not None, "and goes dark again by itself")
+
+        # On for alerts: a watched plane turns it on and keeps it on while it is in range; dark once it has gone.
+        server.feed.set(scenario="empty")
+        screen.json("/api/settings", {"alert_awake": True})
+        time.sleep(8)
+        server.feed.set(scenario="watched")
+        woke = wait_for(lambda: not ui().get("asleep"), 20, 0.5)
+        if run.check(woke is not None, "a watched plane turns it on"):
+            time.sleep(35)
+            run.check(not ui().get("asleep"), "and keeps it on while it is in range")
+            server.feed.set(scenario="empty")
+            run.check(wait_for(lambda: ui().get("asleep"), 25, 1) is not None, "dark once it has gone")
+
+        # On for alerts holds the screen-off timer: a watched plane in range, a minute and more without a touch.
+        screen.json("/api/settings", {"alert_wake": False, "sleep_min": 1})
+        server.feed.set(scenario="fixed")  # N12345 is not watched here, but a 7700 is in range
+        screen_off(screen, False)
+        time.sleep(80)
+        run.check(not ui().get("asleep"), "the screen-off timer waits while an emergency is in range")
+        server.feed.set(scenario="empty")
+        run.check(wait_for(lambda: ui().get("asleep"), 25, 1) is not None, "and turns it off once the plane has gone")
+    finally:
+        server.feed.set(scenario="fixed")
+        screen.json("/api/settings", {k: original[k] for k in ASLEEP_KEYS if k in original})
+        screen_off(screen, False)
+
+
 # ---------------------------------------------------------------- a mock receiver (mock_feed.py)
 
 TEST_PLACE = {"lat": 40.6413, "lon": -73.7781}  # New York JFK: the screen's own place is never used or shown
@@ -1447,30 +1577,42 @@ RECORD_MOST = {"symbol_kb": 1024, "label_images": 200, "spot_of": 400, "box_of":
                "tracks": 600, "cached_tiles": 400}
 
 
-def test_soak(screen: Screen, run: Run, minutes: float, churn: float, server):
+def test_soak(screen: Screen, run: Run, minutes: float, churn: float, server, asleep: float = 0):
     """Memory over time against the mock: its 80 circling planes (every kind through every heading), two of them
     watched, the most the glass shows."""
-    print(f"Memory over {minutes:g} minutes" + (f", the view changed every {churn:g}" if churn else ""))
+    print(f"Memory over {minutes:g} minutes" + (f", the view changed every {churn:g}" if churn else "") +
+          (f", the screen off every other {asleep:g}" if asleep else ""))
     server.feed.set(scenario="circling")
     try:
         status, answer = screen.json("/api/settings", {"most": 60, "glide": True, "track_s": 60, "watch": [
             {"id": "N30001", "color": "red"}, {"id": "N30005", "color": "blue"}]})
         if run.check(status == 200, "the circling planes, two watched", str(answer)):
-            soak(screen, run, minutes, churn)
+            soak(screen, run, minutes, churn, asleep)
     finally:
         server.feed.set(scenario="fixed")
+        if asleep:
+            screen_off(screen, False)
 
 
-def soak(screen: Screen, run: Run, minutes: float, churn: float):
+def soak(screen: Screen, run: Run, minutes: float, churn: float, asleep: float = 0):
+    """With `asleep`, the screen off for that many minutes after each as many on: it still asks for the planes then
+    (asleep.h), and its memory is watched the same. The view is not changed while it is off (nothing is drawn)."""
     samples, rounds = [], []  # every sample; and with churn, the one at each return to CHURN's first view
     end = time.monotonic() + minutes * 60
     next_change, step = time.monotonic(), 0
     worst, up, last = {}, 0, time.time()
+    off, next_turn, stale = False, time.monotonic() + asleep * 60, 0
     while time.monotonic() < end:
         if time.time() - last > 120:
             raise Slept(f"this machine was asleep for {(time.time() - last) / 60:.0f} minutes")
         last = time.time()
-        if churn and time.monotonic() >= next_change:
+        if asleep and time.monotonic() >= next_turn:
+            off = not off
+            run.check(screen_off(screen, off), "the screen " + ("off" if off else "on again"))
+            next_turn = time.monotonic() + asleep * 60
+            if not off:
+                next_change = time.monotonic()  # the view held while it was off: changed now
+        if churn and not off and time.monotonic() >= next_change:
             screen.json("/api/settings", CHURN[step % len(CHURN)])
             next_change = time.monotonic() + churn * 60
             if step % len(CHURN) == 0 and step:
@@ -1483,16 +1625,20 @@ def soak(screen: Screen, run: Run, minutes: float, churn: float):
         if not run.check(s["uptime_s"] >= up, "no restart", f"restarted ({s.get('reset_reason')})"):
             return
         up = s["uptime_s"]
+        if off and not 0 <= s.get("feed_age_s", -1) < 30:
+            stale += 1  # the planes no longer coming with the screen off
         samples.append((s["heap_free"], s["heap_largest"]))
         for k, v in s["records"].items():
             worst[k] = max(worst.get(k, 0), v)
-        print(f"    {len(samples):3d}: free {s['heap_free'] // 1024} KB, largest {s['heap_largest'] // 1024} KB, "
+        print(f"    {len(samples):3d}:{' off' if off else ''} free {s['heap_free'] // 1024} KB, largest {s['heap_largest'] // 1024} KB, "
               f"{s.get('sockets', '-')} sockets, PSRAM {s['psram_free'] // 1024} KB, {s['aircraft']} aircraft, "
               f"{s['records']['symbols']} symbols in {s['records'].get('symbol_kb', '-')} KB, "
               f"{s['records']['cached_tiles']} tiles")
         print("           " + ", ".join(f"{k} {v}" for k, v in s["records"].items()
                                        if k not in ("symbols", "symbol_kb", "cached_tiles")))
         time.sleep(30)
+    if asleep:
+        run.check(stale == 0, "the planes kept coming with the screen off", f"{stale} samples without a fresh report")
     lows = [f for f, _ in samples]
     run.check(min(lows) >= HEAP_LEAST, f"never under {HEAP_LEAST // 1024} KB free", f"{min(lows) // 1024} KB")
     if len(samples) >= 6:
@@ -1570,7 +1716,7 @@ def against_mock(screen: Screen, run: Run, args):
         time.sleep(11)
         if args.soak:
             # The soak alone: memory over time.
-            test_soak(screen, run, args.soak, args.churn, server)
+            test_soak(screen, run, args.soak, args.churn, server, args.asleep)
         else:
             test_basics(screen, run, test)
             test_airspace(screen, run, test, server)
@@ -1584,6 +1730,7 @@ def against_mock(screen: Screen, run: Run, args):
                 test_mock(screen, run, test, server, args.install)
             if args.sleep:
                 test_sleep(screen, run, test)
+                test_asleep(screen, run, test, server)
         # Nothing the screen asked was beyond the mock (named by its server alone: a path may hold a place).
         unknown = sorted({r[1].split("/")[1] for r in server.feed.log(started) if r[3] == "unknown"})
         run.check(not unknown, "every request answered by the mock", ", ".join(unknown))
@@ -1657,6 +1804,8 @@ def main():
     parser.add_argument("--install", metavar="IMAGE", help="with --mock: install this firmware.ota.bin from the mock")
     parser.add_argument("--soak", type=float, metavar="MINUTES")
     parser.add_argument("--churn", type=float, metavar="MINUTES", default=0)
+    parser.add_argument("--asleep", type=float, metavar="MINUTES", default=0,
+                        help="with --soak: the screen off for this long after each as long on")
     parser.add_argument("--port", type=int, default=8095,
                         help="the mock's port: another for each screen tested at once (each let through a firewall)")
     parser.add_argument("--public", action="store_true", help="the public services alone, at a test place")

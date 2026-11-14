@@ -111,6 +111,7 @@ class Book {
   // more than VISIT_GAP_S ago) moved to the log and handed back in `ended`, for the card's log.
   void see(const std::vector<feed::Flight> &flights, const Settings &s, int64_t unix_s, uint32_t date, int hour,
            std::vector<Alert> &alerts, std::vector<Visit> &ended) {
+    alerting_ = 0;
     if (!s.located || !date) return;
     // A new day: the visits under way end with the old one, so each plane is counted in the new day too.
     if (date != day_.date) {
@@ -156,6 +157,7 @@ class Book {
         v->lowest_ft = std::min(v->lowest_ft, (int32_t) f.altitude);
         v->highest_ft = std::max(v->highest_ft, (int32_t) f.altitude);
       }
+      if (color || f.emergency) ++alerting_;
       if (f.emergency && !v->emergency) {
         v->emergency = true;
         copy(v->squawk, f.squawk);
@@ -197,6 +199,9 @@ class Book {
 
   const Day &today() const { return day_; }
   uint32_t in_range() const { return now_in_range_; }
+  // The planes of the last report in range that are watched or squawking an emergency: what keeps the screen on
+  // (Settings alert_awake).
+  uint32_t alerting() const { return alerting_; }
   // The log, oldest first: the visits over, then the ones still open.
   std::vector<Visit> log() const {
     std::vector<Visit> out;
@@ -393,7 +398,7 @@ class Book {
   };
 
   Day day_;
-  uint32_t now_in_range_ = 0;
+  uint32_t now_in_range_ = 0, alerting_ = 0;
   std::vector<Visit, InPsram<Visit>> open_, log_;
   size_t log_start_ = 0;
   Counts types_, operators_;

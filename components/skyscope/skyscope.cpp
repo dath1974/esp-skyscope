@@ -1045,23 +1045,54 @@ void Skyscope::sleep_or_wake_(uint32_t now) {
       lvgl_->set_paused(true, false);
       return;
     }
-    wake_asked_ = false;
-    asleep_ = false;
-    bed_dark_ = false;
-    taps_from_ = now + WAKE_DEAF_MS;
-    applied_brightness_ = -1;  // the brightness again, at once
-    seen_flights_rev_ = AGAIN;
-    last_status_ = 0;
-    lv_display_trigger_activity(lv_display_get_default());
-    std::lock_guard<std::mutex> guard(lock_);
-    shared_.asleep = false;
+    wake_(now);
     ESP_LOGI(TAG, "Screen on");
     return;
   }
+  const uint32_t idle = lv_display_get_inactive_time(lv_display_get_default());
+  const bool held = held_awake_(now);
+  if (woken_by_alert_) {
+    // Touched since an alert turned it on: the person is looking, and the screen goes by its timer and bedtime again.
+    // Untouched, dark again once the alert has been seen and nothing holds it on.
+    if (idle + 1000 < now - woken_at_) {
+      woken_by_alert_ = false;
+      bed_dark_ = false;
+    } else if (!held && now - woken_at_ >= asleep::WOKEN_MS) {
+      go_to_sleep_("the alert is over");
+      return;
+    }
+  }
   if (bedtime_(now)) return;
+  if (bed_held_ && !held) {
+    bed_held_ = false;
+    go_to_sleep_("bedtime, the alert over");
+    bed_dark_ = true;
+    return;
+  }
+  if (held || woken_by_alert_) return;
   if (settings_.sleep_min <= 0) return;
-  if (lv_display_get_inactive_time(lv_display_get_default()) < (uint32_t) settings_.sleep_min * 60000) return;
+  if (idle < (uint32_t) settings_.sleep_min * 60000) return;
   go_to_sleep_("after " + std::to_string(settings_.sleep_min) + " min without a touch");
+}
+
+void Skyscope::wake_(uint32_t now) {
+  wake_asked_ = false;
+  asleep_ = false;
+  bed_dark_ = false;
+  woken_by_alert_ = false;
+  taps_from_ = now + WAKE_DEAF_MS;
+  applied_brightness_ = -1;  // the brightness again, at once
+  seen_flights_rev_ = AGAIN;
+  last_status_ = 0;
+  lv_display_trigger_activity(lv_display_get_default());
+  std::lock_guard<std::mutex> guard(lock_);
+  shared_.asleep = false;
+}
+
+bool Skyscope::held_awake_(uint32_t now) {
+  if (!settings_.alert_awake) return false;
+  std::lock_guard<std::mutex> guard(lock_);
+  return shared_.alerting && now - shared_.alerting_at <= asleep::present_ms(settings_, shared_.feed_every_ms);
 }
 
 // Bedtime, once a minute by the clock: dark at bed_off, on again at bed_on where the person asked for it. A screen that
@@ -1077,7 +1108,15 @@ bool Skyscope::bedtime_(uint32_t now) {
   bed_minute_ = minute;
   const int off = schedule::minutes(settings_.bed_off), on = schedule::minutes(settings_.bed_on);
   if (off < 0) return false;
+  // Bedtime over while a plane held the screen on: it stays on.
+  if (settings_.bed_wake && minute == on) bed_held_ = false;
   if (minute == off || (first && settings_.bed_wake && on >= 0 && schedule::within(minute, off, on))) {
+    // A watched plane or an emergency holds the screen on: dark once it has gone (sleep_or_wake_).
+    if (held_awake_(now)) {
+      bed_held_ = true;
+      ESP_LOGI(TAG, "Bedtime, held off by an alert");
+      return false;
+    }
     go_to_sleep_("bedtime");
     bed_dark_ = true;
     return true;
@@ -1104,6 +1143,8 @@ void Skyscope::wake_by_clock_() {
 
 void Skyscope::go_to_sleep_(const std::string &why) {
   if (asleep_) return;
+  woken_by_alert_ = false;
+  bed_held_ = false;
   if (menu_) close_menu_();
   end_preview_(false);
   finish_swipe_();
@@ -1302,6 +1343,14 @@ void Skyscope::update_planes_(uint32_t now) {
     std::lock_guard<std::mutex> guard(lock_);
     rev = shared_.flights_rev;
     if (rev != tracked_rev_) flights_ = shared_.flights;
+  }
+  // With the screen off the reports still come (asleep.h): their tracks kept for when it is on, nothing drawn.
+  if (asleep_) {
+    if (rev != tracked_rev_) {
+      tracks_.update(flights_, now);
+      tracked_rev_ = rev;
+    }
+    return;
   }
   if (rev == seen_flights_rev_ || framed_plan_rev_ != plan_rev_ || !s.located) return;
   const bool new_report = rev != tracked_rev_;
@@ -1530,12 +1579,35 @@ void Skyscope::take_alerts_(uint32_t now) {
            : a.kind == sightings::WATCHED ? sound::WATCHED
                                           : sound::OVERHEAD;
   };
+  // With the screen off, a watched plane or an emergency turns it on where the person asked for that (asleep.h); the
+  // rest are told to Home Assistant only, and heard only with the screen on.
+  if (asleep_ && lvgl_) {
+    int minute = -1;
+#ifdef USE_TIME
+    if (clock_) {
+      const ESPTime t = clock_->now();
+      if (t.is_valid()) minute = t.hour * 60 + t.minute;
+    }
+#endif
+    const auto waking = std::find_if(alerts.begin(), alerts.end(), [&](const sightings::Alert &a) {
+      return asleep::wakes(a.kind, a.squawk, settings_, minute, bed_dark_);
+    });
+    if (waking != alerts.end()) {
+      // On for the alert at bedtime, it is still bedtime: the speaker keeps its quiet until a finger wakes it.
+      const bool bed = bed_dark_;
+      lvgl_->set_paused(false, false);
+      wake_(now);
+      bed_dark_ = bed;
+      woken_by_alert_ = true;
+      woken_at_ = now;
+      ESP_LOGI(TAG, "Screen on: %s", waking->text.c_str());
+    }
+  }
   for (const auto &a : alerts) {
     ++alerts_seen_;
     last_alert_ = a.text;
     alert_callbacks_.call(sightings::KINDS[a.kind], a.name, a.text);
-    // Heard with the screen off too (but for bedtime's quiet): that is when a sound is wanted most.
-    play_(cue_of(a));
+    if (!asleep_) play_(cue_of(a));
   }
   if (!alerts.empty() && !asleep_) {
     // An emergency before a watched plane, and a watched plane before one close by, when they came at once.

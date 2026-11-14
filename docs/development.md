@@ -58,12 +58,14 @@ fails on any request the mock did not know. The screen must be able to reach thi
   yes), the Wi-Fi list, firmware, the tour, a plane's card, swiping between maps, the weather page and radar, the
   brightness strip, and on a screen with a speaker the volume strip and `/api/sound`.
 - `make test-esp32-full DEVICE=<address>`: also every map drawn whole, a restart that keeps the settings, and sleep
-  and waking.
+  and waking: with the screen off, the planes still asked for at the pace set and nothing else, and the alerts that
+  turn it on (with their sound on a screen with a speaker) or keep it on.
 - `make test-esp32-mock DEVICE=<address>`: the mock as a receiver (filters, range, crowded skies, bad entries, and
   every way a feed can fail) and as the update server (installs that must fail leave the firmware as it is). With
   `INSTALL=.esphome/build/skyscope-<board>/build/firmware.ota.bin`, that build is installed from the mock.
 - `make test-esp32-soak DEVICE=<address> SOAK=60 CHURN=2`: memory watched for an hour under 80 planes, the view
-  changed every two minutes, failing on a leak or a restart.
+  changed every two minutes, failing on a leak or a restart. `ASLEEP=5` turns the screen off for five minutes after
+  each five on, the planes still coming meanwhile.
 - `make test-esp32-public DEVICE=<address>`: the real public services, asked at a test place (New York JFK), to check
   they still answer as the screen expects. Not repeatable, since the sky and the services change.
 

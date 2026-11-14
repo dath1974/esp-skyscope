@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "../components/skyscope/adsb.h"
+#include "../components/skyscope/asleep.h"
 #include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/card.h"
@@ -310,6 +311,19 @@ static void test_settings() {
   CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "sleep_min");
   deserializeJson(bad, R"({"sleep_min":15})");
   CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.sleep_min == 15);
+  // With the screen off: the planes asked for every minute to start with, and nothing turned on by an alert.
+  CHECK(Settings{}.sleep_poll && Settings{}.sleep_refresh_s == 60 && !Settings{}.alert_wake && !Settings{}.alert_awake);
+  deserializeJson(bad, R"({"sleep_refresh_s":5})");
+  CHECK(!apply(bad.as<JsonObjectConst>(), s, error) && error == "sleep_refresh_s");
+  deserializeJson(bad, R"({"sleep_poll":false,"sleep_refresh_s":300,"alert_wake":true,"alert_awake":true})");
+  CHECK(apply(bad.as<JsonObjectConst>(), s, error) && !s.sleep_poll && s.sleep_refresh_s == 300 && s.alert_wake &&
+        s.alert_awake);
+  {
+    JsonDocument out;
+    to_json(s, out.to<JsonObject>());
+    CHECK(out["sleep_poll"] == false && out["sleep_refresh_s"] == 300 && out["alert_wake"] == true &&
+          out["alert_awake"] == true);
+  }
   deserializeJson(bad, R"({"place":"KJFK"})");
   CHECK(apply(bad.as<JsonObjectConst>(), s, error) && s.place == "KJFK");
   deserializeJson(bad, R"({"rotation":45})");
@@ -1913,6 +1927,7 @@ static void test_menu() {
     CHECK(group_of("photos") == "Aircraft" && group_of("watch") == "Which aircraft");
     CHECK(group_of("follow_track_min") == "Follow a plane" && group_of("refresh_s") == "Source");
     CHECK(group_of("rotation") == "Screen" && group_of("password") == "Network");
+    CHECK(group_of("sleep_refresh_s") == "Screen" && group_of("alert_awake") == "Screen");
     CHECK(group_of("overhead_ft") == "Alerts" && group_of("distress_always") == "Sound");
     for (const auto &r : menu::rows())
       for (const char *need : r.needs) CHECK(group_of(need) == group_of(r.key));
@@ -3208,6 +3223,45 @@ static void test_sound() {
 }
 
 // What the screen has seen in range: visits, the day's tally, the log and the alerts.
+// The screen off: the exchanges asked less often, and which alerts turn it on again.
+static void test_asleep() {
+  Settings s;
+  CHECK(asleep::refresh_s(s, ADSB_FI, false) == 10 && asleep::refresh_s(s, ADSB_FI, true) == 60 &&
+        asleep::refresh_s(s, ADSB_LOL, true) == 60);
+  // The radio and a receiver keep their pace; and never more often than with the screen on.
+  CHECK(asleep::refresh_s(s, RADIO, true) == 10 && asleep::refresh_s(s, RECEIVER, true) == 10);
+  s.refresh_s = 120;
+  CHECK(asleep::refresh_s(s, ADSB_FI, true) == 120);
+  CHECK(asleep::polls(s, false) && asleep::polls(s, true));
+  s.sleep_poll = false;
+  CHECK(asleep::polls(s, false) && !asleep::polls(s, true));
+  // Woken only where asked, and by a watched plane or an emergency, never one close by.
+  s = Settings{};
+  using sightings::EMERGENCY;
+  using sightings::OVERHEAD;
+  using sightings::WATCHED;
+  CHECK(!asleep::wakes(WATCHED, "", s, 600, false) && !asleep::wakes(EMERGENCY, "7700", s, 600, false));
+  s.alert_wake = true;
+  CHECK(asleep::wakes(WATCHED, "", s, 600, false) && asleep::wakes(EMERGENCY, "7600", s, 600, false) &&
+        !asleep::wakes(OVERHEAD, "", s, 600, false));
+  s.sleep_poll = false;  // nothing asked for, nothing to wake it
+  CHECK(!asleep::wakes(EMERGENCY, "7700", s, 600, false));
+  s.sleep_poll = true;
+  // Bedtime's quiet, from 22:00 to 07:00: only a hijack or distress, where those sound through it.
+  s.bedtime = true;
+  CHECK(!asleep::wakes(WATCHED, "", s, 23 * 60, false) && !asleep::wakes(EMERGENCY, "7700", s, 23 * 60, false) &&
+        asleep::wakes(WATCHED, "", s, 12 * 60, false));
+  s.distress_always = true;
+  CHECK(asleep::wakes(EMERGENCY, "7700", s, 23 * 60, false) && asleep::wakes(EMERGENCY, "7500", s, 23 * 60, false) &&
+        asleep::wakes(EMERGENCY, "", s, 23 * 60, false) && !asleep::wakes(EMERGENCY, "7600", s, 23 * 60, false) &&
+        !asleep::wakes(WATCHED, "", s, 23 * 60, false));
+  s.quiet_bedtime = false;
+  CHECK(asleep::wakes(WATCHED, "", s, 23 * 60, false));
+  // A plane counts as still there for three reports and a minute, at the pace the reports come.
+  s = Settings{};
+  CHECK(asleep::present_ms(s, 0) == 90000 && asleep::present_ms(s, 60000) == 240000);
+}
+
 static void test_sightings() {
   using namespace sightings;
   Settings s;
@@ -3242,6 +3296,7 @@ static void test_sightings() {
                                       plane("a00003", 40, "DAL3"), truck};
   book.see(report, s, t0, 20261110, 14, alerts, ended);
   CHECK(book.today().planes == 2 && book.today().hours[14] == 2 && book.in_range() == 2 && book.today().busiest == 2);
+  CHECK(book.alerting() == 1);  // the watched one in range, not the plane beyond it
   CHECK(alerts.size() == 1 && alerts[0].kind == WATCHED && alerts[0].name == "N12345" && alerts[0].color == 5 &&
         alerts[0].text == "N12345 is in range, 12 NM N");
   CHECK(book.today().closest.set && std::string(book.today().closest.name) == "UAL1" &&
@@ -3256,7 +3311,7 @@ static void test_sightings() {
         alerts[0].text == "UAL1 squawks 7700, 2.0 NM N" && book.today().emergencies == 1);
   alerts.clear();
   book.see(report, s, t0 + 20, 20261110, 14, alerts, ended);
-  CHECK(alerts.empty());
+  CHECK(alerts.empty() && book.alerting() == 2);  // still there, with no new alert: the emergency and the watched
   // A plane passing close by, where asked for: within 3 NM and below 13000 ft, once a visit; not the one 12 NM off,
   // nor one too high.
   {
@@ -3283,7 +3338,7 @@ static void test_sightings() {
   }
   // Both gone for longer than a visit's gap: their visits end, into the log; then one comes back, counted once still.
   book.see({}, s, t0 + 20 + VISIT_GAP_S + 1, 20261110, 15, alerts, ended);
-  CHECK(ended.size() == 2 && book.open_visits() == 0 && book.log().size() == 2);
+  CHECK(ended.size() == 2 && book.open_visits() == 0 && book.log().size() == 2 && book.alerting() == 0);
   CHECK(near(ended[0].closest_m, 2 * geo::NM, 1) && ended[0].emergency && std::string(ended[0].squawk) == "7700" &&
         ended[0].lowest_ft == 12000 && ended[1].watched);
   ended.clear();
@@ -3526,6 +3581,7 @@ int main(int argc, char **argv) {
   test_sightings();
   test_numbers();
   test_sound();
+  test_asleep();
   test_mock_answers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);

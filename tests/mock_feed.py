@@ -22,7 +22,8 @@ tests/device_test.py --mock starts one of its own, in the same process. By hand,
 Scenarios: "fixed" (a few planes with every kind of field, at known places), "busy" (600 planes with long names),
 "crowd" (4500 planes, 600 KB: as much as a screen takes), "moving" (one plane flying east at 480 kt), "circling" (80
 planes of every kind flying circles out to 80 NM, so each turns through every heading, a few changing for others every
-minute: a long run's sky, for the soak), "odd"
+minute: a long run's sky, for the soak), "watched" and "squawk" (a plane never seen before at each start of the
+scenario, so it raises an alert anew: N99SLP, to be watched, or a 7700; and one that raises none), "odd"
 (what a receiver should not send but may: wrong types, nulls, duplicates, words past their length in UTF-8, places off
 the earth, entries that are no plane), "empty". Faults, for the next `times` requests (0: until changed): "429"
 (Retry-After), "429-reset" (x-ratelimit-reset), "403" (refused, saying nothing more), "paced" (a good answer with
@@ -203,6 +204,21 @@ class Feed:
             return planes + ODD_JUNK
         if self.scenario == "circling":
             return circling(self.lat, self.lon, now - self.started)
+        if self.scenario in ("watched", "squawk"):
+            # A plane never seen before at each start of the scenario (its own address), so it raises its alert anew:
+            # N99SLP for "watched" (a test watches it), a 7700 for "squawk"; and one plane that raises none.
+            fresh = f"f{int(self.started * 10) % 0xFFFFF:05x}"
+            lat, lon = offset(self.lat, self.lon, 3, 0)
+            if self.scenario == "watched":
+                plane = {"hex": fresh, "flight": "SLEEP1  ", "r": "N99SLP", "t": "C172", "alt_baro": 4000, "gs": 110,
+                         "track": 90}
+            else:
+                plane = {"hex": fresh, "flight": "SQWK77  ", "r": "N99SQK", "t": "B738", "alt_baro": 9000, "gs": 250,
+                         "track": 180, "squawk": "7700", "emergency": "general"}
+            quiet_lat, quiet_lon = offset(self.lat, self.lon, -6, 4)
+            return [{**plane, "lat": round(lat, 6), "lon": round(lon, 6), "seen_pos": 0.3},
+                    {"hex": "c00042", "flight": "QUIET1  ", "r": "N10042", "t": "A320", "alt_baro": 20000, "gs": 400,
+                     "track": 0, "lat": round(quiet_lat, 6), "lon": round(quiet_lon, 6), "seen_pos": 0.3}]
         if self.scenario == "moving":
             east = -10 + 480 / 3600 * (now - self.started)  # 480 kt, from 10 NM west
             lat, lon = offset(self.lat, self.lon, 0, east)

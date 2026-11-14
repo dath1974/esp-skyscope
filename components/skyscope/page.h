@@ -112,13 +112,18 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <div class="row"><div><label for="brightness">Brightness (%)</label><input id="brightness" name="brightness" type="number" min="0" max="100"></div>
 <div><label for="metric">Units</label><select id="metric" name="metric"><option value="false">Feet, knots</option><option value="true">Meters, km/h</option></select></div></div>
 <label for="sleep_min">Turn the screen off after (minutes without a touch, 0 for never)</label><input id="sleep_min" name="sleep_min" type="number" min="0" max="1440">
-<p class="hint">A tap turns it on again. While it is off the screen asks for no planes or map tiles. Drag up or down along the screen's right edge to set its brightness.</p>
+<p class="hint">A tap turns it on again. While it is off the screen asks for no map tiles, and for planes only as set below. Drag up or down along the screen's right edge to set its brightness.</p>
 <label class="check"><input type="checkbox" id="bedtime" name="bedtime"> Bedtime: turn the screen off every night</label>
 <div id="bed">
 <div class="row"><div><label for="bed_off">Off at</label><input id="bed_off" type="time"></div>
 <div><label class="check" style="margin-top:8px"><input type="checkbox" id="bed_wake" name="bed_wake"> On again at</label><input id="bed_on" type="time"></div></div>
 <p class="hint">A tap wakes the screen at any time; the screen-off timer above works as well.</p>
 </div>
+<label class="check"><input type="checkbox" id="sleep_poll" name="sleep_poll"> Keep asking for planes while the screen is off</label>
+<div id="offpoll"><label for="sleep_refresh_s">Refresh while off (s)</label><input id="sleep_refresh_s" name="sleep_refresh_s" type="number" min="10" max="900">
+<label class="check"><input type="checkbox" id="alert_wake" name="alert_wake"> Turn the screen on for a watched plane or an emergency, with its sound</label></div>
+<label class="check"><input type="checkbox" id="alert_awake" name="alert_awake"> Keep the screen on while a watched plane or an emergency is in range</label>
+<p class="hint">With the screen off, adsb.fi and adsb.lol are asked no more often than every Refresh while off (and never more often than with it on); the screen's radio and a receiver on your network keep their own pace. Alerts still reach Home Assistant. Without Turn the screen on, the screen stays dark and quiet; with it, a watched plane coming into range or a plane squawking an emergency turns it on (and sounds, on a screen with a speaker), and it goes dark again some 20 seconds after, or once the plane has gone when kept on, unless it is touched. At bedtime, with Quiet at bedtime (Sound), only a hijack or distress turns it on, where those sound. Kept on, the screen-off timer and bedtime wait for the plane to go.</p>
 <label for="tzsel">Time zone</label><select id="tzsel">
 <option value="UTC0">UTC</option><option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option><option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
 <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option><option value="MST7">US Arizona</option><option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
@@ -189,8 +194,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min','overhead_nm','overhead_ft','volume'];
-const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','photos','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop','overhead','sound_watched','sound_emergency','sound_overhead','clicks','quiet_bedtime','distress_always'];
+const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min','sleep_refresh_s','overhead_nm','overhead_ft','volume'];
+const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','photos','fallback','place_names','bedtime','bed_wake','sleep_poll','alert_wake','alert_awake','radar_overlay','radar_loop','overhead','sound_watched','sound_emergency','sound_overhead','clicks','quiet_bedtime','distress_always'];
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){$('password').value='';$('password_clear').checked=false;$('password').placeholder=s.password_set?'A password is set':'None';
@@ -200,7 +205,7 @@ function show(s){$('password').value='';$('password_clear').checked=false;$('pas
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
  ['bed_off','bed_on'].forEach(k=>{const [h,m]=(s[k]||'0:00').split(':');$(k).value=h.padStart(2,'0')+':'+m});
  zone(s.timezone);
- if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed();source();followed();alerts()}
+ if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed();offpoll();source();followed();alerts()}
 // The time zone: the browser's, where the screen still has none and the browser's is in the list.
 const IANA={"America/New_York":"EST5EDT,M3.2.0,M11.1.0","America/Detroit":"EST5EDT,M3.2.0,M11.1.0","America/Toronto":"EST5EDT,M3.2.0,M11.1.0","America/Chicago":"CST6CDT,M3.2.0,M11.1.0","America/Winnipeg":"CST6CDT,M3.2.0,M11.1.0","America/Denver":"MST7MDT,M3.2.0,M11.1.0","America/Edmonton":"MST7MDT,M3.2.0,M11.1.0","America/Phoenix":"MST7","America/Los_Angeles":"PST8PDT,M3.2.0,M11.1.0","America/Vancouver":"PST8PDT,M3.2.0,M11.1.0","America/Anchorage":"AKST9AKDT,M3.2.0,M11.1.0","Pacific/Honolulu":"HST10","America/Sao_Paulo":"<-03>3","Europe/London":"GMT0BST,M3.5.0/1,M10.5.0","Europe/Lisbon":"GMT0BST,M3.5.0/1,M10.5.0","Asia/Kolkata":"IST-5:30","Asia/Shanghai":"CST-8","Asia/Hong_Kong":"CST-8","Asia/Singapore":"CST-8","Asia/Taipei":"CST-8","Asia/Tokyo":"JST-9","Asia/Seoul":"JST-9","Australia/Sydney":"AEST-10AEDT,M10.1.0,M4.1.0/3","Australia/Melbourne":"AEST-10AEDT,M10.1.0,M4.1.0/3","Pacific/Auckland":"NZST-12NZDT,M9.5.0,M4.1.0/3","Europe/Paris":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Berlin":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Madrid":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Rome":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Amsterdam":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Brussels":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Vienna":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Zurich":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Stockholm":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Oslo":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Copenhagen":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Prague":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Warsaw":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Athens":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Helsinki":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Kyiv":"EET-2EEST,M3.5.0/3,M10.5.0/4"};
 function zone(tz){let pick=tz;$('tzhint').textContent='';
@@ -211,6 +216,9 @@ function zone(tz){let pick=tz;$('tzhint').textContent='';
 $('tzsel').onchange=()=>{const v=$('tzsel').value;$('timezone').style.display=v==='custom'?'':'none';if(v!=='custom')$('timezone').value=v};
 function bed(){$('bed').style.display=$('bedtime').checked?'':'none';$('bed_on').disabled=!$('bed_wake').checked}
 $('bedtime').onchange=bed;$('bed_wake').onchange=bed;
+// The pace and the waking with the screen off only while the planes are asked for then.
+function offpoll(){$('offpoll').style.display=$('sleep_poll').checked?'':'none'}
+$('sleep_poll').onchange=offpoll;
 // The close-by distance and height only while that alert is on; hijack and distress at bedtime only while it is quiet.
 function alerts(){$('close').style.display=$('overhead').checked?'':'none';$('distress_always').disabled=!$('quiet_bedtime').checked}
 $('overhead').onchange=alerts;$('quiet_bedtime').onchange=alerts;

@@ -32,7 +32,9 @@
 //   POST /api/touch, GET /api/ui   tests without a finger (probe.cpp)
 //   GET  /api/screenshot   with the test API: the glass as a BMP (probe.cpp)
 //   POST /api/test         with the test API: {"divert": "http://host:port"} sends every HTTPS request to a test's mock
-//                          from the restart it makes on, until power off or {"divert": ""} (and its restart)
+//                          from the restart it makes on, until power off or {"divert": ""} (and its restart);
+//                          {"lock_touch_s": N} keeps fingers off the glass; {"splash": true} shows the splash again;
+//                          {"screen_off": true} turns the screen off, false on again
 //
 // With a password set (settings.h), every one of them asks for it (HTTP Basic, the user "admin").
 //
@@ -584,6 +586,17 @@ void Skyscope::answer_(AsyncWebServerRequest *request, const std::string &url, b
       }
       this->defer([this, seconds]() { this->lock_touch_((uint32_t) seconds); });
       request->send(200, "application/json", seconds ? "{\"touch_locked\":true}" : "{\"touch_locked\":false}");
+      return;
+    }
+    // The screen off at once (or on again, false), as Home Assistant turns it: for the tests of what it does asleep.
+    if (!unreadable && in["screen_off"].is<bool>() && in["divert"].isNull()) {
+      const bool off = in["screen_off"].as<bool>();
+      this->defer([this, off]() {
+        if (!this->lvgl_) return;
+        if (off) this->go_to_sleep_("a test");
+        else this->set_screen_on(true);
+      });
+      request->send(200, "application/json", off ? "{\"screen_off\":true}" : "{\"screen_off\":false}");
       return;
     }
     // The splash again, as at the start: to look at it, and for its picture.

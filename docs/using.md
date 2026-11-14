@@ -88,7 +88,17 @@ and version. On the round 4C the scope's rim is the edge of the glass. It lasts 
 the screen joins its network and fetches its map under it. A tap ends it early.
 
 **Sleep.** The screen can turn itself off after a while without a touch, and at a bedtime every night, coming back on
-at a set time or at a tap. While it is off it fetches nothing.
+at a set time or at a tap. While it is off it fetches no map, and keeps asking for planes (**Planes while off**, on to
+start with) so that alerts still come and Home Assistant still hears of them: adsb.fi and adsb.lol every **Refresh
+while off** (a minute to start with, and never more often than with the screen on), the screen's radio and a receiver
+on your network at their usual pace.
+
+- **Wake for alerts** (off to start with): a watched plane coming into range or a plane squawking an emergency turns
+  the screen on and shows the alert, with its sound on a screen with a speaker. Untouched, it goes dark again some 20
+  seconds later. At bedtime, with **Quiet at bedtime** on, only a hijack or distress turns it on, and only where
+  **Hijack and distress** lets those sound. Without it the screen stays dark and quiet for every alert.
+- **On for alerts** (off to start with): while a watched plane or an emergency is in range, the screen-off timer and
+  bedtime wait; the screen goes dark once the plane has gone. A screen an alert turned on stays on as long, too.
 
 **Rotation** is in the settings (the screen restarts to turn). 0° is the panel's own way up and the cheapest to draw,
 since every other angle turns each frame in software. On the AMOLED 2.41 and the LCD 2.8B, 0° is portrait and 90°
@@ -115,8 +125,8 @@ they do not apply:
 - **Map**: the map and how it looks. **Over the map**: range rings, airspace and the weather radar.
 - **Aircraft**: how planes are drawn. **Which aircraft**: how many, between which altitudes, and the watched ones.
 - **Alerts**: an alert for a plane passing close by ([below](#alerts-and-the-days-tally)).
-- **Follow a plane**, **Source** (where the planes come from) and **Screen** (brightness, sleep, bedtime, the time
-  zone, units, rotation).
+- **Follow a plane**, **Source** (where the planes come from) and **Screen** (brightness, sleep, bedtime, the planes
+  and alerts while the screen is off, the time zone, units, rotation).
 - **Sound**, on a screen with a speaker: the volume, which alerts chime, clicks, and bedtime's quiet
   ([below](#sound)).
 - **Network**: the Wi-Fi network and the web page's password.
@@ -252,7 +262,8 @@ The P4 4C has a speaker port (a 2-pin MX1.25 connector); with a small speaker pl
 - **A chime for each alert**: two notes up for a watched plane, one low note for a plane close by, and for an
   emergency a sound by its squawk: a klaxon for 7500 (hijack), a falling pair of notes three times for 7600 (lost
   radio), and an emergency locator transmitter's sweep, as heard on 121.5 MHz, for 7700 and any other emergency a
-  plane reports. Each kind can be turned off. They sound with the screen off too, when they are wanted most.
+  plane reports. Each kind can be turned off. With the screen off they sound only where **Wake for alerts**
+  ([sleep](#on-the-glass)) turns it on for them.
 - **Clicks** at each tap on a key, a switch or a card (off to start with). A tap on the map itself does not click.
 - **The volume**: drag up or down along the left edge of the map, as the right edge sets the brightness. The level
   shows beside the edge, and a short note plays at the volume chosen as the finger lifts. All the way down is silent.

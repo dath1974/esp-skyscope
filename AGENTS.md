@@ -16,7 +16,7 @@ are the user guide; read them for what the screen does and how it is set up.
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
     `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
-    `ticks.h`, `tour.h`, `locate.h`, `sound.h`, `numbers.h` (namespace `sky`).
+    `ticks.h`, `tour.h`, `locate.h`, `sound.h`, `numbers.h`, `asleep.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `tour.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`,

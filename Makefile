@@ -36,6 +36,7 @@
 #                         failure of each; INSTALL=<firmware.ota.bin> to
 #                         install that firmware
 #   make test-esp32-soak  memory over SOAK minutes [SOAK=30] [CHURN=0]
+#                         [ASLEEP=0: the screen off that long, then on]
 #   make test-esp32-public  the public services themselves, at a test place
 #   make screenshots      docs/screens.md's pictures, taken from the screen
 #                         over the real maps with made-up planes [ONLY=a,b]
@@ -68,6 +69,7 @@ SOAK ?= 30
 # With CHURN (minutes), the soak changes the map and range that often, to
 # catch what a change leaves behind.
 CHURN ?= 0
+ASLEEP ?= 0
 # The ESPHome the firmware is built with, here and for a release
 # (release.yml): `make firmware-esphome` installs it.
 ESPHOME_VERSION := 2026.10.1
@@ -195,8 +197,8 @@ test-esp32-mock:
 test-esp32-soak:
 	@test -n "$(DEVICE)" || \
 	  { echo "make test-esp32-soak DEVICE=<the screen's address>" \
-	    "[SOAK=minutes] [CHURN=minutes]"; exit 2; }
-	tests/device_test.py $(DEVICE) --port $(PORT) --soak $(SOAK) --churn $(CHURN)
+	    "[SOAK=minutes] [CHURN=minutes] [ASLEEP=minutes]"; exit 2; }
+	tests/device_test.py $(DEVICE) --port $(PORT) --soak $(SOAK) --churn $(CHURN) --asleep $(ASLEEP)
 
 # The pictures in docs/screens.md (tools/screenshots.py): the screen's own
 # glass at public airports, over the real maps, airspace and weather, with

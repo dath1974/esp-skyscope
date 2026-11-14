@@ -129,6 +129,13 @@ struct Settings {
   bool bedtime = false;
   std::string bed_off = "22:00", bed_on = "07:00";
   bool bed_wake = true;
+  // With the screen off (asleep.h): the planes still asked for (an exchange every sleep_refresh_s, the radio and a
+  // receiver at their own pace), so alerts still come and Home Assistant still hears of them; a watched plane or an
+  // emergency turning the screen on, with its sound; and the screen kept on while one is in range.
+  bool sleep_poll = true;
+  int sleep_refresh_s = 60;
+  bool alert_wake = false;
+  bool alert_awake = false;
   std::string timezone = "UTC0";
   // An alert for a plane passing close by (sightings.h): within overhead_nm of the place and no higher than
   // overhead_ft, once a visit. On every screen, sound or none: it shows along the top and Home Assistant hears it.
@@ -241,6 +248,10 @@ inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["bed_off"] = s.bed_off;
   o["bed_on"] = s.bed_on;
   o["bed_wake"] = s.bed_wake;
+  o["sleep_poll"] = s.sleep_poll;
+  o["sleep_refresh_s"] = s.sleep_refresh_s;
+  o["alert_wake"] = s.alert_wake;
+  o["alert_awake"] = s.alert_awake;
   o["timezone"] = s.timezone;
   o["overhead"] = s.overhead;
   o["overhead_nm"] = s.overhead_nm;
@@ -397,6 +408,10 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!number("sleep_min", n.sleep_min, 0, 1440)) return fail("sleep_min");
   if (!flag("bedtime", n.bedtime)) return fail("bedtime");
   if (!flag("bed_wake", n.bed_wake)) return fail("bed_wake");
+  if (!flag("sleep_poll", n.sleep_poll)) return fail("sleep_poll");
+  if (!number("sleep_refresh_s", n.sleep_refresh_s, 10, 900)) return fail("sleep_refresh_s");
+  if (!flag("alert_wake", n.alert_wake)) return fail("alert_wake");
+  if (!flag("alert_awake", n.alert_awake)) return fail("alert_awake");
   using Time = std::pair<const char *, std::string *>;
   for (const auto &[key, field] : {Time{"bed_off", &n.bed_off}, Time{"bed_on", &n.bed_on}}) {
     if (o[key].isNull()) continue;
