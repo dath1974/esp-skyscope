@@ -27,9 +27,16 @@ curl -u admin:<password> http://<screen>/api/stats    # with a password set
 | `GET /api/networks` | the Wi-Fi networks the screen knows, first choice first: their names only, never a password |
 | `GET /api/card` | the map card: mounted or why not, its size and free space, tiles read, written and failed, old tiles still being deleted, whether it needs formatting (`unformatted`) or is being formatted (`formatting`), and the download in progress. With a card in: what it says of itself (`about`: `maker` where known, `name`, `kind`, `made`, `mhz`, `lines`) and what the screen keeps on it as last counted (`kept`: `counted`, `counting`, `tiles`, `tiles_kb`, `logs`, `log_kb`, and `maps`, each `{"map", "label", "tiles", "kb"}`, the largest first; sizes in whole clusters) |
 | `POST /api/card` | the map card's actions ([below](#post-apicard)) |
+| `POST /api/sound` | `{"cue": "watched"}` plays a sound on the screen's speaker at its volume, whether or not that sound is on: `watched`, `hijack` (7500), `lost_radio` (7600), `distress` (7700 and any other emergency), `overhead`, `click` or `level` (the volume's note). 400 for a cue it does not know, 404 on a screen without a speaker. Nothing plays at volume 0 |
 | `POST /api/reboot` | restarts the screen |
 | `POST /api/reset` | `{"factory": true}` erases everything the screen keeps (every setting, the Wi-Fi networks, the password, the day's tally, Home Assistant's key) and restarts it as a new screen on its setup network; the map card is left as it is. Any other body answers 400 and erases nothing |
 | `POST /api/debug` | for measuring only, never stored: `{"planes": false}` hides the planes |
+
+The alerts and the sound are `overhead` (a plane close by, on or off), `overhead_nm` (1 to 20) and `overhead_ft` (500
+to 60000); `volume` (0 to 100, the speaker's, Home Assistant's media player's too), `sound_watched`,
+`sound_emergency`, `sound_overhead`, `clicks`, `quiet_bedtime` and `distress_always` (a hijack and distress still
+sound at bedtime; a lost radio does not). The sound's keys are kept on every screen, but do something only on one with
+a speaker.
 
 A watched plane in the settings is `{"id": "N12345", "color": "red"}`. The screen also accepts the British spelling,
 `"colour"`, which older firmware saved its settings with.
@@ -47,6 +54,7 @@ A watched plane in the settings is `{"id": "N12345", "color": "red"}`. The scree
 - **Following** (`follow`): what was asked, its `state` (looking, live, lost, landed or gave_up), the status line's
   words, and once found the plane's hex, callsign, registration, position, whether that is `estimated`, and seconds
   since it was last heard.
+- **The speaker** (`speaker`: true on a screen with one; absent otherwise).
 - **The radio** (`radio`, P4 only): what it is doing, messages a second and in all, errors mended and checksums failed,
   planes heard and placed, samples dropped, its gain and noise floor.
 - **The map card** (`card`), as `GET /api/card`.
@@ -93,7 +101,7 @@ along with the `source` field and the network changes.
 |---|---|
 | `POST /api/networks` | `{"move": [i, step]}`, `{"forget": i}` or `{"join": {"name", "password"}}` (no restart) |
 | `POST /api/touch` | a touch on the glass at the screen's own coordinates: `{"gesture": "tap", "x": 200, "y": 300}`, or `"hold"` (with `"ms"`), or `"drag"` to `"x1"`, `"y1"` |
-| `GET /api/ui` | what the glass shows: the status line, a plane's card, an alert along the top, the brightness, the menu and its keyboard (with the map card's lines in `card`, and `ask`, the question before a restart or a factory reset), the tour's card (`tour`: its `step`, whether its touch was `done`, its words and keys), whether a factory reset is under way (`resetting`), the map a swipe went to, the weather page, the day's tally (`today`: its `line`, its three numbers in `stats`, its `lines` and its hours' `bars`), whether the emblem of the start is still up (`splash`) and how the last one ran (`splash_frames`, and `splash_gap_ms`, its longest wait between two frames), and where each plane is |
+| `GET /api/ui` | what the glass shows: the status line, a plane's card, an alert along the top, the brightness and the volume (each as a finger drags it), the menu and its keyboard (with the map card's lines in `card`, and `ask`, the question before a restart or a factory reset), the tour's card (`tour`: its `step`, whether its touch was `done`, its words and keys), whether a factory reset is under way (`resetting`), the map a swipe went to, the weather page, the day's tally (`today`: its `line`, its three numbers in `stats`, its `lines` and its hours' `bars`), whether the emblem of the start is still up (`splash`) and how the last one ran (`splash_frames`, and `splash_gap_ms`, its longest wait between two frames), and where each plane is |
 | `GET /api/screenshot` | what the glass shows, as a BMP of its own pixels (16-bit RGB565, the screen's way up) |
 | `POST /api/test` | `{"divert": "http://<host>:<port>"}` sends every request to a public service to that server instead (as `/<server>/<path>`), from the restart it makes until power off or `{"divert": ""}`. `GET /api/status` says where (`divert`). `{"lock_touch_s": 900}` takes no notice of fingers on the glass for 900 seconds (and over a restart), so a touch cannot upset a test, while `/api/touch` goes on; the glass says so, and `{"lock_touch_s": 0}` ends it. `GET /api/status` says how long is left (`touch_locked_s`). `{"splash": true}` shows the emblem of the start again |
 | `POST /api/bench` | `{"runs": 3}` times decoding and drawing every tile of the map shown, each way of drawing in turn. `GET /api/bench` says whether it is `busy` and gives the `result` |

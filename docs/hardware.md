@@ -36,6 +36,19 @@ The glass is round, and the screen keeps everything inside the circle: pages and
 holds, the status, credit and plane cards moved in from the edge, and no plane or label in the corners
 (`round: true` in the `skyscope:` block).
 
+### The speaker
+
+The board's speaker port (a 2-pin MX1.25 connector beside the USB-A port) takes a small speaker, 8 Ω and a watt or
+two. Behind it are an ES8311 codec, on the touch screen's I2C bus at 0x18, and an NS4150B amplifier that GPIO53 turns
+on; I2S runs on GPIO9 (data), GPIO10 (word select), GPIO12 (bit clock) and GPIO13 (master clock), as in Waveshare's
+board support. The board file runs the codec at 48 kHz, 16-bit mono, behind ESPHome's mixer, which takes three
+sources: the screen's own sounds (`speaker:` in the `skyscope:` block), and Home Assistant's announcements and media
+(the `Speaker` media player, `media_player:` in the same block). What the screen does with it: [using.md](using.md#sound).
+
+The media player's `volume_min` and `volume_max` (0.5 and 0.8, the codec's −32 dB to +6 dB) are the screen's own
+volume range (`sound.h`), so a percentage is as loud whichever side sets it. A board without a speaker leaves both keys
+out, and its menu and web page show no sound settings.
+
 ### The screen's own radio (ESP32-P4)
 
 An RTL-SDR stick in the P4 board's USB-A port makes the screen a receiver of its own: the FlightAware Pro Stick Plus,

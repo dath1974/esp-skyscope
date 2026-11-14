@@ -217,3 +217,16 @@ test('a factory reset is asked for first, and the tour is a setting', () => {
   assert.match(script, /fetch\('api\/reset',.*body:'\{"factory":true\}'/);
   assert.match(script, /\$\('tour'\)\.onclick=.*body:'\{"tour":true\}'/);
 });
+
+test('the sound shows only on a screen with a speaker, and its buttons play on it', () => {
+  assert.match(page, /<section id="sound" style="display:none"><h2>Sound<\/h2>/);
+  assert.match(script, /\$\('sound'\)\.style\.display=s\.speaker\?'':'none'/);
+  assert.match(script, /fetch\('api\/sound',\{method:'POST'.*body:JSON\.stringify\(\{cue:b\.dataset\.cue\}\)/);
+  for (const cue of ['watched', 'hijack', 'lost_radio', 'distress', 'overhead']) assert.ok(page.includes(`data-cue="${cue}"`), cue);
+  // Every sound setting is read and saved with the others.
+  for (const key of ['volume', 'overhead_nm', 'overhead_ft'])
+    assert.match(script, new RegExp(`const NUM=\\[[^\\]]*'${key}'`), key);
+  for (const key of ['overhead', 'sound_watched', 'sound_emergency', 'sound_overhead', 'clicks', 'quiet_bedtime',
+    'distress_always'])
+    assert.match(script, new RegExp(`const BOOL=\\[[^\\]]*'${key}'`), key);
+});

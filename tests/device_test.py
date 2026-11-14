@@ -580,6 +580,26 @@ def test_touch(screen: Screen, run: Run, original: dict, server=None):
     run.check(after > 20, f"and the drag up brightens it (20% to {after}%)")
     screen.json("/api/settings", {"brightness": start})
 
+    # The volume strip, on a screen with a speaker: a drag down the left edge turns it down, and the sound request
+    # plays (heard or not, it is taken); without a speaker there is no sound to ask for.
+    if screen.json("/api/status")[1].get("speaker"):
+        start = screen.json("/api/settings")[1]["volume"]
+        screen.json("/api/settings", {"volume": 60})
+        time.sleep(0.5)
+        screen.json("/api/touch", {"gesture": "drag", "x": 8, "y": int(h * 0.4), "x1": 8, "y1": int(h * 0.7), "ms": 900})
+        time.sleep(0.6)
+        level = glass.ui().get("level")
+        wait_for(lambda: not glass.ui().get("touching"), 15, 0.2)
+        time.sleep(0.5)
+        after = screen.json("/api/settings")[1]["volume"]
+        run.check(level is not None, f"the volume shows while it is dragged ({level})")
+        run.check(after < 60, f"and the drag down turns it down (60% to {after}%)")
+        screen.json("/api/settings", {"volume": start})
+        run.check(screen.json("/api/sound", {"cue": "level"})[0] == 200, "a sound is played when asked for")
+        run.check(screen.json("/api/sound", {"cue": "nope"})[0] == 400, "and one it does not know is refused")
+    else:
+        run.check(screen.json("/api/sound", {"cue": "level"})[0] == 404, "no sound without a speaker")
+
     # The strip along the bottom: a swipe to the left shows the next map's name at once and changes the map once the
     # swipes stop; one to the right goes back. The map is put back as it was whichever way it goes.
     was = screen.json("/api/settings")[1]["map"]

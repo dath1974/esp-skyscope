@@ -87,6 +87,12 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <label for="watch">Watched aircraft</label><textarea id="watch" placeholder="N12345 red&#10;BAW123 blue"></textarea>
 <p class="hint">One per line: a registration, callsign or ICAO hex, then a color (red, orange, amber, green, blue, purple). Watched aircraft always show, with a label and a ring, and one coming into range shows along the top of the screen.</p>
 </section>
+<section><h2>Alerts</h2>
+<label class="check"><input type="checkbox" id="overhead" name="overhead"> A plane passing close by</label>
+<div id="close"><div class="row"><div><label for="overhead_nm">Within (nautical miles of the place)</label><input id="overhead_nm" name="overhead_nm" type="number" min="1" max="20"></div>
+<div><label for="overhead_ft">No higher than (feet)</label><input id="overhead_ft" name="overhead_ft" type="number" min="500" max="60000" step="500"></div></div></div>
+<p class="hint">Shown along the top of the screen once a visit, as a watched plane coming into range and a plane squawking an emergency (7500, 7600, 7700) always are; a tap on it picks the plane. Home Assistant hears of each alert too.</p>
+</section>
 <section><h2>Follow a plane</h2>
 <label for="follow">Plane</label><input id="follow" name="follow" placeholder="N12345, G-EUPT, BAW286 or BA 286">
 <div id="followed"><div class="row"><div><label for="follow_label">Its label</label><select id="follow_label" name="follow_label"><option value="auto">As the other planes'</option><option value="none">None</option><option value="callsign">Callsign</option><option value="altitude">Callsign, altitude</option><option value="full">Callsign, type, altitude, speed</option><option value="scope">Scope: callsign, altitude, speed, wake</option></select></div>
@@ -126,6 +132,17 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <p class="hint">Bedtime goes by it, and so do the day's tally (from midnight) and the weather's times. The screen's clock now: <span id="clock">not set yet</span>. <span id="tzhint"></span></p>
 <label for="rotation">Rotation</label><select id="rotation" name="rotation"><option value="0">0&deg;</option><option value="90">90&deg;</option><option value="180">180&deg;</option><option value="270">270&deg;</option></select>
 <p class="hint" id="rotation_hint">0&deg; is the panel's own way up and the least expensive: nothing is turned. 180&deg; turns every frame cheaply; 90&deg; and 270&deg; cost the most (each frame is turned a column at a time, some 15 ms a frame). The screen restarts to turn.</p>
+</section>
+<section id="sound" style="display:none"><h2>Sound</h2>
+<div class="row"><div><label for="volume">Volume (%, 0 for silent)</label><input id="volume" name="volume" type="number" min="0" max="100"></div>
+<div><label>Hear it</label><button type="button" class="plain" data-cue="watched">Watched</button> <button type="button" class="plain" data-cue="hijack">7500</button> <button type="button" class="plain" data-cue="lost_radio">7600</button> <button type="button" class="plain" data-cue="distress">7700</button> <button type="button" class="plain" data-cue="overhead">Close by</button></div></div>
+<label class="check"><input type="checkbox" id="sound_watched" name="sound_watched"> A chime for a watched plane coming into range</label>
+<label class="check"><input type="checkbox" id="sound_emergency" name="sound_emergency"> A warning for a plane squawking an emergency: a klaxon for 7500 (hijack), a falling pair of notes for 7600 (lost radio), an emergency beacon's sweep for 7700 and any other emergency</label>
+<label class="check"><input type="checkbox" id="sound_overhead" name="sound_overhead"> A note for a plane passing close by (Alerts, above)</label>
+<label class="check"><input type="checkbox" id="clicks" name="clicks"> A click at each tap</label>
+<label class="check"><input type="checkbox" id="quiet_bedtime" name="quiet_bedtime"> Quiet at bedtime</label>
+<label class="check"><input type="checkbox" id="distress_always" name="distress_always"> Hijack (7500) and distress (7700)</label>
+<p class="hint">Drag up or down along the screen's left edge to set the volume. It is the speaker's own: Home Assistant's media player for this screen sets the same one. Bedtime's quiet lasts from Off at to On at (Screen, above), or, with no time to come on again, until a tap turns the screen on; with Hijack and distress, those still sound (a plane that declares an emergency without squawking is distress too), but a lost radio (7600) does not. The buttons play at the volume saved.</p>
 </section>
 <section><h2>Network</h2>
 <label for="password">Password for this page</label><input id="password" type="password" autocomplete="new-password" maxlength="32">
@@ -172,8 +189,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 </form></main>
 <script>
 const $=id=>document.getElementById(id),f=$('f');
-const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min'];
-const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','photos','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop'];
+const NUM=['lat','lon','range_nm','follow_track_min','map_brightness','tile_scale','refresh_s','alt_min','alt_max','most','track_s','brightness','rotation','sleep_min','overhead_nm','overhead_ft','volume'];
+const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','photos','fallback','place_names','bedtime','bed_wake','radar_overlay','radar_loop','overhead','sound_watched','sound_emergency','sound_overhead','clicks','quiet_bedtime','distress_always'];
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){$('password').value='';$('password_clear').checked=false;$('password').placeholder=s.password_set?'A password is set':'None';
@@ -183,7 +200,7 @@ function show(s){$('password').value='';$('password_clear').checked=false;$('pas
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
  ['bed_off','bed_on'].forEach(k=>{const [h,m]=(s[k]||'0:00').split(':');$(k).value=h.padStart(2,'0')+':'+m});
  zone(s.timezone);
- if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed();source();followed()}
+ if(!s.located){$('lat').value='';$('lon').value=''}relevant();bed();source();followed();alerts()}
 // The time zone: the browser's, where the screen still has none and the browser's is in the list.
 const IANA={"America/New_York":"EST5EDT,M3.2.0,M11.1.0","America/Detroit":"EST5EDT,M3.2.0,M11.1.0","America/Toronto":"EST5EDT,M3.2.0,M11.1.0","America/Chicago":"CST6CDT,M3.2.0,M11.1.0","America/Winnipeg":"CST6CDT,M3.2.0,M11.1.0","America/Denver":"MST7MDT,M3.2.0,M11.1.0","America/Edmonton":"MST7MDT,M3.2.0,M11.1.0","America/Phoenix":"MST7","America/Los_Angeles":"PST8PDT,M3.2.0,M11.1.0","America/Vancouver":"PST8PDT,M3.2.0,M11.1.0","America/Anchorage":"AKST9AKDT,M3.2.0,M11.1.0","Pacific/Honolulu":"HST10","America/Sao_Paulo":"<-03>3","Europe/London":"GMT0BST,M3.5.0/1,M10.5.0","Europe/Lisbon":"GMT0BST,M3.5.0/1,M10.5.0","Asia/Kolkata":"IST-5:30","Asia/Shanghai":"CST-8","Asia/Hong_Kong":"CST-8","Asia/Singapore":"CST-8","Asia/Taipei":"CST-8","Asia/Tokyo":"JST-9","Asia/Seoul":"JST-9","Australia/Sydney":"AEST-10AEDT,M10.1.0,M4.1.0/3","Australia/Melbourne":"AEST-10AEDT,M10.1.0,M4.1.0/3","Pacific/Auckland":"NZST-12NZDT,M9.5.0,M4.1.0/3","Europe/Paris":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Berlin":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Madrid":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Rome":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Amsterdam":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Brussels":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Vienna":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Zurich":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Stockholm":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Oslo":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Copenhagen":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Prague":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Warsaw":"CET-1CEST,M3.5.0,M10.5.0/3","Europe/Athens":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Helsinki":"EET-2EEST,M3.5.0/3,M10.5.0/4","Europe/Kyiv":"EET-2EEST,M3.5.0/3,M10.5.0/4"};
 function zone(tz){let pick=tz;$('tzhint').textContent='';
@@ -194,6 +211,13 @@ function zone(tz){let pick=tz;$('tzhint').textContent='';
 $('tzsel').onchange=()=>{const v=$('tzsel').value;$('timezone').style.display=v==='custom'?'':'none';if(v!=='custom')$('timezone').value=v};
 function bed(){$('bed').style.display=$('bedtime').checked?'':'none';$('bed_on').disabled=!$('bed_wake').checked}
 $('bedtime').onchange=bed;$('bed_wake').onchange=bed;
+// The close-by distance and height only while that alert is on; hijack and distress at bedtime only while it is quiet.
+function alerts(){$('close').style.display=$('overhead').checked?'':'none';$('distress_always').disabled=!$('quiet_bedtime').checked}
+$('overhead').onchange=alerts;$('quiet_bedtime').onchange=alerts;
+// A cue played on the screen's speaker, at the volume it has.
+document.querySelectorAll('[data-cue]').forEach(b=>b.onclick=async()=>{
+ const r=await fetch('api/sound',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cue:b.dataset.cue})});
+ say(r.ok?'Played on the screen':'The screen did not play it',!r.ok)});
 // Only what applies to the map chosen: each part names its maps in data-for.
 function relevant(){const m=$('map').value;document.querySelectorAll('[data-for]').forEach(e=>{
  e.style.display=e.dataset.for.split(' ').includes(m)?'':'none'})}
@@ -302,6 +326,8 @@ async function status(){try{const s=await(await fetch('api/status')).json();name
   +(s.radio?' · '+radio_words(s.radio):'');
  // The radio among the sources only on a screen that has one.
  $('feed').querySelector('option[value=radio]').hidden=!s.radio;
+ // The sound only on a screen with a speaker.
+ $('sound').style.display=s.speaker?'':'none';
  if(s.tiles_total)t+=' · map '+s.tiles_done+'/'+s.tiles_total;if(s.tile_error)t+=' · map: '+s.tile_error;
  if(s.time)$('clock').textContent=s.time;show_card(s.card);
  if(s.card&&s.card.download&&s.card.download.running)t+=' · card '+s.card.download.next+'/'+s.card.download.total;

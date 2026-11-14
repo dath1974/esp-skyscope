@@ -23,6 +23,9 @@
 //                          screen's tiles, {"format": true} formats the card (FAT32, erasing it), {"count": true}
 //                          counts what is on it again (where tiles were written since). An area is {"map",
 //                          "lat", "lon", "radius_nm", "z_max"}; its map one of sectional, ifr_low, ifr_high or topo.
+//   POST /api/sound        {"cue": "watched"} plays a sound on the screen's speaker, where it has one (sound.h CUE_NAMES:
+//                          watched, hijack, lost_radio, distress, overhead, click, level), whether or not that sound is
+//                          on; 404 without a speaker
 //   POST /api/reboot
 //   POST /api/reset        {"factory": true} erases everything the screen keeps (the settings, the Wi-Fi networks, the
 //                          day's tally) and restarts it as a new screen; the map card is left as it is
@@ -274,6 +277,10 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
       }
       if (s.paced_ms && providers::before(now_ms, s.paced_until)) e["paced_s"] = (s.paced_ms + 999) / 1000;
     }
+#ifdef USE_SKYSCOPE_SPEAKER
+    // A speaker: the page shows the sound settings.
+    if (speaker_) out["speaker"] = true;
+#endif
 #ifdef USE_SKYSCOPE_RADIO
     // The screen's own radio: what it is doing, and what it hears.
     if (radio_) {
@@ -742,6 +749,23 @@ void Skyscope::handleRequest(AsyncWebServerRequest *request) {
     }
     request->send(200, "application/json", "{\"resetting\":true}");
     this->defer([this]() { this->factory_reset_(); });
+    return;
+  }
+  if (url == "/api/sound" && post) {
+#ifdef USE_SKYSCOPE_SPEAKER
+    JsonDocument in;
+    const int cue = deserializeJson(in, body) ? -1 : sound::cue_named(in["cue"] | "");
+    if (!speaker_) {
+      request->send(404, "application/json", "{\"error\":\"speaker\"}");
+    } else if (cue < 0) {
+      request->send(400, "application/json", "{\"error\":\"cue\"}");
+    } else {
+      request->send(200, "application/json", "{\"ok\":true}");
+      this->defer([this, cue]() { this->play_((sound::Cue) cue, true); });
+    }
+#else
+    request->send(404, "application/json", "{\"error\":\"speaker\"}");
+#endif
     return;
   }
   if (url == "/api/reboot" && post) {

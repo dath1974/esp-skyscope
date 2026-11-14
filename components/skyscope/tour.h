@@ -6,6 +6,8 @@
 // next step or end the tour. Plain C++, so the tests walk it on a PC.
 #include <cstdint>
 
+#include "settings.h"
+
 namespace sky::tour {
 
 // The steps, in the order they are shown: a welcome, a touch each, and a goodbye.
@@ -43,7 +45,9 @@ inline Words words(Step step, const Seen &seen) {
       return {"The screen's address", "Tap the map, away from the planes.",
               "At the top: the address of its web page, where every setting is too."};
     case BRIGHTNESS:
-      return {"Brightness", "Drag a finger up or down along the right edge.", "Up is brighter."};
+      // On a screen with a speaker, the left edge is the volume's (sound.cpp).
+      return {"Brightness", "Drag a finger up or down along the right edge.",
+              speaker_fitted ? "Up is brighter. The left edge sets the volume the same way." : "Up is brighter."};
     case ZOOM:
       return {"Zoom and pan", "Spread or pinch two fingers, or drag one across the map.",
               "Save keeps this view. Cancel goes back."};

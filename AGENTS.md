@@ -16,11 +16,11 @@ are the user guide; read them for what the screen does and how it is set up.
     `settings.h`, `feed.h`, `tiles.h`, `overlay.h`, `plan.h`, `pixels.h`, `firmware.h`, `schedule.h`, `menu_rows.h`,
     `keyboard.h`, `places.h`, `pinch.h`, `swipe.h`, `wifi_list.h`, `weather.h`, `radar.h`, `modes.h`, `adsb.h`,
     `wake.h`, `offline.h`, `card.h`, `psram.h`, `follow.h`, `pngrow.h`, `sightings.h`, `today.h`, `emblem.h`,
-    `ticks.h`, `tour.h`, `locate.h` (namespace `sky`).
+    `ticks.h`, `tour.h`, `locate.h`, `sound.h` (namespace `sky`).
     Keep them that way; logic that can be tested on a PC belongs here.
   - On the device only: `skyscope.cpp`, `worker.cpp`, `view.cpp`, `menu.cpp`, `editor.cpp`, `preview.cpp`, `swipe.cpp`,
     `networks.cpp`, `wxpage.cpp`, `todaypage.cpp`, `splash.cpp`, `tour.cpp`, `web.cpp`, `http.cpp`, `probe.cpp`,
-    `card.cpp` (the map card), and the P4's radio, `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
+    `card.cpp` (the map card), `sound.cpp` (the P4's speaker), and the P4's radio, `rtlsdr.cpp` and `radio.cpp` (namespace `esphome::skyscope`).
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,

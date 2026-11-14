@@ -131,6 +131,82 @@ font:
   # The screen's name on the splash at the start: its own letters only, large.
   - {file: "gfonts://Roboto@700", id: font_splash, size: "${FONT_SPLASH_PX}", glyphs: "SKYCOPE", bpp: 4}
 
+# The speaker port (a 2-pin MX1.25 beside the USB-A port): an ES8311 codec on the touch bus, fed over I2S, and an
+# NS4150B amplifier that GPIO53 turns on, as Waveshare's board support has them. The codec runs at 48 kHz, 16-bit mono,
+# and a mixer feeds it from three sources: the screen's own sounds (components/skyscope/sound.h), and Home Assistant's
+# announcements and media, each resampled to 48 kHz.
+audio_dac:
+  - platform: es8311
+    id: codec
+    i2c_id: touch_bus
+    address: 0x18
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    use_mclk: true
+
+i2s_audio:
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+    i2s_mclk_pin: GPIO13
+
+switch:
+  - platform: gpio
+    id: amplifier
+    pin: GPIO53
+    restore_mode: ALWAYS_ON
+    internal: true
+
+speaker:
+  - platform: i2s_audio
+    id: codec_out
+    i2s_audio_id: i2s_out
+    dac_type: external
+    i2s_dout_pin: GPIO9
+    audio_dac: codec
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    channel: mono
+  - platform: mixer
+    id: speaker_mixer
+    output_speaker: codec_out
+    num_channels: 1
+    task_stack_in_psram: true
+    source_speakers:
+      # The screen's own: its buffer holds half a second, as a slow pass of the loop may come between two pieces.
+      - id: sounds
+        buffer_duration: 500ms
+      - id: announcements_in
+      - id: media_in
+  - platform: resampler
+    id: announcements
+    output_speaker: announcements_in
+    task_stack_in_psram: true
+  - platform: resampler
+    id: media
+    output_speaker: media_in
+    task_stack_in_psram: true
+
+# The speaker in Home Assistant: its announcements (text to speech) and whatever it plays. Its volume is the screen's
+# own: volume_min and volume_max are sound.h's CODEC_LOW and CODEC_HIGH, so a percentage is as loud from either side.
+media_player:
+  - platform: speaker
+    id: player
+    name: Speaker
+    volume_min: 0.5
+    volume_max: 0.8
+    task_stack_in_psram: true
+    announcement_pipeline:
+      speaker: announcements
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+    media_pipeline:
+      speaker: media
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+
 skyscope:
   dpi: ${DISPLAY_DPI}
   tile_scale: ${TILE_SCALE}
@@ -151,6 +227,9 @@ skyscope:
     gain: 49.6
   # The TF slot, for the map card: slot 0 of the SD/MMC host (its own pins, GPIO 39 to 44, four data lines), powered
   # by the P4's LDO channel 4, as Waveshare's board support does it. Slot 1 of the same host is the Wi-Fi chip's.
+  # The speaker's sounds (an alert's chime, a click), and the media player whose volume is the screen's.
+  speaker: sounds
+  media_player: player
   card:
     slot: 0
     width: 4

@@ -45,6 +45,7 @@ struct Row {
   const char *hint = "";     // what the keyboard says under the text: what the value may be
   std::vector<const char *> needs = {};  // flags that must be on, or words that must be set, for the row to show
   size_t most = 0;  // bytes the keyboard takes; 0 for its pad's own
+  bool speaker = false;  // only on a screen with a speaker (settings.h speaker_fitted)
 };
 
 inline const std::vector<Row> &rows() {
@@ -116,6 +117,16 @@ inline const std::vector<Row> &rows() {
                "comma between: N12345 red, BAW123 blue",
        .most = 240},
 
+      // Alerts: a plane passing close by, along the top as a watched one is (watched planes and emergencies always).
+      {"overhead", "Close by", FLAG, {}},
+      {.key = "overhead_nm", .name = "Within", .kind = NUMBER,
+       .choices = {{"1", "1 NM"}, {"2", "2 NM"}, {"3", "3 NM"}, {"5", "5 NM"}, {"10", "10 NM"}},
+       .pad = WHOLE, .unit = " NM", .hint = "Nautical miles from the place, 1 to 20", .needs = {"overhead"}},
+      {.key = "overhead_ft", .name = "Below", .kind = NUMBER,
+       .choices = {{"1000", "1000 ft"}, {"2000", "2000 ft"}, {"3000", "3000 ft"}, {"5000", "5000 ft"},
+                   {"10000", "10000 ft"}, {"20000", "20000 ft"}},
+       .pad = WHOLE, .unit = " ft", .hint = "Feet, 500 to 60000", .needs = {"overhead"}},
+
       // Follow a plane: one plane, wherever it flies.
       {.key = "follow", .name = "Plane", .kind = TEXT, .pad = WORDS,
        .hint = "A plane to follow anywhere: its registration (N12345, G-EUPT), callsign (BAW286) or flight number "
@@ -171,6 +182,20 @@ inline const std::vector<Row> &rows() {
       {"rotation", "Rotation", NUMBER,
        {{"0", "0\xC2\xB0"}, {"90", "90\xC2\xB0"}, {"180", "180\xC2\xB0"}, {"270", "270\xC2\xB0"}}},
 
+      // Sound: the speaker, on a screen that has one.
+      {.key = "volume", .name = "Volume", .kind = NUMBER,
+       .choices = {{"0", "Off"}, {"10", "10%"}, {"20", "20%"}, {"30", "30%"}, {"40", "40%"}, {"50", "50%"},
+                   {"60", "60%"}, {"70", "70%"}, {"80", "80%"}, {"90", "90%"}, {"100", "100%"}},
+       .pad = WHOLE, .unit = "%", .hint = "Percent, 0 (silent) to 100", .speaker = true},
+      {.key = "sound_watched", .name = "Watched planes", .kind = FLAG, .speaker = true},
+      {.key = "sound_emergency", .name = "Emergencies", .kind = FLAG, .speaker = true},
+      {.key = "sound_overhead", .name = "Close by", .kind = FLAG, .speaker = true},
+      {.key = "clicks", .name = "Clicks", .kind = FLAG, .speaker = true},
+      // Bedtime's own switch is the Screen's: these show whether or not it is on.
+      {.key = "quiet_bedtime", .name = "Quiet at bedtime", .kind = FLAG, .speaker = true},
+      {.key = "distress_always", .name = "Hijack and distress", .kind = FLAG, .needs = {"quiet_bedtime"},
+       .speaker = true},
+
       // Network: the Wi-Fi network comes first in this group (menu.cpp), then the web page's password: never shown,
       // only whether there is one; typed anew, or left empty for none.
       {.key = "password", .name = "Web password", .kind = TEXT, .pad = WORDS,
@@ -188,8 +213,9 @@ struct Group {
 inline const std::vector<Group> &groups() {
   static const std::vector<Group> table = {
       {"place", "Place"},           {"map", "Map"},                {"rings", "Over the map"},
-      {"marker", "Aircraft"},       {"most", "Which aircraft"},    {"follow", "Follow a plane"},
-      {"feed", "Source"},           {"brightness", "Screen"},      {"password", "Network"}};
+      {"marker", "Aircraft"},       {"most", "Which aircraft"},    {"overhead", "Alerts"},
+      {"follow", "Follow a plane"}, {"feed", "Source"},            {"brightness", "Screen"},
+      {"volume", "Sound"},          {"password", "Network"}};
   return table;
 }
 // The group a row is the first of, or nullptr.
@@ -208,10 +234,11 @@ inline size_t most_typed(const Row &row) {
   return row.pad == keyboard::CLOCK ? 5 : row.pad == keyboard::WORDS ? 60 : 12;
 }
 
-// Whether a row shows for `s`: it applies to the map, the flags it needs are on and the words it needs are set (the
-// followed plane's label and track only while a plane is followed).
+// Whether a row shows for `s`: it applies to the map and to this screen (the sound only with a speaker), the flags it
+// needs are on and the words it needs are set (the followed plane's label and track only while a plane is followed).
 inline bool applies(const Row &row, const Settings &s) {
   if (!(row.maps & bit(s.map))) return false;
+  if (row.speaker && !speaker_fitted) return false;
   if (row.needs.empty()) return true;
   JsonDocument doc;
   to_json(s, doc.to<JsonObject>());

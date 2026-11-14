@@ -49,6 +49,8 @@ CONF_DATA_PINS = "data_pins"
 CONF_HOLD_HIGH_PIN = "hold_high_pin"
 CONF_POWER_LDO = "power_ldo"
 CONF_FREQUENCY = "frequency"
+CONF_SPEAKER = "speaker"
+CONF_MEDIA_PLAYER = "media_player"
 
 skyscope_ns = cg.esphome_ns.namespace("skyscope")
 Skyscope = skyscope_ns.class_("Skyscope", cg.Component)
@@ -77,6 +79,11 @@ HttpRequestUpdate = http_request_ns.class_("HttpRequestUpdate")
 
 update_ns = cg.esphome_ns.namespace("update")
 UpdateEntity = update_ns.class_("UpdateEntity")
+
+speaker_ns = cg.esphome_ns.namespace("speaker")
+Speaker = speaker_ns.class_("Speaker")
+media_player_ns = cg.esphome_ns.namespace("media_player")
+MediaPlayer = media_player_ns.class_("MediaPlayer")
 
 def _validate_card(config):
     pins = config.get(CONF_DATA_PINS, [])
@@ -170,6 +177,10 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         # Touches and what the glass shows over the API (probe.cpp), for tests/device_test.py. Anyone on the network
         # can use them, as they can the settings.
+        # A speaker of the board's for the screen's own sounds (sound.h): one source of a mixer at 48 kHz, 16-bit
+        # mono. And the media player that shares the speaker, whose volume is the screen's volume.
+        cv.Optional(CONF_SPEAKER): cv.use_id(Speaker),
+        cv.Optional(CONF_MEDIA_PLAYER): cv.use_id(MediaPlayer),
         cv.Optional(CONF_TEST_API, default=True): cv.boolean,
         # A plane's route from hexdb.io where adsb.lol has none (follow.h). hexdb.io publishes no terms, and credits
         # route data its owners ask is not copied without their leave: turn it off in firmware given to others until
@@ -280,6 +291,11 @@ async def to_code(config):
         esp32.require_fatfs()
         esp32.require_vfs_dir()
     # The menu's Wi-Fi list: told of every scan, and ESPHome keeps every network a scan found (not only its own).
+    if CONF_SPEAKER in config:
+        cg.add_define("USE_SKYSCOPE_SPEAKER")
+        cg.add(var.set_speaker(await cg.get_variable(config[CONF_SPEAKER])))
+        if CONF_MEDIA_PLAYER in config:
+            cg.add(var.set_media_player(await cg.get_variable(config[CONF_MEDIA_PLAYER])))
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_scan_results()
     if CONF_BRIGHTNESS_OUTPUT in config:

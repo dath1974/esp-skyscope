@@ -13,6 +13,7 @@ the [README](../README.md).
 - [Following a plane](#following-a-plane)
 - [Aviation weather](#aviation-weather)
 - [Alerts and the day's tally](#alerts-and-the-days-tally)
+- [Sound](#sound)
 - [Home Assistant](#home-assistant)
 - [The map card](#the-map-card)
 
@@ -74,7 +75,8 @@ simulated is credited as **simulated**, so made-up planes are never mistaken for
   with a phone to open the photo's page, full size. That is what Planespotters.net asks of a screen that shows its
   photos. The photo is fetched as the card opens and let go when it closes; it is never kept on the map card.
 - **Tap the map** to see the screen's address and range in the status line.
-- **Drag up or down along the right edge** to set the brightness.
+- **Drag up or down along the right edge** to set the brightness, and on a screen with a speaker
+  [along the left edge](#sound) to set the volume.
 - **Long-press the map** for [the menu](#the-menu).
 - **Pinch or drag** to [zoom and pan](#zoom-and-pan).
 - **Swipe along the bottom edge** to [change the map](#changing-the-map-with-a-swipe), or **up from it** for
@@ -112,8 +114,11 @@ they do not apply:
 - **Place**: where the screen is, its range, and the station of the weather page.
 - **Map**: the map and how it looks. **Over the map**: range rings, airspace and the weather radar.
 - **Aircraft**: how planes are drawn. **Which aircraft**: how many, between which altitudes, and the watched ones.
+- **Alerts**: an alert for a plane passing close by ([below](#alerts-and-the-days-tally)).
 - **Follow a plane**, **Source** (where the planes come from) and **Screen** (brightness, sleep, bedtime, the time
   zone, units, rotation).
+- **Sound**, on a screen with a speaker: the volume, which alerts chime, clicks, and bedtime's quiet
+  ([below](#sound)).
 - **Network**: the Wi-Fi network and the web page's password.
 - **Map card**: what the card is, its space and what is on it, and **Look again**, **Clear tiles** and **Format**
   ([below](#the-map-card)). These act at once, not with Save.
@@ -221,6 +226,11 @@ A watched plane coming into range, or a plane in range squawking an emergency (7
 of the glass for 20 seconds: `N12345 is in range, 8.4 NM NE`. A tap on it opens the plane's card. A watched plane is
 told of again once it has been out of range for ten minutes.
 
+**Close by** (the menu's Alerts group, or the web page) adds one more: a plane passing within a distance of the place
+(2 NM to start with) and no higher than a height (10000 ft), in the air, once a visit: `SWA4 is close by, 1.2 NM N,
+3500 ft`. When several come at once, an emergency shows before a watched plane, and a watched plane before one close
+by.
+
 The screen counts the planes within the range of the place (up to 250 NM), from midnight by its clock: how many, by
 the hour, the commonest types and operators, the most at once, and the day's nearest, highest and fastest. Only the
 planes around the place count, so none are counted while a plane is followed elsewhere.
@@ -235,6 +245,26 @@ The web page shows the same under **Today in range**, and keeps the latest 400 v
 tally is kept over a restart; with a [map card](#the-map-card) in, every visit is also written to it, a file a day in
 its `log` folder.
 
+## Sound
+
+The P4 4C has a speaker port (a 2-pin MX1.25 connector); with a small speaker plugged in, the screen has sounds:
+
+- **A chime for each alert**: two notes up for a watched plane, one low note for a plane close by, and for an
+  emergency a sound by its squawk: a klaxon for 7500 (hijack), a falling pair of notes three times for 7600 (lost
+  radio), and an emergency locator transmitter's sweep, as heard on 121.5 MHz, for 7700 and any other emergency a
+  plane reports. Each kind can be turned off. They sound with the screen off too, when they are wanted most.
+- **Clicks** at each tap on a key, a switch or a card (off to start with). A tap on the map itself does not click.
+- **The volume**: drag up or down along the left edge of the map, as the right edge sets the brightness. The level
+  shows beside the edge, and a short note plays at the volume chosen as the finger lifts. All the way down is silent.
+  The menu's **Volume** and the web page set it too.
+- **Quiet at bedtime**: with [bedtime](#on-the-glass) on, no sound from **Off at** to **On at** (or, without **On
+  again**, until a tap turns the screen on). **Hijack and distress** lets a 7500 or 7700 (or any other declared
+  emergency) through; a lost radio (7600) stays quiet, as it is no reason to wake anyone.
+
+The web page's Sound part has buttons to hear each chime at the volume set, whether or not it is on. Home Assistant
+gets the speaker as a media player ([below](#home-assistant)) for announcements and anything else it plays, through the
+same speaker at the same volume: turn it up or down there and the screen's volume follows, and the other way around.
+
 ## Home Assistant
 
 The firmware carries ESPHome's API, so Home Assistant finds the screen on the network by itself. Add it there and Home
@@ -242,8 +272,10 @@ Assistant gives it a key of its own. It then has:
 
 - **Planes in range**, **Planes today**, **Nearest plane** (its name), **Nearest plane distance** and **altitude**,
   and **Followed plane** (looking, live, lost, landed or gave_up).
-- **Alert**, an event of type `watched` or `emergency` for each alert, with its words in **Last alert**: an
-  automation can send them to a phone.
+- **Alert**, an event of type `watched`, `emergency` or `overhead` (a plane close by) for each alert, with its words
+  in **Last alert**: an automation can send them to a phone.
+- **Speaker**, on the P4 4C: a media player for announcements (text to speech) and media, whose volume is the
+  screen's ([above](#sound)).
 - **Screen**, to turn the screen off and on, and **Brightness**.
 - **Firmware**, the update the web page offers.
 

@@ -1,9 +1,9 @@
 #pragma once
 // What the screen has seen in its range: each plane's visit (from when it came within the range to when it was last
 // heard there), the day's tally (how many planes, by the hour, the commonest types and operators, the nearest, highest
-// and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, or a
-// plane squawking an emergency. Only reports around the place count: while a plane is followed the planes come from
-// around it, and they are no sighting of the screen's own.
+// and fastest), a log of the latest visits, and the alerts a visit raises: a watched plane coming into range, a
+// plane squawking an emergency, or (where asked for) one passing close by. Only reports around the place count: while
+// a plane is followed the planes come from around it, and they are no sighting of the screen's own.
 //
 // Nothing here fetches, keeps the time or writes a file (the worker hands in each report with the time and the local
 // date, and writes the log to the map card), so the tests run on a PC. Everything that grows with the sky is in PSRAM.
@@ -45,6 +45,7 @@ struct Visit {
   float closest_m = 0;          // its nearest to the place, along the ground
   int32_t lowest_ft = INT32_MAX, highest_ft = INT32_MIN;  // its altitudes seen in range; none while INT32_MAX
   bool watched = false, emergency = false;
+  bool overhead = false;  // it passed close by (Settings overhead_nm, overhead_ft), and was told of once
   char squawk[5] = "";  // the emergency's code, while `emergency`
 };
 
@@ -72,13 +73,14 @@ struct DayCount {
   uint32_t date = 0, planes = 0;
 };
 
-enum Kind : uint8_t { WATCHED, EMERGENCY };
-inline constexpr const char *KINDS[] = {"watched", "emergency"};
+enum Kind : uint8_t { WATCHED, EMERGENCY, OVERHEAD };
+inline constexpr const char *KINDS[] = {"watched", "emergency", "overhead"};
 struct Alert {
   Kind kind = WATCHED;
   std::string hex, name;  // name: overlay::name_of, its callsign or registration
   std::string text;       // in words, for the glass and Home Assistant: "N12345 watched, 8.4 NM NE"
   int color = 0;          // a watched plane's (overlay::watch_color), 0 for none
+  std::string squawk;     // an emergency's code, for its sound (sound.h emergency_cue); "" where it gave none
   double meters = 0, bearing = 0;
 };
 
@@ -89,8 +91,10 @@ inline bool counts(const feed::Flight &f) { return !(f.category.size() == 2 && f
 inline std::string alert_text(Kind kind, const feed::Flight &f, double meters, double bearing, bool metric) {
   std::string out = overlay::name_of(f);
   if (kind == EMERGENCY) out += " squawks " + (f.squawk.empty() ? std::string("an emergency") : f.squawk);
+  else if (kind == OVERHEAD) out += " is close by";
   else out += " is in range";
   out += ", " + overlay::distance_text(meters, metric) + " " + geo::compass_point(bearing);
+  if (kind == OVERHEAD) out += ", " + overlay::altitude_text(f, metric);
   return out;
 }
 
@@ -156,6 +160,12 @@ class Book {
         copy(v->squawk, f.squawk);
         ++day_.emergencies;
         alerts.push_back(alert_(EMERGENCY, f, s, meters, color));
+      }
+      // Close by: near enough and low enough, in the air, once a visit.
+      if (s.overhead && !v->overhead && meters <= s.overhead_nm * geo::NM && f.has_altitude && !f.on_ground &&
+          f.altitude <= s.overhead_ft) {
+        v->overhead = true;
+        alerts.push_back(alert_(OVERHEAD, f, s, meters, color));
       }
       const std::string name = overlay::name_of(f);
       record_(day_.closest, (float) meters, name, unix_s, true);
@@ -339,6 +349,7 @@ class Book {
     a.hex = f.hex;
     a.name = overlay::name_of(f);
     a.color = color;
+    if (kind == EMERGENCY) a.squawk = f.squawk;
     a.meters = meters;
     a.bearing = geo::bearing(s.lat, s.lon, f.lat, f.lon);
     a.text = alert_text(kind, f, meters, a.bearing, s.metric);

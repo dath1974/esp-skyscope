@@ -31,8 +31,16 @@ static const char *const TAG = "skyscope";
 namespace {
 // The stored settings: their JSON, in ESPHome's preferences (NVS). A key the firmware does not know is skipped, a key
 // it lacks keeps its default, so an update never loses the settings.
-constexpr uint32_t PREF_HASH = 0x5C75C0BE;
+//
+// ESPHome reads a preference back only at the size it was written, so a larger slot is a new one: the settings
+// outgrew 1800 bytes with the sound's, and firmware from then on keeps them under PREF_HASH, reading the old slot
+// once where the new one is not there yet (an update from older firmware) and moving them over.
+constexpr uint32_t PREF_HASH = 0x5C75C0BF;
 struct Stored {
+  char json[MOST_STORED];
+};
+constexpr uint32_t OLD_PREF_HASH = 0x5C75C0BE;
+struct OldStored {
   char json[1800];
 };
 constexpr uint32_t SAVE_DELAY_MS = 4000;
@@ -183,11 +191,19 @@ std::string own_address() {
 
 void Skyscope::load_settings_() {
   pref_ = global_preferences->make_preference<Stored>(PREF_HASH);
-  Stored stored{};
-  if (!pref_.load(&stored)) return;
-  stored.json[sizeof(stored.json) - 1] = 0;
+  auto stored = std::make_unique<Stored>();
+  if (!pref_.load(stored.get())) {
+    ESPPreferenceObject old_pref = global_preferences->make_preference<OldStored>(OLD_PREF_HASH);
+    auto old = std::make_unique<OldStored>();
+    if (!old_pref.load(old.get())) return;
+    std::memcpy(stored->json, old->json, sizeof(old->json));
+    ESP_LOGI(TAG, "Settings from the older firmware's slot: moved to the new one");
+    save_pending_ = true;
+    save_at_ = millis() + SAVE_DELAY_MS;
+  }
+  stored->json[sizeof(stored->json) - 1] = 0;
   JsonDocument doc;
-  if (deserializeJson(doc, stored.json)) {
+  if (deserializeJson(doc, stored->json)) {
     ESP_LOGW(TAG, "The stored settings could not be read: defaults");
     return;
   }
@@ -203,7 +219,7 @@ void Skyscope::load_settings_() {
 }
 
 void Skyscope::save_settings_() {
-  Stored stored{};
+  auto stored = std::make_unique<Stored>();
   JsonDocument doc;
   // While two fingers preview another view, the view saved stays the one before them until Save (preview.cpp).
   Settings kept = settings_;
@@ -215,12 +231,12 @@ void Skyscope::save_settings_() {
     kept.place = held_.place;
   }
   to_json(kept, doc.to<JsonObject>(), true);
-  const size_t n = serializeJson(doc, stored.json, sizeof(stored.json) - 1);
-  if (n == 0 || n >= sizeof(stored.json) - 1) {
+  const size_t n = serializeJson(doc, stored->json, sizeof(stored->json) - 1);
+  if (n == 0 || n >= sizeof(stored->json) - 1) {
     ESP_LOGE(TAG, "The settings are too long to store");
     return;
   }
-  pref_.save(&stored);
+  pref_.save(stored.get());
   global_preferences->sync();
   save_pending_ = false;
   ESP_LOGI(TAG, "Settings saved");
@@ -534,6 +550,7 @@ void Skyscope::setup() {
     base_->init();
     base_->add_handler(this);
   }
+  start_sound_();
   // The networks in reach, for the menu's Wi-Fi list (editor.cpp).
   if (wifi::global_wifi_component) wifi::global_wifi_component->add_scan_results_listener(this);
 #ifdef USE_UPDATE
@@ -608,6 +625,7 @@ void Skyscope::loop() {
     level_until_ = 0;
     set_shown(level_, false);
   }
+  sound_tick_(now);
   follow_tick_(now);
   update_frame_();
   preview_tick_(now);
@@ -721,6 +739,22 @@ void Skyscope::build_ui_() {
     lv_obj_add_event_cb(dimmer_, [](lv_event_t *e) {
       static_cast<Skyscope *>(lv_event_get_user_data(e))->on_dimmer_(e);
     }, code, this);
+  // The volume strip down the left edge, on a screen with a speaker (sound.cpp): the same, for the volume.
+#ifdef USE_SKYSCOPE_SPEAKER
+  if (speaker_) {
+    volume_strip_ = lv_obj_create(screen);
+    lv_obj_remove_style_all(volume_strip_);
+    lv_obj_set_size(volume_strip_, ui::mm(DIMMER_MM), height_);
+    lv_obj_align(volume_strip_, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_add_flag(volume_strip_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(volume_strip_, LV_OBJ_FLAG_SCROLLABLE);
+    for (const lv_event_code_t code : {LV_EVENT_PRESSED, LV_EVENT_PRESSING, LV_EVENT_RELEASED})
+      lv_obj_add_event_cb(volume_strip_, [](lv_event_t *e) {
+        static_cast<Skyscope *>(lv_event_get_user_data(e))->on_volume_strip_(e);
+      }, code, this);
+  }
+#endif
+  listen_for_clicks_();
   // The level while it changes: a bar filled from the bottom, and the percentage.
   level_ = panel(screen);
   lv_obj_set_size(level_, ui::mm(6), height_ / 2);
@@ -1013,6 +1047,7 @@ void Skyscope::sleep_or_wake_(uint32_t now) {
     }
     wake_asked_ = false;
     asleep_ = false;
+    bed_dark_ = false;
     taps_from_ = now + WAKE_DEAF_MS;
     applied_brightness_ = -1;  // the brightness again, at once
     seen_flights_rev_ = AGAIN;
@@ -1044,6 +1079,7 @@ bool Skyscope::bedtime_(uint32_t now) {
   if (off < 0) return false;
   if (minute == off || (first && settings_.bed_wake && on >= 0 && schedule::within(minute, off, on))) {
     go_to_sleep_("bedtime");
+    bed_dark_ = true;
     return true;
   }
 #endif
@@ -1085,11 +1121,23 @@ void Skyscope::go_to_sleep_(const std::string &why) {
   ESP_LOGI(TAG, "Screen off: %s", why.c_str());
 }
 
-void Skyscope::show_level_(int percent) {
+void Skyscope::show_level_(int percent) { show_level_on_(false, percent); }
+
+// The level beside the strip it is set by: brightness on the right, the volume on the left.
+void Skyscope::show_level_on_(bool left, int percent) {
+  lv_obj_align(level_, left ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID,
+               (left ? 1 : -1) * (ui::mm(DIMMER_MM) + ui::px(4)), 0);
   lv_obj_set_height(level_fill_, std::max(1, (int) (lv_obj_get_content_height(level_) * percent / 100)));
-  set_text(level_text_, std::to_string(percent) + "%");
+  set_text(level_text_, left && percent == 0 ? std::string("Off") : std::to_string(percent) + "%");
   set_shown(level_, true);
   level_until_ = millis() + LEVEL_MS;
+}
+
+// A finger at `y` on a strip, from drag_from_ where it came down at drag_y_: up is more, DRAG_SPAN of the glass's
+// height from the least to the most.
+int Skyscope::strip_level_(int32_t y, int lowest) const {
+  const float span = std::max(1.0f, height_ * DRAG_SPAN);
+  return std::max(lowest, std::min(100, drag_from_ + (int) std::lround((drag_y_ - y) * 100.0f / span)));
 }
 
 void Skyscope::on_dimmer_(lv_event_t *e) {
@@ -1108,9 +1156,7 @@ void Skyscope::on_dimmer_(lv_event_t *e) {
     if (!dragged_ && std::abs(p.y - drag_y_) < ui::px(DRAG_PX)) return;
     if ((int32_t) (millis() - taps_from_) < 0) return;
     dragged_ = true;
-    // Up is brighter: DRAG_SPAN of the glass's height from darkest to brightest.
-    const float span = std::max(1.0f, height_ * DRAG_SPAN);
-    drag_level_ = std::max(DIM_LOWEST, std::min(100, drag_from_ + (int) std::lround((drag_y_ - p.y) * 100.0f / span)));
+    drag_level_ = strip_level_(p.y, DIM_LOWEST);
     show_level_(drag_level_);
     return;
   }
@@ -1125,6 +1171,42 @@ void Skyscope::on_dimmer_(lv_event_t *e) {
     drag_level_ = -1;
     use_settings_(s);
     show_level_(s.brightness);
+  }
+}
+
+void Skyscope::on_volume_strip_(lv_event_t *e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+  lv_indev_t *indev = lv_indev_active();
+  if (!indev) return;
+  lv_point_t p;
+  lv_indev_get_point(indev, &p);
+  if (code == LV_EVENT_PRESSED) {
+    drag_y_ = p.y;
+    drag_from_ = settings_.volume;
+    dragged_ = false;
+    return;
+  }
+  if (code == LV_EVENT_PRESSING) {
+    if (!dragged_ && std::abs(p.y - drag_y_) < ui::px(DRAG_PX)) return;
+    if ((int32_t) (millis() - taps_from_) < 0) return;
+    dragged_ = true;
+    // Down to silent: the speaker follows the finger (sound_tick_).
+    drag_volume_ = strip_level_(p.y, 0);
+    show_level_on_(true, drag_volume_);
+    return;
+  }
+  if (code == LV_EVENT_RELEASED) {
+    if (!dragged_) {
+      tap_at_(p);
+      return;
+    }
+    Settings s = settings_;
+    s.volume = drag_volume_;
+    drag_volume_ = -1;
+    use_settings_(s);
+    show_level_on_(true, s.volume);
+    // A note at the volume chosen, to hear it by.
+    play_(sound::LEVEL, true);
   }
 }
 
@@ -1442,16 +1524,24 @@ void Skyscope::take_alerts_(uint32_t now) {
     if (shared_.picked_route_rev != picked_route_rev_ && !picked_.empty()) seen_flights_rev_ = AGAIN;
     if (shared_.photo_rev != photo_rev_ && !picked_.empty()) seen_flights_rev_ = AGAIN;
   }
+  // Each kind as its sound: the most pressing one heard, when several came at once (sound.h rank).
+  auto cue_of = [](const sightings::Alert &a) {
+    return a.kind == sightings::EMERGENCY ? sound::emergency_cue(a.squawk)
+           : a.kind == sightings::WATCHED ? sound::WATCHED
+                                          : sound::OVERHEAD;
+  };
   for (const auto &a : alerts) {
     ++alerts_seen_;
     last_alert_ = a.text;
     alert_callbacks_.call(sightings::KINDS[a.kind], a.name, a.text);
+    // Heard with the screen off too (but for bedtime's quiet): that is when a sound is wanted most.
+    play_(cue_of(a));
   }
   if (!alerts.empty() && !asleep_) {
-    // An emergency before a watched plane, when both came at once.
+    // An emergency before a watched plane, and a watched plane before one close by, when they came at once.
     const auto *shown = &alerts.back();
     for (const auto &a : alerts)
-      if (a.kind == sightings::EMERGENCY) shown = &a;
+      if (sound::rank(cue_of(a)) > sound::rank(cue_of(*shown))) shown = &a;
     show_alert_(*shown);
     alert_until_ = now + ALERT_MS;
   }

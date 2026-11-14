@@ -43,6 +43,9 @@ inline constexpr Names<4> FEEDS{{"adsb_lol", "adsb_fi", "receiver", "radio"}};
 // is never asked, even preferred, as a receiver without an address is not: the menu skips it, and the others stand in
 // where falling back is allowed.
 inline bool radio_fitted = false;
+// Whether this screen has a speaker of its own (the `speaker:` of its YAML), set once as it starts. Without one the
+// sound settings are kept but never shown: the menu and the web page leave them out.
+inline bool speaker_fitted = false;
 enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
 inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
 // "plane" is one airliner for every aircraft; "type" each drawn as its kind (shapes.h): a helicopter, a heavy, a drone.
@@ -127,6 +130,20 @@ struct Settings {
   std::string bed_off = "22:00", bed_on = "07:00";
   bool bed_wake = true;
   std::string timezone = "UTC0";
+  // An alert for a plane passing close by (sightings.h): within overhead_nm of the place and no higher than
+  // overhead_ft, once a visit. On every screen, sound or none: it shows along the top and Home Assistant hears it.
+  bool overhead = false;
+  int overhead_nm = 2;
+  int overhead_ft = 10000;
+  // The speaker (sound.h), on a screen that has one. The volume is the speaker's own, Home Assistant's media player's
+  // too; 0 is silent. A chime for each kind of alert, each on or off; a click at each tap. At bedtime the speaker is
+  // quiet, all but a hijack (7500) and distress (7700, or any other emergency declared) with distress_always: a lost
+  // radio (7600) is no reason to wake anyone.
+  int volume = 50;
+  bool sound_watched = true, sound_emergency = true, sound_overhead = true;
+  bool clicks = false;
+  bool quiet_bedtime = true;
+  bool distress_always = false;
   // Aviation weather (weather.h): the station whose METAR, TAF and MOS the weather page shows, "" for the nearest to
   // the place that reports; the NEXRAD radar over the map, and whether it plays its last hour as a loop.
   std::string weather_station;
@@ -140,6 +157,8 @@ struct Settings {
   bool tour = true;
 };
 constexpr size_t MOST_PASSWORD = 32;
+// The stored copy's slot (skyscope.cpp Stored): every setting at its longest fits it, with room to grow.
+constexpr size_t MOST_STORED = 2400;
 constexpr const char *WEB_USER = "admin";
 
 // Whether the radar's scope is drawn, and whether its beam turns: the beam goes around the scope's rose, so not without
@@ -223,6 +242,16 @@ inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["bed_on"] = s.bed_on;
   o["bed_wake"] = s.bed_wake;
   o["timezone"] = s.timezone;
+  o["overhead"] = s.overhead;
+  o["overhead_nm"] = s.overhead_nm;
+  o["overhead_ft"] = s.overhead_ft;
+  o["volume"] = s.volume;
+  o["sound_watched"] = s.sound_watched;
+  o["sound_emergency"] = s.sound_emergency;
+  o["sound_overhead"] = s.sound_overhead;
+  o["clicks"] = s.clicks;
+  o["quiet_bedtime"] = s.quiet_bedtime;
+  o["distress_always"] = s.distress_always;
   o["weather_station"] = s.weather_station;
   o["radar_overlay"] = s.radar_overlay;
   o["radar_loop"] = s.radar_loop;
@@ -381,6 +410,16 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
     if (!t || std::strlen(t) > 60 || !schedule::parse(t, zone)) return fail("timezone");
     n.timezone = t;
   }
+  if (!flag("overhead", n.overhead)) return fail("overhead");
+  if (!number("overhead_nm", n.overhead_nm, 1, 20)) return fail("overhead_nm");
+  if (!number("overhead_ft", n.overhead_ft, 500, ALTITUDE_CEILING)) return fail("overhead_ft");
+  if (!number("volume", n.volume, 0, 100)) return fail("volume");
+  using Flag = std::pair<const char *, bool *>;
+  for (const auto &[key, field] : {Flag{"sound_watched", &n.sound_watched}, Flag{"sound_emergency", &n.sound_emergency},
+                                   Flag{"sound_overhead", &n.sound_overhead}, Flag{"clicks", &n.clicks},
+                                   Flag{"quiet_bedtime", &n.quiet_bedtime},
+                                   Flag{"distress_always", &n.distress_always}})
+    if (!flag(key, *field)) return fail(key);
   if (!o["weather_station"].isNull()) {
     const char *w = o["weather_station"].as<const char *>();
     if (!w || std::strlen(w) > 4) return fail("weather_station");

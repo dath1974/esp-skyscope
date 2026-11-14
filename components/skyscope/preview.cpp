@@ -108,9 +108,9 @@ bool Skyscope::can_pinch_() const {
 }
 
 void Skyscope::begin_preview_() {
-  // The first finger's drag along the brightness strip, if it was one, is no drag.
-  if (drag_level_ >= 0) {
-    drag_level_ = -1;
+  // The first finger's drag along the brightness or volume strip, if it was one, is no drag.
+  if (drag_level_ >= 0 || drag_volume_ >= 0) {
+    drag_level_ = drag_volume_ = -1;
     lv_obj_add_flag(level_, LV_OBJ_FLAG_HIDDEN);
   }
   dragged_ = false;

@@ -71,6 +71,13 @@
 #ifdef USE_SKYSCOPE_RADIO
 #include "radio.h"
 #endif
+#ifdef USE_SKYSCOPE_SPEAKER
+#include "esphome/components/speaker/speaker.h"
+#ifdef USE_MEDIA_PLAYER
+#include "esphome/components/media_player/media_player.h"
+#endif
+#endif
+#include "sound.h"
 
 namespace esphome::skyscope {
 using namespace ::sky;
@@ -136,6 +143,14 @@ class Skyscope : public Component,
     radio_config_.ppm = ppm;
   }
 #endif
+#ifdef USE_SKYSCOPE_SPEAKER
+  // The screen's own sounds (sound.cpp), on a speaker of the mixer's; and the media player sharing the speaker, whose
+  // volume is the screen's.
+  void set_speaker(speaker::Speaker *s) { speaker_ = s; }
+#ifdef USE_MEDIA_PLAYER
+  void set_media_player(media_player::MediaPlayer *p) { media_player_ = p; }
+#endif
+#endif
   void set_networks(Networks *networks) { known_networks_ = networks; }
 #ifdef USE_TOUCHSCREEN
   // Every finger on the glass, for two-finger zoom and pan (preview.cpp): LVGL is told of the first finger only.
@@ -168,6 +183,8 @@ class Skyscope : public Component,
   void set_screen_on(bool on);
   int brightness() const { return settings_.brightness; }
   void set_brightness(int percent);
+  int volume() const { return settings_.volume; }
+  void set_volume(int percent);
 
   void setup() override;
   // A change still waiting its few seconds to be saved is saved before any restart (the API's, a network joined, new
@@ -338,6 +355,11 @@ class Skyscope : public Component,
   void use_timezone_();  // settings_.timezone to the clock
   // The brightness strip down the right edge.
   void on_dimmer_(lv_event_t *e);
+  // The volume strip down the left edge, on a screen with a speaker: as the brightness strip, for the volume.
+  void on_volume_strip_(lv_event_t *e);
+  // A drag along either strip: up or down from where it started, the level it gives, and the bar beside it.
+  int strip_level_(int32_t y, int lowest) const;
+  void show_level_on_(bool left, int percent);
   void show_level_(int percent);
   // The settings menu (menu.cpp): a long press on the map opens it.
   void open_menu_();
@@ -609,12 +631,36 @@ class Skyscope : public Component,
   int32_t drag_y_{0};
   int drag_from_{0}, drag_level_{-1};  // drag_level_ -1: no drag
   bool dragged_{false};
+  int drag_volume_{-1};  // the volume a finger is dragging the left strip to; -1: no drag
   uint32_t level_until_{0};
   bool ui_built_{false};
   float applied_brightness_{-1};
 
   lv_obj_t *canvas_{nullptr}, *planes_{nullptr}, *status_{nullptr}, *credit_{nullptr};
   lv_obj_t *dimmer_{nullptr}, *level_{nullptr}, *level_fill_{nullptr}, *level_text_{nullptr};
+  lv_obj_t *volume_strip_{nullptr};
+
+  // The speaker (sound.cpp): a cue asked for, played from its samples a piece at a time; each cue's samples made once.
+  void start_sound_();
+  void listen_for_clicks_();
+  void click_(lv_obj_t *target);
+  void play_(sound::Cue cue, bool asked = false);  // asked: from the web page, whether or not that sound is on
+  void sound_tick_(uint32_t now);
+  void apply_volume_();
+  bool bed_dark_{false};  // bedtime turned the screen off, and nothing has turned it on since
+#ifdef USE_SKYSCOPE_SPEAKER
+  speaker::Speaker *speaker_{nullptr};
+#ifdef USE_MEDIA_PLAYER
+  media_player::MediaPlayer *media_player_{nullptr};
+#endif
+  sound::Samples cues_[sound::CUES];
+  const sound::Samples *playing_{nullptr};
+  sound::Cue playing_cue_{sound::CLICK};
+  size_t played_{0};
+  bool speaker_started_{false};
+  uint32_t speaker_idle_at_{0};  // the last cue's samples all handed over: the speaker finishes after a while
+  int applied_volume_{-1};
+#endif
   lv_obj_t *menu_{nullptr}, *menu_list_{nullptr};
   Settings menu_settings_;  // the menu's changes, applied all at once by Save
   std::vector<lv_obj_t *> menu_rows_, menu_values_;

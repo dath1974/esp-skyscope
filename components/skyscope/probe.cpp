@@ -118,6 +118,7 @@ void Skyscope::describe_ui_(JsonObject out) {
   out["status"] = text_of(status_);
   if (shown(setup_)) out["setup"] = text_of(setup_title_);
   out["brightness"] = drag_level_ >= 0 ? drag_level_ : settings_.brightness;
+  out["volume"] = drag_volume_ >= 0 ? drag_volume_ : settings_.volume;
   if (shown(level_)) out["level"] = text_of(level_text_);
   out["picked"] = picked_;
   if (swipe_name_) out["swipe"] = text_of(swipe_name_);  // the map a swipe went to, until it is planned

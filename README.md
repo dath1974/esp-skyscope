@@ -28,10 +28,12 @@ More pictures, each map and page with a word on it: [docs/screens.md](docs/scree
   one, and which way to look for it from your place (`NE, 25° up, 8.4 NM, passes 1.2 NM off in 3 min`).
 - **Follow a plane** anywhere in the world by its registration, callsign or flight number. The map moves with it, and
   over an ocean the screen shows where it is likely to be until it is heard again.
-- **Alerts** along the top of the glass when a watched plane comes into range or one squawks an emergency, and **the
+- **Alerts** along the top of the glass when a watched plane comes into range, one squawks an emergency or (if asked)
+  one passes close by, with a chime on the P4 board's speaker, and **the
   day's tally** on the glass and the web page: planes by the hour, the commonest types, the day's records, and a log
   to download.
-- **Home Assistant** finds the screen by itself: the planes in range, each alert, the screen on or off.
+- **Home Assistant** finds the screen by itself: the planes in range, each alert, the screen on or off, and on the P4
+  board its speaker as a media player.
 - **Aviation weather**: the nearest station's METAR, TAF and MOS, the SIGMETs, G-AIRMETs and pilot reports nearby, and
   the NEXRAD radar over any map.
 - **On the glass**: tap a plane for its card, pinch to zoom, swipe to change the map, long-press for a menu with every

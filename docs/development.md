@@ -53,8 +53,8 @@ fails on any request the mock did not know. The screen must be able to reach thi
 
 - `make test-esp32 DEVICE=<address>`: the page, settings, status and memory, aircraft, airspace, and the glass through
   `/api/touch`: the menu and its keyboard, its switches and the question before a factory reset (never answered
-  yes), the Wi-Fi list, firmware, the tour, a plane's card, swiping between maps, the weather page and radar, and the
-  brightness strip.
+  yes), the Wi-Fi list, firmware, the tour, a plane's card, swiping between maps, the weather page and radar, the
+  brightness strip, and on a screen with a speaker the volume strip and `/api/sound`.
 - `make test-esp32-full DEVICE=<address>`: also every map drawn whole, a restart that keeps the settings, and sleep
   and waking.
 - `make test-esp32-mock DEVICE=<address>`: the mock as a receiver (filters, range, crowded skies, bad entries, and

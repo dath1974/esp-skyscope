@@ -58,14 +58,15 @@ text_sensor:
     name: Last alert
     icon: mdi:alert-circle-outline
 
-# Each alert as an event, for an automation to send it on (a phone's notification): its type is "watched" or
-# "emergency", and Last alert has its words.
+# Each alert as an event, for an automation to send it on (a phone's notification): its type is "watched",
+# "emergency" or "overhead" (a plane passing close by, where the screen is asked to tell of one), and Last alert has
+# its words.
 event:
   - platform: template
     id: alert_event
     name: Alert
     icon: mdi:airplane-alert
-    event_types: [watched, emergency]
+    event_types: [watched, emergency, overhead]
 
 skyscope:
   on_alert:

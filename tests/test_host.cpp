@@ -36,6 +36,7 @@
 #include "../components/skyscope/radar.h"
 #include "../components/skyscope/schedule.h"
 #include "../components/skyscope/sightings.h"
+#include "../components/skyscope/sound.h"
 #include "../components/skyscope/settings.h"
 #include "../components/skyscope/sprites.h"
 #include "../components/skyscope/swipe.h"
@@ -326,9 +327,16 @@ static void test_settings() {
   for (int i = 0; i < 12; ++i) s.watch.push_back({"N" + std::to_string(10000 + i), i % 6});
   s.custom_url = std::string("https://") + std::string(180, 'a') + "/{z}/{x}/{y}.png";
   s.receiver_url = std::string("http://") + std::string(150, 'r') + ".json";
+  // And every other text at its longest, the password among them as the stored copy keeps it.
+  s.place = std::string(40, 'p');
+  s.follow = std::string(10, 'F');
+  s.follow_hex = "abcdef";
+  s.password = std::string(MOST_PASSWORD, 'x');
+  s.timezone = std::string(60, 'T');
+  s.weather_station = "KJFK";
   JsonDocument full;
-  to_json(s, full.to<JsonObject>());
-  CHECK(measureJson(full) < 1800);
+  to_json(s, full.to<JsonObject>(), true);
+  CHECK(measureJson(full) < MOST_STORED - 300);
   // A receiver's address: http or https, not too long; empty is none.
   {
     Settings r;
@@ -1904,6 +1912,7 @@ static void test_menu() {
     CHECK(group_of("photos") == "Aircraft" && group_of("watch") == "Which aircraft");
     CHECK(group_of("follow_track_min") == "Follow a plane" && group_of("refresh_s") == "Source");
     CHECK(group_of("rotation") == "Screen" && group_of("password") == "Network");
+    CHECK(group_of("overhead_ft") == "Alerts" && group_of("distress_always") == "Sound");
     for (const auto &r : menu::rows())
       for (const char *need : r.needs) CHECK(group_of(need) == group_of(r.key));
   }
@@ -3103,6 +3112,100 @@ static void test_photos() {
   CHECK(!photos::read("{}", 2, doc, p, error) && !photos::read("<html>", 6, doc, p, error));
 }
 
+// The speaker's sounds: when each is heard, how loud, and the samples themselves.
+static void test_sound() {
+  using namespace sound;
+  // The volume: silent at 0, then the media player's range (volume_min to volume_max in the board's YAML).
+  CHECK(codec_volume(0) == 0 && codec_volume(-5) == 0);
+  CHECK(near(codec_volume(1), CODEC_LOW + 0.003, 0.001) && near(codec_volume(100), CODEC_HIGH, 1e-6) &&
+        near(codec_volume(150), CODEC_HIGH, 1e-6));
+  CHECK(near(codec_volume(50), (CODEC_LOW + CODEC_HIGH) / 2, 1e-6));
+  for (int p = 0; p <= 100; ++p) CHECK(percent_of(p / 100.0f) == p);
+  CHECK(percent_of(-1) == 0 && percent_of(2) == 100 && percent_of(NAN) == 0);
+  CHECK(cue_named("watched") == WATCHED && cue_named("level") == LEVEL && cue_named("nope") < 0 && cue_named(nullptr) < 0);
+  CHECK(rank(LOST_RADIO) > rank(WATCHED) && rank(WATCHED) > rank(OVERHEAD) && rank(OVERHEAD) > rank(CLICK));
+  // An emergency by its squawk: a klaxon for 7500, the falling pair for 7600, the ELT for 7700 and any other.
+  CHECK(emergency_cue("7500") == HIJACK && emergency_cue("7600") == LOST_RADIO && emergency_cue("7700") == DISTRESS &&
+        emergency_cue("") == DISTRESS && emergency_cue("1200") == DISTRESS);
+  CHECK(rank(HIJACK) > rank(LOST_RADIO) && rank(DISTRESS) > rank(LOST_RADIO) && cue_named("distress") == DISTRESS);
+
+  // When each sounds.
+  Settings s;
+  const bool fitted = speaker_fitted;
+  speaker_fitted = false;
+  CHECK(!sounds(WATCHED, s, 600, false));  // no speaker, no sound
+  speaker_fitted = true;
+  CHECK(sounds(WATCHED, s, 600, false) && sounds(LOST_RADIO, s, 600, false) && sounds(OVERHEAD, s, 600, false));
+  CHECK(!sounds(CLICK, s, 600, false));  // clicks are off to start with
+  s.clicks = true;
+  CHECK(sounds(CLICK, s, 600, false));
+  s.sound_watched = false;
+  CHECK(!sounds(WATCHED, s, 600, false) && sounds(LEVEL, s, 600, false));
+  s.volume = 0;
+  CHECK(!sounds(LOST_RADIO, s, 600, false) && !sounds(LEVEL, s, 600, false));
+  s = Settings{};
+  // Bedtime from 22:00 to 07:00: quiet then, but for a hijack or distress where asked (never a lost radio); not quiet
+  // with bedtime off.
+  s.bedtime = true;
+  CHECK(quiet(s, 23 * 60, false) && quiet(s, 3 * 60, false) && !quiet(s, 7 * 60, false) && !quiet(s, 12 * 60, true));
+  CHECK(!sounds(WATCHED, s, 23 * 60, false) && !sounds(LOST_RADIO, s, 23 * 60, false) && sounds(WATCHED, s, 12 * 60, false));
+  CHECK(!sounds(HIJACK, s, 23 * 60, false) && !sounds(DISTRESS, s, 23 * 60, false));
+  s.distress_always = true;
+  CHECK(!sounds(LOST_RADIO, s, 23 * 60, false) && sounds(HIJACK, s, 23 * 60, false) &&
+        sounds(DISTRESS, s, 23 * 60, false) && !sounds(OVERHEAD, s, 23 * 60, false));
+  CHECK(sounds(LOST_RADIO, s, 12 * 60, false));
+  s.sound_emergency = false;
+  CHECK(!sounds(HIJACK, s, 12 * 60, false) && !sounds(DISTRESS, s, 12 * 60, false));
+  s.sound_emergency = true;
+  s.quiet_bedtime = false;
+  CHECK(!quiet(s, 23 * 60, true) && sounds(WATCHED, s, 23 * 60, false));
+  s.quiet_bedtime = true;
+  // With no time to come on again, quiet while bedtime keeps the screen dark; before the clock is set, the same.
+  s.bed_wake = false;
+  CHECK(quiet(s, 12 * 60, true) && !quiet(s, 23 * 60, false));
+  s.bed_wake = true;
+  CHECK(quiet(s, -1, true) && !quiet(s, -1, false));
+  s.bedtime = false;
+  CHECK(!quiet(s, 23 * 60, true));
+  speaker_fitted = fitted;
+
+  // The samples: as long as their notes ring, never past half of full scale, rising from silence and fading to it.
+  for (int c = 0; c < CUES; ++c) {
+    const Samples a = render((Cue) c);
+    int end_ms = 0;
+    for (const Note &n : notes((Cue) c)) end_ms = std::max(end_ms, n.at_ms + n.ring_ms);
+    CHECK(!a.empty() && a.size() == (size_t) end_ms * RATE / 1000);
+    int peak = 0;
+    for (int16_t v : a) peak = std::max(peak, std::abs((int) v));
+    CHECK(peak > 3000 && peak <= 16384);
+    CHECK(std::abs((int) a.front()) < 100 && std::abs((int) a.back()) < 200);
+    CHECK(render((Cue) c, 16000).size() == (size_t) end_ms * 16);
+  }
+  // A click is short; an emergency the longest.
+  CHECK(render(CLICK).size() < (size_t) RATE / 50 && render(LOST_RADIO).size() > render(WATCHED).size());
+  // The ELT sweeps down three times a second, and starts again from the top; the klaxon climbs and holds.
+  {
+    const Note elt = notes(DISTRESS)[0];
+    CHECK(elt.voice == TONE && elt.repeat && elt.hz - elt.to_hz >= 700 && elt.hz <= 1600 && elt.to_hz >= 300);
+    CHECK(near(pitch_at(elt, 0), 1600, 0.01) && near(pitch_at(elt, 166.5f), 1000, 1) && pitch_at(elt, 330) < 420 &&
+          near(pitch_at(elt, 333.5f), 1598, 2));
+    const int per_s = 1000 / elt.glide_ms;
+    CHECK(per_s >= 2 && per_s <= 4 && elt.ring_ms >= 2000);
+    // Its pitch heard in the samples: crossings of zero in the first and last 50 ms of a sweep.
+    const Samples a = render(DISTRESS);
+    auto crossings = [&](size_t from, size_t n) {
+      int count = 0;
+      for (size_t i = from + 1; i < from + n; ++i) count += (a[i - 1] < 0) != (a[i] < 0);
+      return count;
+    };
+    const size_t sweep = (size_t) elt.glide_ms * RATE / 1000, part = RATE / 20;
+    CHECK(crossings(sweep, part) > 2 * crossings(2 * sweep - part, part));
+    const Note horn = notes(HIJACK)[0];
+    CHECK(horn.voice == HORN && notes(HIJACK).size() == 3 && pitch_at(horn, 0) == horn.hz &&
+          pitch_at(horn, 600) == horn.to_hz && horn.to_hz > horn.hz);
+  }
+}
+
 // What the screen has seen in range: visits, the day's tally, the log and the alerts.
 static void test_sightings() {
   using namespace sightings;
@@ -3153,6 +3256,30 @@ static void test_sightings() {
   alerts.clear();
   book.see(report, s, t0 + 20, 20261110, 14, alerts, ended);
   CHECK(alerts.empty());
+  // A plane passing close by, where asked for: within 3 NM and below 13000 ft, once a visit; not the one 12 NM off,
+  // nor one too high.
+  {
+    Book near_book;
+    Settings c = s;
+    c.overhead = true;
+    c.overhead_nm = 3;
+    c.overhead_ft = 13000;
+    feed::Flight high = plane("a00005", 1, "JBU5");
+    high.altitude = 35000;
+    std::vector<Alert> close;
+    near_book.see({plane("a00004", 2.5, "SWA4"), report[1], high}, c, t0, 20261110, 14, close, ended);
+    CHECK(close.size() == 2 && close[0].kind == OVERHEAD && close[0].name == "SWA4" && close[1].kind == WATCHED &&
+          close[0].text == "SWA4 is close by, 2.5 NM N, 12000 ft");
+    close.clear();
+    near_book.see({plane("a00004", 1, "SWA4")}, c, t0 + 10, 20261110, 14, close, ended);
+    CHECK(close.empty());
+    // Off, none.
+    Book off_book;
+    near_book.close_all(ended);
+    off_book.see({plane("a00006", 1, "SWA6")}, s, t0, 20261110, 14, close, ended);
+    CHECK(close.empty());
+    ended.clear();
+  }
   // Both gone for longer than a visit's gap: their visits end, into the log; then one comes back, counted once still.
   book.see({}, s, t0 + 20 + VISIT_GAP_S + 1, 20261110, 15, alerts, ended);
   CHECK(ended.size() == 2 && book.open_visits() == 0 && book.log().size() == 2);
@@ -3352,6 +3479,7 @@ int main(int argc, char **argv) {
   test_photos();
   test_sight();
   test_sightings();
+  test_sound();
   test_mock_answers();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
