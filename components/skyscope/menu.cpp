@@ -213,7 +213,23 @@ void Skyscope::build_menu_() {
     const bool steps = menu::steps(rows[i]) && !menu::switched(rows[i]);
     if (steps) key_(row, nullptr, (int) i, -1, ui::mm(6.5f), tall, ARROW_LEFT);
     lv_obj_t *value;
-    if (menu::typed(rows[i])) {
+    if (menu::colored(rows[i])) {
+      // A color: its key shows a chip of it beside its name, and a tap opens the picker (colorpick.cpp).
+      menu_fields_[i] = field_of(row, (int) i, 0);
+      value = lv_obj_get_child(menu_fields_[i], 0);
+      lv_obj_set_width(value, LV_SIZE_CONTENT);
+      lv_obj_set_flex_flow(menu_fields_[i], LV_FLEX_FLOW_ROW_REVERSE);  // the chip, child 1, first
+      lv_obj_set_flex_align(menu_fields_[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+      lv_obj_set_style_pad_column(menu_fields_[i], ui::mm(1.2f), 0);
+      lv_obj_t *chip = plain(menu_fields_[i]);
+      lv_obj_set_size(chip, ui::mm(4.5f), ui::mm(4.5f));
+      lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+      lv_obj_set_style_border_color(chip, lv_color_hex(c.ink), 0);
+      lv_obj_set_style_border_opa(chip, LV_OPA_40, 0);
+      lv_obj_set_style_border_width(chip, 1, 0);
+      lv_obj_remove_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+    } else if (menu::typed(rows[i])) {
       menu_fields_[i] = field_of(row, (int) i, 0);
       value = lv_obj_get_child(menu_fields_[i], 0);
     } else {
@@ -410,13 +426,19 @@ void Skyscope::menu_step_(int index, int step) {
   const auto &rows = menu::rows();
   if (index < 0 || index >= (int) rows.size()) return;
   if (step == 0) {
-    open_row_editor_(index);
+    if (menu::colored(rows[index])) open_color_(index);
+    else open_row_editor_(index);
     return;
   }
   const Chrome before = chrome_for_(menu_settings_);
   if (!menu::stepped(rows[index], menu_settings_, step)) return;
+  menu_recolor_(before);
+}
+
+void Skyscope::menu_recolor_(const Chrome &before) {
   const Chrome after = chrome_for_(menu_settings_);
-  if (before.ink == after.ink && before.card == after.card && before.muted == after.muted) {
+  if (before.ink == after.ink && before.card == after.card && before.muted == after.muted &&
+      before.accent == after.accent) {
     refresh_menu_();
     return;
   }
@@ -571,6 +593,11 @@ void Skyscope::refresh_menu_() {
     set_label(menu_values_[i], value);
     // Changed in the menu, not yet applied: in the accent until Save.
     set_color(menu_values_[i], value != menu::shown(rows[i], settings_) ? c.accent : c.ink);
+    if (menu::colored(rows[i]) && menu_fields_[i]) {
+      lv_obj_t *chip = lv_obj_get_child(menu_fields_[i], 1);
+      const lv_color_t color = lv_color_hex(menu::color_of(rows[i], menu_settings_));
+      if (!lv_color_eq(lv_obj_get_style_bg_color(chip, LV_PART_MAIN), color)) lv_obj_set_style_bg_color(chip, color, 0);
+    }
     if (menu_switches_[i])
       set_switch(menu_switches_[i], menu::text_of(rows[i], menu_settings_) == "true", c.accent, c.ink, c.card);
   }
@@ -738,6 +765,7 @@ void Skyscope::close_menu_() {
   close_ask_();
   close_picker_();
   close_editor_();
+  close_color_();
   close_today_();
   close_weather_();
   lv_obj_delete(menu_);

@@ -69,8 +69,8 @@ struct View {
 static bool latches(const ap::Overlay &o) { return o.radar.on && o.radar.sweep; }
 static const ap::Overlay &shown(const View *view) { return latches(view->overlay) ? view->painted : view->overlay; }
 
-// ---- A radar scope: one phosphor (colors.h TINTS) from its ground to its hottest light.
-static const cl::Tint &tint_of(const ap::Overlay &o) { return cl::tint(o.radar.tint); }
+// ---- A radar scope: one phosphor (colors.h tint) from its ground to its hottest light.
+static cl::Tint tint_of(const ap::Overlay &o) { return cl::tint(o.radar.tint); }
 // `light` 0 is the ground, 1 the glow, 2 the hottest light (ap::BAND_LIGHT).
 lv_color_t ground(const ap::Overlay &o) { return lv_color_hex(tint_of(o).ground); }
 lv_color_t phosphor(const ap::Overlay &o, float light) {

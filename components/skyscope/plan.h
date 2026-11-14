@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "colors.h"
 #include "glass.h"
 
 namespace sky::plan {
@@ -42,11 +43,11 @@ struct Plane {
   bool estimated = false;      // where a plane followed is likely to be, out of reach (follow.h): drawn faint
 };
 
-// A map drawn as a radar scope: its phosphor (colors.h TINTS), the middle of the scope on the frame, and whether its
+// A map drawn as a radar scope: its phosphor (colors.h tint, by its glow), the middle of the scope on the frame, and whether its
 // beam turns.
 struct Radar {
   bool on = false;
-  int tint = 0;
+  uint32_t tint = colors::PHOSPHORS[0].tint.glow;
   int x = 0, y = 0;
   int rose = 0;  // the radius of its compass rose, the circle the beam turns in; 0: out to the farthest corner
   bool sweep = false;

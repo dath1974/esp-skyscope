@@ -11,6 +11,7 @@
 //   knows, and opens the setup network after a minute without any, as at the first start.
 #include "skyscope.h"
 
+#include "colorpick.h"
 #include "colors.h"
 #include "menu_rows.h"
 #include "ui.h"
@@ -287,6 +288,25 @@ void Skyscope::editor_done_() {
       }
       join_network_(network_name_, text);
       return;
+    case TYPING_CHANNEL:
+    case TYPING_COLOR: {
+      // Back to the picker with what was typed, nothing applied until its Done.
+      int v = 0;
+      uint32_t color = 0;
+      const std::string t = keyboard::trimmed(text);
+      const bool ok = typing_ == TYPING_CHANNEL ? colorpick::channel_typed(t, v) : colorpick::color_typed(t, color);
+      if (!ok || !color_page_) {
+        editor_error_ = "The screen cannot take that. " + editor_hint_text_;
+        refresh_editor_();
+        return;
+      }
+      color_now_ = typing_ == TYPING_CHANNEL ? colorpick::with_channel(color_now_, typing_channel_, v) : color;
+      this->defer([this]() {
+        close_editor_();
+        refresh_color_();
+      });
+      return;
+    }
   }
 }
 

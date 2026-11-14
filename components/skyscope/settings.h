@@ -7,12 +7,14 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "colors.h"
 #include "schedule.h"
 
 namespace sky {
@@ -46,8 +48,9 @@ inline bool radio_fitted = false;
 // Whether this screen has a speaker of its own (the `speaker:` of its YAML), set once as it starts. Without one the
 // sound settings are kept but never shown: the menu and the web page leave them out.
 inline bool speaker_fitted = false;
-enum Tint : uint8_t { GREEN, AMBER, BLUE, WHITE };
-inline constexpr Names<4> TINTS{{"green", "amber", "blue", "white"}};
+// The radar's phosphors offered by name (colors.h PHOSPHORS), by their glow; any other color may be chosen too.
+inline constexpr uint32_t GREEN = colors::PHOSPHORS[0].tint.glow, AMBER = colors::PHOSPHORS[1].tint.glow,
+                          BLUE = colors::PHOSPHORS[2].tint.glow, WHITE = colors::PHOSPHORS[3].tint.glow;
 // "plane" is one airliner for every aircraft; "type" each drawn as its kind (shapes.h): a helicopter, a heavy, a drone.
 enum MarkerKind : uint8_t { MARKER_DOT, MARKER_ARROW, MARKER_PLANE, MARKER_TYPE };
 inline constexpr Names<4> MARKERS{{"dot", "arrow", "plane", "type"}};
@@ -83,7 +86,7 @@ struct Settings {
   bool rings = true;       // range rings and a compass rose over any map, the scope on `radar`
   bool place_names = true; // a map's layer of place names over it, where it has one (Esri's gray maps and imagery)
   bool airspace = false;   // the FAA's Class B, C and D airspace and runways over any map (airspace.h), United States
-  Tint tint = GREEN;
+  uint32_t tint = GREEN;    // the radar's phosphor, by its glow: as JSON its name (colors.h PHOSPHORS) or "#rrggbb"
   // The radar's scope: its glow, bearing lines, range rings and rose. Off, the radar is the planes and the airspace
   // alone on the dark ground, in its phosphor, as a controller's bare map.
   bool scope = true;
@@ -197,6 +200,37 @@ inline std::string follow_id(const char *s) {
   return out;
 }
 
+// A phosphor as it is written: a name (colors.h PHOSPHORS, any case) or a color, "#rrggbb" or "rrggbb", as it is.
+// False for anything else.
+inline bool phosphor_typed(const char *text, uint32_t &glow) {
+  if (!text) return false;
+  for (const auto &p : colors::PHOSPHORS) {
+    size_t i = 0;
+    while (p.name[i] && text[i] && std::tolower((unsigned char) text[i]) == p.name[i]) ++i;
+    if (!p.name[i] && !text[i]) {
+      glow = p.tint.glow;
+      return true;
+    }
+  }
+  if (*text == '#') ++text;
+  if (std::strlen(text) != 6) return false;
+  uint32_t v = 0;
+  for (int i = 0; i < 6; ++i) {
+    const char c = (char) std::tolower((unsigned char) text[i]);
+    if (c >= '0' && c <= '9') v = v << 4 | (uint32_t) (c - '0');
+    else if (c >= 'a' && c <= 'f') v = v << 4 | (uint32_t) (c - 'a' + 10);
+    else return false;
+  }
+  glow = v;
+  return true;
+}
+// The same, lifted to light a scope (colors.h phosphor_lit): what the settings keep.
+inline bool phosphor_of(const char *text, uint32_t &glow) {
+  if (!phosphor_typed(text, glow)) return false;
+  glow = colors::phosphor_lit(glow);
+  return true;
+}
+
 // The settings as JSON. `secrets` only for the stored copy: with it the password, else whether there is one.
 inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["located"] = s.located;
@@ -212,7 +246,13 @@ inline void to_json(const Settings &s, JsonObject o, bool secrets = false) {
   o["rings"] = s.rings;
   o["place_names"] = s.place_names;
   o["airspace"] = s.airspace;
-  o["tint"] = TINTS[s.tint];
+  {
+    const int named = colors::phosphor_named(s.tint);
+    char hex[8];
+    std::snprintf(hex, sizeof(hex), "#%06x", (unsigned) (s.tint & 0xFFFFFF));
+    if (named >= 0) o["tint"] = colors::PHOSPHORS[named].name;
+    else o["tint"] = (const char *) hex;  // copied: a char array would be kept as its pointer
+  }
   o["scope"] = s.scope;
   o["sweep"] = s.sweep;
   o["feed"] = FEEDS[s.feed];
@@ -342,7 +382,7 @@ inline bool apply(JsonObjectConst o, Settings &s, std::string &error) {
   if (!flag("rings", n.rings)) return fail("rings");
   if (!flag("place_names", n.place_names)) return fail("place_names");
   if (!flag("airspace", n.airspace)) return fail("airspace");
-  if (!choice("tint", n.tint, TINTS)) return fail("tint");
+  if (!o["tint"].isNull() && !phosphor_of(o["tint"].as<const char *>(), n.tint)) return fail("tint");
   if (!flag("scope", n.scope)) return fail("scope");
   if (!flag("sweep", n.sweep)) return fail("sweep");
   if (!choice("feed", n.feed, FEEDS)) return fail("feed");

@@ -20,11 +20,13 @@ the [README](../README.md).
 ## Maps
 
 - **Radar**: a scope drawn on the screen itself, nothing downloaded, with its glow, bearing lines, range rings and a
-  beam that paints the planes as it passes, in a phosphor of your choice (green, amber, blue or white). The scope can
-  be switched off, leaving the planes and the airspace alone on the dark ground, like a controller's bare map.
+  beam that paints the planes as it passes, in a phosphor of your choice: green, amber, blue, white, red, violet, or
+  any color at all (the color picker in the menu or on the web page). The scope overlay can be switched off, leaving
+  the planes and the airspace alone on the dark ground, like a controller's bare map.
 - **Streets** (Esri's gray maps), **OpenStreetMap**, **satellite** (Esri), the **USGS topographic** map, and the FAA's
   **VFR sectional**, **IFR low** and **IFR high** charts.
-- **Custom**: any 256-pixel PNG or JPEG tile server of your own.
+- **Custom**: any 256-pixel PNG or JPEG tile server of your own, typed as **Tile server**, which shows once Custom is
+  the map chosen. A swipe passes over Custom until a server is set.
 
 One **appearance** switch makes every map dark or light. A map without a dark version of its own is darkened in a way
 made for it: the IFR charts swap their paper and ink and keep their colors, the sectional is dimmed, and topo and
@@ -140,6 +142,10 @@ the screen cannot take is refused, with what it accepts shown under it.
 
 - **The keyboard** is laid out as on a phone: the up arrow for capitals, **?123** for numbers and punctuation, arrows
   to move the cursor. Numbers and times get a pad of digits.
+- **Phosphor color**, on the radar, shows the scope's color; a tap opens a picker with a swatch for each named
+  phosphor and a slider for each of red, green and blue, beside a small scope lit in the color. A tap on a slider's
+  number, or on the color written out, types it on the keyboard instead. **Done** takes it back to the menu (a color
+  too dark to light the scope is brightened, as the picker says first), still to be saved.
 - **Place** finds an airport by its code (KJFK, JFK) or name, or anything else through OpenStreetMap, when you press
   **Search**. Pick one of the results, or type a latitude and longitude instead. The screen writes Latin letters only,
   so a place named only in another script is left out. **Locate**, beside the hint under the field (or **Search**
@@ -183,8 +189,9 @@ While following a plane, a pinch or drag works the same way: **Save** keeps the 
 ## Changing the map with a swipe
 
 Swipe left or right along the bottom edge of the map (its lowest 6 mm) for the next or previous map, in the menu's
-order. The map's name shows large in the middle with a row of dots, one for each map. Nothing is downloaded until the
-swipes have stopped for two seconds, so going through several costs only the last one. A swipe back undoes it.
+order (the custom map only once its tile server is set). The map's name shows large in the middle with a row of dots,
+one for each map. Nothing is downloaded until the swipes have stopped for two seconds, so going through several costs
+only the last one. A swipe back undoes it.
 
 ## Following a plane
 

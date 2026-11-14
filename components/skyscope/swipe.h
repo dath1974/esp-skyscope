@@ -1,7 +1,8 @@
 #pragma once
-// A swipe left or right along the strip at the bottom of the map changes the map (swipe.cpp), through the menu's own
-// Map row (menu_rows.h), so it goes through the same maps in the same order and skips the same ones. A drag that
-// starts in the strip is never a pan (preview.cpp); everywhere else on the map it is.
+// A swipe left or right along the strip at the bottom of the map changes the map (swipe.cpp), in the order of the
+// menu's own Map row (menu_rows.h), but past the custom map until its server is set: the menu offers it to set one. A
+// drag that starts in the strip is never a pan (preview.cpp); everywhere else on the map it is.
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -45,7 +46,8 @@ inline const menu::Row &map_row() {
   return menu::rows()[0];
 }
 
-// The maps a swipe goes through, in its order: every one, but the custom server only where one is set.
+// The maps a swipe goes through, in the menu's order: every one, but the custom map only once its server is set. The
+// menu offers it either way, to set the server under it; a swipe never lands on a map that would show nothing.
 inline std::vector<MapStyle> maps(const Settings &s) {
   std::vector<MapStyle> out;
   for (const auto &c : map_row().choices) {
@@ -54,5 +56,25 @@ inline std::vector<MapStyle> maps(const Settings &s) {
     out.push_back((MapStyle) m);
   }
   return out;
+}
+
+// `s` with the map a swipe goes to, `step` on (1) or back (-1) in maps(), around at the ends; from the custom map with
+// no server (chosen in the menu), on from where it is in the menu's order. False where nothing changes.
+inline bool swiped(Settings &s, int step) {
+  const auto all = maps(s);
+  const auto &choices = map_row().choices;
+  const int n = (int) choices.size();
+  int at = 0;
+  for (int i = 0; i < n; ++i)
+    if (MAP_STYLES.find(choices[i].value) == s.map) at = i;
+  for (int k = 1; k <= n; ++k) {
+    const int m = MAP_STYLES.find(choices[((at + step * k) % n + n) % n].value);
+    if (m == s.map || std::find(all.begin(), all.end(), (MapStyle) m) == all.end()) continue;
+    JsonDocument change;
+    change["map"] = MAP_STYLES[m];
+    std::string error;
+    return apply(change.as<JsonObjectConst>(), s, error);
+  }
+  return false;
 }
 }  // namespace sky::swipe

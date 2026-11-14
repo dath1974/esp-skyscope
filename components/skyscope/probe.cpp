@@ -284,6 +284,26 @@ void Skyscope::describe_ui_(JsonObject out) {
       place(k, board_key_objs_[i]);
     }
   }
+  if (color_page_) {
+    // The color picker: the color as chosen so far, its keys, its swatches by name and its sliders by channel.
+    JsonObject cp = menu["color"].to<JsonObject>();
+    cp["color"] = colorpick::hex_of(color_now_);
+    cp["note"] = text_of(color_note_);
+    place(cp["done"].to<JsonObject>(), color_done_key_);
+    place(cp["cancel"].to<JsonObject>(), color_cancel_);
+    place(cp["hex"].to<JsonObject>(), color_hex_);
+    JsonObject sw = cp["swatches"].to<JsonObject>();
+    for (size_t i = 0; i < color_swatches_.size(); ++i)
+      place(sw[colors::PHOSPHORS[i].name].to<JsonObject>(), color_swatches_[i]);
+    JsonArray sl = cp["sliders"].to<JsonArray>();
+    for (int i = 0; i < 3; ++i) {
+      JsonObject s = sl.add<JsonObject>();
+      s["name"] = colorpick::CHANNELS[i];
+      s["value"] = colorpick::channel(color_now_, i);
+      place(s["rail"].to<JsonObject>(), color_rails_[i]);
+      place(s["number"].to<JsonObject>(), color_values_[i]);
+    }
+  }
   if (picker_) {
     JsonObject pk = menu["picker"].to<JsonObject>();
     pk["line"] = text_of(picker_line_);

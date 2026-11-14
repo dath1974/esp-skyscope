@@ -15,14 +15,16 @@
 #include <string>
 #include <vector>
 
+#include "colorpick.h"
 #include "keyboard.h"
 #include "settings.h"
 
 namespace sky::menu {
 using keyboard::Pad;
 
-// PLACE is the place to watch: its name, or its coordinates, and a search to find another.
-enum Kind : uint8_t { TEXT, NUMBER, FLAG, PLACE };
+// PLACE is the place to watch: its name, or its coordinates, and a search to find another. COLOR is a color, shown on
+// its key and chosen on a picker of its own (colorpick.h).
+enum Kind : uint8_t { TEXT, NUMBER, FLAG, PLACE, COLOR };
 struct Choice {
   const char *value;  // as JSON takes it: a word, or a whole number written out
   const char *label;  // as the screen shows it
@@ -72,7 +74,8 @@ inline const std::vector<Row> &rows() {
       {"map", "Map", TEXT,
        {{"radar", "Radar"}, {"streets", "Streets"}, {"osm", "OSM"}, {"satellite", "Satellite"}, {"topo", "Topo"},
         {"sectional", "Sectional"}, {"ifr_low", "IFR low"}, {"ifr_high", "IFR high"}, {"custom", "Custom"}}},
-      {.key = "custom_url", .name = "Custom tiles", .kind = TEXT, .pad = WORDS,
+      // The custom map's server: shown only for that map, which the arrows offer whether or not one is set yet.
+      {.key = "custom_url", .name = "Tile server", .kind = TEXT, .maps = bit(CUSTOM), .pad = WORDS,
        .hint = "A server's 256-pixel PNG or JPEG tiles, with {z}, {x} and {y}: https://example.com/{z}/{x}/{y}.png",
        .most = 200},
       {"theme", "Appearance", TEXT, {{"dark", "Dark"}, {"light", "Light"}}, TILE_MAPS},
@@ -82,8 +85,8 @@ inline const std::vector<Row> &rows() {
        TILE_MAPS, WHOLE, "%", "Percent of the map's light, 10 to 100"},
       {"tile_scale", "Map text", NUMBER, {{"0", "Default"}, {"1", "Small"}, {"2", "Large"}}, DRAWN},
       {"place_names", "Place names", FLAG, {}, NAMED},
-      {"tint", "Phosphor", TEXT, {{"green", "Green"}, {"amber", "Amber"}, {"blue", "Blue"}, {"white", "White"}}, SCOPE},
-      {"scope", "Scope", FLAG, {}, SCOPE},
+      {.key = "tint", .name = "Phosphor color", .kind = COLOR, .maps = SCOPE},
+      {"scope", "Scope overlay", FLAG, {}, SCOPE},
       {"sweep", "Beam sweeps", FLAG, {}, SCOPE},
 
       // Over the map: what is drawn on top of it.
@@ -239,6 +242,13 @@ inline bool steps(const Row &row) { return row.kind == FLAG || !row.choices.empt
 // A flag that is on or off is a switch on the glass; Units, the one flag that is neither, keeps its arrows.
 inline bool switched(const Row &row) { return row.kind == FLAG && std::string(row.key) != "metric"; }
 inline bool typed(const Row &row) { return row.pad != keyboard::NONE; }
+inline bool colored(const Row &row) { return row.kind == COLOR; }
+// A COLOR row's color in `s`.
+inline uint32_t color_of(const Row &row, const Settings &s) { return std::string(row.key) == "tint" ? s.tint : 0; }
+// `s` with a COLOR row's color picked: lit enough for a scope (colors.h phosphor_lit), as the settings would keep it.
+inline void color_in(const Row &row, Settings &s, uint32_t color) {
+  if (std::string(row.key) == "tint") s.tint = colors::phosphor_lit(color);
+}
 inline size_t most_typed(const Row &row) {
   if (row.most) return row.most;
   return row.pad == keyboard::CLOCK ? 5 : row.pad == keyboard::WORDS ? 60 : 12;
@@ -295,6 +305,7 @@ inline std::string shown(const Row &row, const Settings &s) {
     return text;
   }
   if (key == "watch") return s.watch.empty() ? "None" : std::to_string(s.watch.size()) + " aircraft";
+  if (row.kind == COLOR) return colorpick::name_of(color_of(row, s));
   if (key == "password") return s.password.empty() ? "None" : "Set";
   const std::string now = text_of(row, s);
   if (row.kind == FLAG) {
@@ -309,8 +320,8 @@ inline std::string shown(const Row &row, const Settings &s) {
 }
 
 // `s` with `row` one step on (`step` 1) or back (-1). Words go around; numbers stop at their ends, and a number between
-// two choices steps to the next one its way. The map skips the custom server, and the source a receiver, where none is
-// set, and the radio on a screen without one. False when nothing changes or the settings refuse it.
+// two choices steps to the next one its way. The source skips a receiver where none is set, and the radio on a screen
+// without one. False when nothing changes or the settings refuse it.
 inline bool stepped(const Row &row, Settings &s, int step) {
   if (!steps(row)) return false;
   JsonDocument now;
@@ -345,9 +356,8 @@ inline bool stepped(const Row &row, Settings &s, int step) {
       int next = at < 0 ? (step > 0 ? count - 1 : 0) : at;
       for (int tries = 0; tries < count; ++tries) {
         next = (next + step + count) % count;
-        // Choices that need an address are skipped while there is none.
-        if (std::string(row.key) == "map" && std::string(row.choices[next].value) == "custom" && s.custom_url.empty())
-          continue;
+        // A receiver is skipped while it has no address. The custom map is not: its server is typed once it is
+        // chosen (a swipe skips it until then, swipe.h).
         if (std::string(row.key) == "feed" && std::string(row.choices[next].value) == "receiver" &&
             s.receiver_url.empty())
           continue;

@@ -294,7 +294,7 @@ Skyscope::Chrome Skyscope::chrome_for_(const Settings &s) {
     const colors::Palette &p = colors::palette(s.theme == LIGHT);
     return {p.ink, p.muted, p.card, s.theme == LIGHT ? colors::LIGHT_ACCENT : colors::ACCENT};
   }
-  const colors::Tint &t = colors::tint(s.tint);
+  const colors::Tint t = colors::tint(s.tint);
   return {t.glow, colors::glow_share(t, 0.6f), t.ground, t.hot};
 }
 
@@ -1758,11 +1758,11 @@ void Skyscope::update_status_(uint32_t now) {
            "setup network.";
   } else if (coprocessor_updating_) {
     title = "Updating the Wi-Fi chip";
-    body = "Its firmware is being brought up to date with the screen's. The screen restarts by itself when it is done, "
-           "in a minute or so.";
+    body = "Its firmware is being brought up to date with the screen's. Skyscope will restart when finished, in a "
+           "minute or so.";
   } else if (install_.busy()) {
     title = "Updating";
-    body = "New firmware is being installed. The screen restarts by itself when it is done.";
+    body = "New firmware is being installed. Skyscope will restart when finished.";
   } else if (!joining_.empty()) {
     title = "Joining Wi-Fi";
     body = "The screen restarts to join \"" + joining_ + "\". If it cannot, it opens its own network \"" +

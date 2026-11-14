@@ -92,7 +92,7 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
   const double cx = v.width / 2.0, cy = v.height / 2.0;
   const double far = std::hypot(cx, cy);
   const int rose = rose_radius(v, cx, cy);
-  const colors::Tint &tint = colors::tint(look.tint);
+  const colors::Tint tint = colors::tint(look.tint);
   const bool radar = look.radar;
   const int thin = std::max(1, ui::px(1));
   // A map's rings in ink, see-through, each over a dark line so it reads on light and dark maps alike.
@@ -148,7 +148,7 @@ void draw(lv_layer_t *layer, const geo::View &v, const Look &look) {
 }
 
 airspace::Ink airspace_ink(const Look &look) {
-  const colors::Tint &tint = colors::tint(look.tint);
+  const colors::Tint tint = colors::tint(look.tint);
   const colors::AirspaceInk &ink = colors::airspace_ink(look.light);
   const colors::Palette &pal = colors::palette(look.light);
   auto pick = [&](float share, uint32_t on_map) {

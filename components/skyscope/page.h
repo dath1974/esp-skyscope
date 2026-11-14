@@ -27,6 +27,8 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 .hlabels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cols ol{margin:4px 0;padding-left:22px}
 .space{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--line);margin:8px 0 4px}.space i{display:block}
 .s0{background:var(--accent)}.s1{background:color-mix(in srgb,var(--accent) 45%,var(--card))}.s2{background:var(--muted)}.s3{background:var(--line)}
+#tints{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:3px 0}#tints button{width:32px;height:32px;padding:0;border-radius:50%;border:1px solid var(--line)}
+#tints button[aria-pressed=true],#tints input.on{outline:2px solid var(--ink);outline-offset:2px}#tints input{width:46px;height:34px;padding:2px 4px;cursor:pointer}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 5px 0 12px;vertical-align:-1px}.sw:first-child{margin-left:0}
 @media (max-width:520px){.row,.row3,.cols{grid-template-columns:1fr}}
 </style></head><body><main>
@@ -53,13 +55,14 @@ header{display:flex;gap:14px;align-items:center}#emblem{width:64px;height:64px;f
 <option value="custom">Custom tile server</option></select></div>
 <div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="theme">Appearance</label><select id="theme" name="theme"><option value="dark">Dark</option><option value="light">Light</option></select></div></div>
 <p class="hint" data-for="osm topo sectional ifr_low ifr_high">This map has no dark version of its own: dark, its paper is turned dark (the sectional is dimmed instead, so its colors stay true).</p>
-<div data-for="custom"><label for="custom_url">Tile URL</label><input id="custom_url" name="custom_url" placeholder="https://example.com/tiles/{z}/{x}/{y}.png">
+<div data-for="custom"><label for="custom_url">Tile server</label><input id="custom_url" name="custom_url" placeholder="https://example.com/tiles/{z}/{x}/{y}.png">
 <p class="hint">256-pixel PNG or JPEG tiles with {z}, {x} and {y}, shown as they are. Follow the server's terms of use.</p></div>
 <div class="row"><div data-for="streets osm satellite topo sectional ifr_low ifr_high custom"><label for="map_brightness">Map brightness (%)</label><input id="map_brightness" name="map_brightness" type="number" min="10" max="100"></div>
 <div data-for="streets osm satellite topo custom"><label for="tile_scale">Map text size</label><select id="tile_scale" name="tile_scale"><option value="0">The screen's default</option><option value="1">Small (1:1)</option><option value="2">Large (2x)</option></select></div>
-<div data-for="radar"><label for="tint">Radar phosphor</label><select id="tint" name="tint"><option>green</option><option>amber</option><option>blue</option><option>white</option></select></div></div>
+<div data-for="radar"><label for="tint_pick">Phosphor color</label><div id="tints"><input type="color" id="tint_pick" title="Any color" aria-label="Any color"></div><input type="hidden" id="tint" name="tint"></div></div>
+<p class="hint" data-for="radar">One of these, or any color from the last: the scope's lines, the airspace and the planes are all drawn in it, on a dark ground of its own hue. A very dark color is brightened to light the scope.</p>
 <label class="check" data-for="streets satellite"><input type="checkbox" id="place_names" name="place_names"> Place names</label>
-<label class="check" data-for="radar"><input type="checkbox" id="scope" name="scope"> Radar scope: glow, bearing lines, range rings and rose (off: only the planes and the airspace)</label>
+<label class="check" data-for="radar"><input type="checkbox" id="scope" name="scope"> Scope overlay: glow, bearing lines, range rings and rose (off: only the planes and the airspace)</label>
 <label class="check" data-for="radar"><input type="checkbox" id="sweep" name="sweep"> Radar beam sweeps (with the scope)</label>
 </section>
 <section><h2>Over the map</h2>
@@ -199,7 +202,7 @@ const BOOL=['rings','airspace','scope','sweep','by_altitude','glide','ground','p
 const TXT=['map','custom_url','theme','tint','feed','marker','label','place','bed_off','bed_on','timezone','receiver_url','weather_station','follow','follow_label'];
 function say(t,bad){$('msg').textContent=t;$('msg').className=bad?'bad':''}
 function show(s){$('password').value='';$('password_clear').checked=false;$('password').placeholder=s.password_set?'A password is set':'None';
- NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);
+ NUM.forEach(k=>$(k).value=s[k]);BOOL.forEach(k=>$(k).checked=!!s[k]);TXT.forEach(k=>$(k).value=s[k]);tint(s.tint);
  $('metric').value=String(!!s.metric);$('watch').value=(s.watch||[]).map(w=>w.id+' '+w.color).join('\n');
  $('q').value=s.place||'';
  // Times as the time inputs take them (07:05); the zone as its choice, or Other with its string.
@@ -226,6 +229,15 @@ $('overhead').onchange=alerts;$('quiet_bedtime').onchange=alerts;
 document.querySelectorAll('[data-cue]').forEach(b=>b.onclick=async()=>{
  const r=await fetch('api/sound',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cue:b.dataset.cue})});
  say(r.ok?'Played on the screen':'The screen did not play it',!r.ok)});
+// The radar's phosphor: the named ones as swatches (colors.h PHOSPHORS, by their glow), and any other color from the
+// picker after them. Kept as the screen writes it: a name, or #rrggbb.
+const PHOSPHORS={green:'#1aff80',amber:'#ffb000',blue:'#33ccff',white:'#e6f2ee',red:'#ff4433',violet:'#c080ff'};
+function tint_named(hex){hex=String(hex).toLowerCase();return Object.keys(PHOSPHORS).find(k=>PHOSPHORS[k]===hex)||hex}
+function tint(v){v=tint_named(PHOSPHORS[v]||v);$('tint').value=v;$('tint_pick').value=PHOSPHORS[v]||v;$('tint_pick').classList.toggle('on',!PHOSPHORS[v]);
+ document.querySelectorAll('#tints button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tint===v)))}
+Object.keys(PHOSPHORS).forEach(k=>{const b=document.createElement('button');b.type='button';b.dataset.tint=k;b.title=k[0].toUpperCase()+k.slice(1);b.setAttribute('aria-label',b.title);
+ b.style.background=PHOSPHORS[k];b.onclick=()=>tint(k);$('tints').insertBefore(b,$('tint_pick'))});
+$('tint_pick').oninput=()=>tint($('tint_pick').value);
 // Only what applies to the map chosen: each part names its maps in data-for.
 function relevant(){const m=$('map').value;document.querySelectorAll('[data-for]').forEach(e=>{
  e.style.display=e.dataset.for.split(' ').includes(m)?'':'none'})}

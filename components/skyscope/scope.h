@@ -3,6 +3,7 @@
 // map, and under them the airspace and runways (airspace.h).
 #include "lvgl.h"
 #include "airspace.h"
+#include "colors.h"
 #include "geo.h"
 
 #include <string>
@@ -10,7 +11,7 @@
 namespace sky::scope {
 struct Look {
   bool radar = false;  // the scope's own phosphor and bearing lines, else thin ink over a map
-  int tint = 0;        // colors.h TINTS
+  uint32_t tint = colors::PHOSPHORS[0].tint.glow;  // its phosphor, by its glow (colors.h tint)
   bool light = false;  // over a map in the light appearance: dark ink over a light halo
 };
 // Draws into `layer` (the map's canvas) for the frame `v`, around its middle.

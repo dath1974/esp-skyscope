@@ -43,6 +43,10 @@ to 60000); `volume` (0 to 100, the speaker's, Home Assistant's media player's to
 sound at bedtime; a lost radio does not). The sound's keys are kept on every screen, but do something only on one with
 a speaker.
 
+The radar's phosphor, `tint`, is one of `green`, `amber`, `blue`, `white`, `red` and `violet`, or any color as
+`"#rrggbb"`. The screen answers with the name where the color is a named one's; a color too dark to light the scope
+comes back brightened, its hue kept.
+
 A watched plane in the settings is `{"id": "N12345", "color": "red"}`. The screen also accepts the British spelling,
 `"colour"`, which older firmware saved its settings with.
 

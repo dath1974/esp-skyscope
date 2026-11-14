@@ -240,3 +240,17 @@ test('the settings for the screen off are read and saved, its pace and waking on
   assert.ok(part.includes('id="sleep_refresh_s"') && part.includes('id="alert_wake"'));
   assert.match(script, /function offpoll\(\)\{\$\('offpoll'\)\.style\.display=\$\('sleep_poll'\)\.checked/);
 });
+
+test("the phosphor's swatches are the screen's named ones, and a color of one is kept by its name", () => {
+  const colors = readFileSync(new URL('../components/skyscope/colors.h', import.meta.url), 'utf8');
+  const named = Object.fromEntries([...colors.matchAll(/\{"(\w+)", \{0x[0-9A-F]{6}, 0x([0-9A-F]{6}), 0x[0-9A-F]{6}\}\}/g)]
+    .map(m => [m[1], '#' + m[2].toLowerCase()]));
+  const { PHOSPHORS, tint_named } = load('PHOSPHORS', 'tint_named');
+  assert.ok(Object.keys(named).length >= 4);
+  assert.deepEqual({ ...PHOSPHORS }, named);
+  assert.equal(tint_named('#FFB000'), 'amber');
+  assert.equal(tint_named('#ff66cc'), '#ff66cc');
+  // The settings go to the screen through the hidden field the swatches and the picker fill.
+  assert.match(page, /<input type="hidden" id="tint" name="tint">/);
+  assert.match(page, /<input type="color" id="tint_pick"/);
+});

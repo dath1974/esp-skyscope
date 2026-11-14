@@ -401,7 +401,8 @@ class Skyscope : public Component,
                  bool primary = false);
   lv_obj_t *button_(lv_obj_t *parent, const char *label, int width, int height, int arrow = -1, bool primary = false);
   // The keyboard (editor.cpp), over the menu: a row's value, a place to find, or a Wi-Fi network's name or password.
-  enum Typing : uint8_t { TYPING_ROW, TYPING_PLACE, TYPING_NETWORK, TYPING_PASSWORD };
+  // Over the color picker: one of its channels, or its color whole.
+  enum Typing : uint8_t { TYPING_ROW, TYPING_PLACE, TYPING_NETWORK, TYPING_PASSWORD, TYPING_CHANNEL, TYPING_COLOR };
   // A place to find (editor.cpp): `q` typed, or nothing for where the screen is; its list opened to wait for it.
   void search_place_(const std::string &q);
   void open_row_editor_(int row);
@@ -412,6 +413,12 @@ class Skyscope : public Component,
   void refresh_editor_();
   void editor_done_();
   void close_editor_();
+  // The color picker over the menu (colorpick.cpp), for a COLOR row: the phosphor.
+  void open_color_(int row);
+  void refresh_color_();  // its scope, swatches, sliders and numbers, from color_now_
+  void color_slide_(int which);  // a finger on a channel's slider
+  void color_done_();
+  void close_color_();
   // A list to pick from, over the keyboard or the menu (editor.cpp): the places a search found, or the networks in
   // reach.
   enum Picking : uint8_t { PICKING_PLACES, PICKING_NETWORKS };
@@ -501,6 +508,9 @@ class Skyscope : public Component,
   struct Chrome { uint32_t ink, muted, card, accent; };
   Chrome chrome_() const;
   static Chrome chrome_for_(const Settings &s);
+  // The menu built again where a change took it into other colors (the appearance, the phosphor), where it was
+  // scrolled to; refreshed only where the colors are as `before`.
+  void menu_recolor_(const Chrome &before);
   void restyle_();
   void set_status_color_(uint32_t color);
   // The web server's answers, out of handleRequest so that its frame stays small (web.cpp).
@@ -722,6 +732,16 @@ class Skyscope : public Component,
   std::vector<lv_obj_t *> board_key_objs_;
   std::string editor_hint_text_, editor_error_;
   bool editor_masked_{false};  // a password, shown as stars until Show
+  // The color picker: the color as chosen so far, for which row, and its objects (a channel's rail, track, knob and
+  // number, red, green and blue).
+  lv_obj_t *color_page_{nullptr}, *color_cancel_{nullptr}, *color_done_key_{nullptr}, *color_hex_{nullptr};
+  lv_obj_t *color_note_{nullptr}, *color_scope_{nullptr}, *color_ring_{nullptr}, *color_blip_{nullptr};
+  lv_obj_t *color_tag_{nullptr};
+  lv_obj_t *color_rails_[3]{}, *color_tracks_[3]{}, *color_knobs_[3]{}, *color_values_[3]{};
+  std::vector<lv_obj_t *> color_swatches_;
+  uint32_t color_now_{0};
+  int color_row_{-1};
+  int typing_channel_{0};
   // The list to pick from, and what it lists: the places found for the search asked (search_rev_), or the networks.
   lv_obj_t *picker_{nullptr}, *picker_back_{nullptr}, *picker_line_{nullptr}, *picker_list_{nullptr};
   lv_obj_t *picker_scan_{nullptr};

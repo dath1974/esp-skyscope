@@ -31,9 +31,10 @@ It never prints the screen's place. Python's standard library only. Nothing here
 - always: the page, the settings (round trip, wrong values refused and nothing changed), status, aircraft, the debug
   switch, unknown paths; the mock's airspace (a Class B, C and two D, three runways): exactly that read near, the
   runways left out far, memory and the loop's longest gap after drawing it, how long it takes to draw; the radar
-  without its scope in each phosphor, and no beam turning then;
-- touches (unless --no-touch), through /api/touch and /api/ui: a long press opens the menu; its arrows step a value
-  without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
+  without its scope in each named phosphor and a color of its own, and no beam turning then;
+- touches (unless --no-touch), through /api/touch and /api/ui: a long press opens the menu; on the radar the
+  phosphor's key opens the color picker, and a swatch and Done change it (the menu cancelled after); its arrows step
+  a value without applying it; Cancel drops it and Save applies it; the paging arrows scroll; a range typed on its keyboard
   is refused out of reach and shown, not applied, within it; the place's Locate offers the network-based location
   (the mock's town), shown when picked and not applied; the Wi-Fi list finds networks and goes back; another
   appearance rebuilds the menu in its colors; Check asks the update server, and Install takes a second tap (never
@@ -653,6 +654,21 @@ def test_menu_keys(screen: Screen, run: Run, glass: Glass, original: dict):
         glass.tap_key(row["on"])
         row = glass.row("rings")
         run.check(row["value"] == was and not row["pending"], "and another turns it back")
+    # The radar's phosphor: a key showing its color, which opens the picker; a swatch and Done change it, marked.
+    if glass.row("map")["value"] == "Radar":
+        row = glass.reach_row("tint", "edit")
+        if run.check(row is not None, "the radar's phosphor has a key of its own"):
+            was = row["value"]
+            glass.tap_key(row["edit"])
+            pick = wait_for(lambda: (glass.menu() or {}).get("color"), 3, 0.3)
+            if run.check(pick is not None and len(pick["sliders"]) == 3, "which opens the color picker"):
+                other = "violet" if was != "Violet" else "amber"
+                glass.tap_key(pick["swatches"][other])
+                glass.tap_key(glass.menu()["color"]["done"])
+                gone = wait_for(lambda: (lambda m: m if m and not m.get("color") else None)(glass.menu()), 3, 0.3)
+                row = glass.row("tint")
+                run.check(gone is not None and row["value"] == other.title() and row["pending"],
+                          f"a swatch and Done change it ({was} to {row['value']}), marked")
     reset = glass.scroll_to(lambda m: m["keys"].get("reset"))
     if run.check(reset is not None, "the menu has the factory reset"):
         glass.tap_key(reset)
@@ -1537,7 +1553,7 @@ def test_airspace(screen: Screen, run: Run, original: dict, server=None):
         run.check(last["loop_gap_max_ms"] < 1000, f"{nm} NM: the loop's longest gap {last['loop_gap_max_ms']} ms")
         run.check(last["airspace_draw_ms"] < 500, f"{nm} NM: drawn in {last['airspace_draw_ms']} ms")
     # The radar without its scope: the airspace and the planes alone, in each phosphor.
-    for tint in ("green", "amber", "blue", "white"):
+    for tint in ("green", "amber", "blue", "white", "red", "violet", "#ff66cc"):
         status, answer = screen.json("/api/settings", {"scope": False, "tint": tint})
         run.check(status == 200 and answer["scope"] is False and answer["tint"] == tint, f"no scope, {tint}: taken")
     time.sleep(11)  # the steps a second are counted over five, reported as each five ends

@@ -14,6 +14,7 @@
 #include "../components/skyscope/airspace.h"
 #include "../components/skyscope/beam.h"
 #include "../components/skyscope/card.h"
+#include "../components/skyscope/colorpick.h"
 #include "../components/skyscope/emblem.h"
 #include "../components/skyscope/ticks.h"
 #include "../components/skyscope/feed.h"
@@ -285,6 +286,76 @@ static void test_airspace() {
     }
     CHECK(lit > 3 * nm && lit < 6 * nm);  // dashed: about half of it
   }
+}
+
+// The radar's phosphor: a name or any color, a dim one lifted to light the scope, and the named ones as they were tuned.
+static void test_phosphor() {
+  Settings s;
+  std::string error;
+  auto set = [&](const char *text) {
+    JsonDocument in;
+    in["tint"] = text;
+    return apply(in.as<JsonObjectConst>(), s, error);
+  };
+  auto written = [&] {
+    JsonDocument out;
+    to_json(s, out.to<JsonObject>());
+    return std::string(out["tint"].as<const char *>());
+  };
+  CHECK(s.tint == GREEN && written() == "green");
+  CHECK(set("amber") && s.tint == AMBER && written() == "amber");
+  CHECK(set("Violet") && written() == "violet");
+  // Any color, with or without its #, written back as #rrggbb; a named one's glow is written as its name.
+  CHECK(set("#FF00AA") && s.tint == 0xFF00AA && written() == "#ff00aa");
+  CHECK(set("33ccff") && s.tint == BLUE && written() == "blue");
+  // Too dim to light a scope: its brightest channel lifted to 0xC0, its hue kept; black is white.
+  CHECK(set("#200010") && s.tint == 0xC00060 && written() == "#c00060");
+  CHECK(set("#000000") && s.tint == 0xFFFFFF);
+  // Anything else is refused, and the phosphor stays.
+  for (const char *bad : {"", "#12345", "#1234567", "#GGGGGG", "pink"}) {
+    CHECK(!set(bad) && error == "tint" && s.tint == 0xFFFFFF);
+  }
+  // Round trip, through the stored copy.
+  CHECK(set("#3a7bd5"));
+  {
+    JsonDocument out;
+    to_json(s, out.to<JsonObject>(), true);
+    Settings back;
+    CHECK(apply(out.as<JsonObjectConst>(), back, error) && back.tint == 0x3A7BD5);
+  }
+  // The named ones keep their tuned ground and hottest light; another has them made from its glow: a dark ground of
+  // its own hue, and a light far toward white.
+  CHECK(colors::tint(AMBER).ground == 0x140C02 && colors::tint(AMBER).hot == 0xFFE4A0);
+  const colors::Tint t = colors::tint(0xFF00AA);
+  CHECK(t.glow == 0xFF00AA && t.ground == 0x15000E && t.hot == 0xFFADE4);
+  for (const auto &p : colors::PHOSPHORS) CHECK(colors::phosphor_lit(p.tint.glow) == p.tint.glow);
+}
+
+// The color picker's sums: channels, its sliders, and what it reads typed.
+static void test_colorpick() {
+  using namespace colorpick;
+  CHECK(channel(0x123456, 0) == 0x12 && channel(0x123456, 1) == 0x34 && channel(0x123456, 2) == 0x56);
+  CHECK(with_channel(0x123456, 1, 0xFF) == 0x12FF56 && with_channel(0x123456, 0, 300) == 0xFF3456 &&
+        with_channel(0x123456, 2, -5) == 0x123400);
+  // A slider 300 wide with a 30-wide knob: the ends at the ends, the middle in the middle, and back again.
+  CHECK(knob_left(0, 300, 30) == 0 && knob_left(255, 300, 30) == 270);
+  CHECK(value_at(15, 300, 30) == 0 && value_at(285, 300, 30) == 255 && value_at(-40, 300, 30) == 0 &&
+        value_at(900, 300, 30) == 255);
+  CHECK(std::abs(value_at(150, 300, 30) - 128) <= 1);
+  for (int v = 0; v <= 255; ++v) CHECK(value_at(knob_left(v, 300, 30) + 15, 300, 30) == v);
+  CHECK(knob_left(100, 20, 30) == 0 && value_at(10, 20, 30) == 0);  // no room: nothing to slide
+  CHECK(hex_of(0xff66cc) == "#FF66CC" && name_of(AMBER) == "Amber" && name_of(0xFF66CC) == "#FF66CC");
+  int v = -1;
+  CHECK(channel_typed("0", v) && v == 0 && channel_typed("255", v) && v == 255);
+  for (const char *bad : {"", "256", "-1", "12a", "1000"}) CHECK(!channel_typed(bad, v) && v == 255);
+  uint32_t c = 0;
+  CHECK(color_typed("#200010", c) && c == 0x200010 && color_typed("violet", c) && c == 0xC080FF && !color_typed("x", c));
+  // Drawn whole where it fits; smaller by the one share where the glass is narrower or shorter, whichever is more so.
+  CHECK(scale_for(1000, 1000, 10) == 1.0f);
+  CHECK(std::fabs(scale_for(270, 1000, 10) - 0.5f) < 1e-4f && std::fabs(scale_for(1000, 265, 10) - 0.5f) < 1e-4f);
+  CHECK(scale_for(10, 10, 10) == 0.3f);  // never to nothing
+  CHECK(note_of(GREEN) == "Green" && note_of(0xFF66CC) == "Your own color" &&
+        note_of(0x200010) == "Too dark for the scope: kept as #C00060");
 }
 
 static void test_settings() {
@@ -1326,7 +1397,7 @@ static void test_beam() {
   p.cx = p.cy = n / 2.0f;
   p.reach = 48;
   p.beam_width = 3;
-  p.set_tint(colors::tint(0));
+  p.set_tint(colors::tint(GREEN));
   // Something left behind the trail's end: cleaned within the band this step swept (to 18 degrees back), left beyond.
   auto at = [&](float bearing, float r) {
     const float a = bearing * 3.14159265f / 180.0f;
@@ -1895,13 +1966,15 @@ static void test_menu() {
   CHECK(menu::stepped(row("range_nm"), st, -1) && st.range_nm == 5);
   st.range_nm = 5000;
   CHECK(!menu::stepped(row("range_nm"), st, 1) && st.range_nm == 5000);
-  // Words go around; the map skips the custom server when none is set.
+  // Words go around. The custom map is offered with no server set yet, and its server's row shows only for it.
   st.map = IFR_HIGH;
-  CHECK(menu::stepped(row("map"), st, 1) && st.map == RADAR);
+  CHECK(st.custom_url.empty() && menu::stepped(row("map"), st, 1) && st.map == CUSTOM);
+  CHECK(menu::shown(row("map"), st) == "Custom" && menu::applies(row("custom_url"), st));
+  CHECK(std::string(row("custom_url").name) == "Tile server");
+  CHECK(menu::stepped(row("map"), st, 1) && st.map == RADAR && !menu::applies(row("custom_url"), st));
   st.custom_url = "https://t.example/{z}/{x}/{y}.png";
   st.map = IFR_HIGH;
   CHECK(menu::stepped(row("map"), st, 1) && st.map == CUSTOM);
-  CHECK(menu::shown(row("map"), st) == "Custom");
   // Flags turn over.
   st.rings = true;
   CHECK(menu::stepped(row("rings"), st, 1) && !st.rings && menu::shown(row("rings"), st) == "Off");
@@ -1940,6 +2013,17 @@ static void test_menu() {
   // Rows follow the map: the phosphor on the radar only, place names on streets and imagery.
   st.map = RADAR;
   CHECK(menu::applies(row("tint"), st) && !menu::applies(row("place_names"), st) && !menu::applies(row("theme"), st));
+  // The phosphor is no row of arrows or keys but a color, shown by its name and picked on a page of its own.
+  {
+    Settings p;
+    const menu::Row &tint = row("tint");
+    CHECK(menu::colored(tint) && !menu::steps(tint) && !menu::typed(tint) && !menu::stepped(tint, p, 1));
+    CHECK(menu::shown(tint, p) == "Green" && std::string(tint.name) == "Phosphor color");
+    menu::color_in(tint, p, 0xFF66CC);
+    CHECK(p.tint == 0xFF66CC && menu::shown(tint, p) == "#FF66CC");
+    menu::color_in(tint, p, 0x200010);  // too dark: kept lit, as the settings would
+    CHECK(p.tint == 0xC00060 && menu::color_of(tint, p) == 0xC00060);
+  }
   st.map = SATELLITE;
   CHECK(!menu::applies(row("tint"), st) && menu::applies(row("place_names"), st) && menu::applies(row("tile_scale"), st));
   st.map = SECTIONAL;
@@ -1968,7 +2052,7 @@ static void test_menu() {
   CHECK(menu::applies(row("follow_label"), st) && menu::applies(row("follow_track_min"), st));
   // Every row is stepped, typed, or both; a row with nothing to step has no arrows to step it with.
   for (const auto &r : menu::rows()) {
-    CHECK(menu::steps(r) || menu::typed(r));
+    CHECK(menu::steps(r) || menu::typed(r) || menu::colored(r));
     Settings any;
     if (!menu::steps(r)) CHECK(!menu::stepped(r, any, 1));
   }
@@ -2320,7 +2404,7 @@ static void test_swipe() {
   CHECK(downward(200, 20, 210, 130, 98) && !downward(200, 20, 210, 100, 98) && !downward(200, 20, 300, 130, 98) &&
         !downward(200, 130, 200, 20, 98));
   CHECK(direction(300, 440, 180, 370, 98) == 0);   // not twice as far across as up
-  // The maps in the menu's order, the custom server only where there is one; a swipe steps as the menu's arrows do.
+  // The maps in the menu's order, the custom map only once its server is set (the menu's arrows offer it either way).
   Settings s;
   auto all = maps(s);
   CHECK(all.size() == 8 && all.front() == RADAR && all.back() == IFR_HIGH);
@@ -2330,6 +2414,18 @@ static void test_swipe() {
   s.map = RADAR;
   CHECK(menu::stepped(map_row(), s, 1) && s.map == STREETS);
   CHECK(menu::stepped(map_row(), s, -1) && menu::stepped(map_row(), s, -1) && s.map == CUSTOM);
+  CHECK(swiped(s, 1) && s.map == RADAR && swiped(s, -1) && s.map == CUSTOM);
+  // Without a server a swipe passes over the custom map, either way, though the menu's arrows offer it.
+  s.custom_url.clear();
+  all = maps(s);
+  CHECK(std::find(all.begin(), all.end(), CUSTOM) == all.end());
+  s.map = IFR_HIGH;
+  CHECK(swiped(s, 1) && s.map == RADAR && swiped(s, -1) && s.map == IFR_HIGH);
+  // From the custom map chosen in the menu with no server yet: on to the first map, or back to the last before it.
+  s.map = CUSTOM;
+  CHECK(swiped(s, 1) && s.map == RADAR);
+  s.map = CUSTOM;
+  CHECK(swiped(s, -1) && s.map == IFR_HIGH);
 }
 
 static void test_wifi_list() {
@@ -3539,6 +3635,8 @@ static void test_mock_answers() {
 int main(int argc, char **argv) {
   test_geo();
   test_settings();
+  test_phosphor();
+  test_colorpick();
   test_offline();
   test_card();
   test_card_words();

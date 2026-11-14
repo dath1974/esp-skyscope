@@ -51,7 +51,7 @@ void Skyscope::on_released_(lv_point_t at) {
     swiped_ = settings_;
     swiping_ = true;
   }
-  menu::stepped(swipe::map_row(), swiped_, step);
+  swipe::swiped(swiped_, step);
   swipe_at_ = (millis() + SETTLE_MS) | 1;
   show_swipe_();
 }
