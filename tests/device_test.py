@@ -800,11 +800,17 @@ def check_day(screen: Screen, run: Run):
         return isinstance(name, str) and len(name) <= 40 and name.isprintable() and not set(name) & set('{}')
 
     up = screen.json("/api/status")[1]["uptime_s"]
-    # The C172 10 NM south (mock_feed.FIXED): its operator's name, cut to the 40 letters the screen keeps.
-    club = wait_for(lambda: (lambda j: j if any(o["name"].startswith("A FLYING CLUB") for o in j["operators"]) else None)(
-        screen.json("/api/stats")[1]), 30, 2)
-    if not run.check(club is not None, "the day counts the fixed planes' types and operators"):
+    # The C172 10 NM south (mock_feed.FIXED), with its operator's name cut to the 40 letters the screen keeps. Waited
+    # for in the log, not the day's top lists: a plane is counted once a day, so on a screen that has been out in the
+    # world the club's one sighting can sit below a dozen real operators and never be listed.
+    c172_visit = wait_for(lambda: next((v for v in screen.json("/api/log?format=json")[1]["visits"]
+                                        if v["hex"] == "a00003" and v["operator"].startswith("A FLYING CLUB")), None),
+                          30, 2)
+    if not run.check(c172_visit is not None, "the day counts the fixed planes' types and operators"):
         return
+    stats = screen.json("/api/stats")[1]
+    run.check(len(stats["operators"]) >= 12 or any(o["name"].startswith("A FLYING CLUB") for o in stats["operators"]),
+              "the club among the operators (or the list full of more common ones)")
     for _ in range(3):  # what a freed list held changes from one reply to the next
         status, kind, raw = screen.call("/api/stats")
         try:
@@ -817,7 +823,8 @@ def check_day(screen: Screen, run: Run):
         bad = [n for n in names if not clean(n)]
         if not run.check(not bad, f"/api/stats: {len(names)} names, each as the feed gave it", repr(bad[:3])):
             break
-    run.check("C172" in [c["name"] for c in j["types"]], "the C172 among the types")
+    run.check(len(j["types"]) >= 12 or "C172" in [c["name"] for c in j["types"]],
+              "the C172 among the types (or the list full of more common ones)")
 
     status, kind, raw = screen.call("/api/log")
     lines = raw.decode("utf-8", "replace").splitlines()
