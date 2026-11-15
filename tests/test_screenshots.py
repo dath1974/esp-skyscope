@@ -52,6 +52,35 @@ class Picture(unittest.TestCase):
         self.assertEqual(rows[1], bytes([255, 255, 255, 0, 0, 0, 131, 129, 131]))
 
 
+    def test_round(self):
+        # A round glass's picture: clear in the corners, opaque in the middle, the edge in between, the colors kept.
+        size = 40
+        data = screenshots.bmp_to_png(bmp(size, size, [0xF800] * size * size), round_=True)
+        self.assertEqual(data[24:26], bytes([8, 6]))
+        raw = zlib.decompress(data[data.index(b"IDAT") + 4:data.index(b"IEND") - 8])
+        row = size * 4 + 1
+        alpha = lambda x, y: raw[y * row + 1 + x * 4 + 3]
+        self.assertEqual(alpha(0, 0), 0)
+        self.assertEqual(alpha(size - 1, size - 1), 0)
+        self.assertEqual(alpha(size // 2, size // 2), 255)
+        self.assertGreater(alpha(size // 2, 0), 250)  # the circle reaches the edge of the picture
+        edge = [alpha(x, 5) for x in range(size // 2)]
+        self.assertTrue(any(0 < a < 255 for a in edge), "a smooth edge")
+        self.assertEqual(edge, sorted(edge))
+        self.assertEqual(raw[1:4], bytes([255, 0, 0]))
+
+    def test_made_round_after(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "a.png"
+            f.write_bytes(screenshots.bmp_to_png(bmp(10, 10, [0x07E0] * 100)))
+            self.assertEqual(screenshots.made_round(Path(d)), 1)
+            once = f.read_bytes()
+            self.assertEqual(once, screenshots.bmp_to_png(bmp(10, 10, [0x07E0] * 100), round_=True))
+            self.assertEqual(screenshots.made_round(Path(d)), 0)  # round already: left as it is
+            self.assertEqual(f.read_bytes(), once)
+
+
 class MadeUpSky(unittest.TestCase):
     def sky(self, code="KJFK", range_nm=20, runway=None):
         lat, lon, elevation, _, country, _ = screenshots.PLACES[code]

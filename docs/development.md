@@ -74,6 +74,8 @@ fails on any request the mock did not know. The screen must be able to reach thi
 `make screenshots DEVICE=<address>` (`ONLY=streets-dark,radar` for some) takes the pictures in
 [screens.md](screens.md) from the screen's own glass, at public airports, never the screen's own place, into a folder
 for its board (`docs/screens/p4`, `docs/screens/amoled`). Two screens can be taken at once, each with its own `PORT`.
+A round screen's pictures are round, the corners its glass does not have left clear, so they look right on a page of
+any color (`tools/screenshots.py --round` does the same to pictures taken before).
 
 The screen is sent to this machine for every request (the test API's divert, a restart each way). The maps, airspace
 and weather are passed on to the real services and are the real ones; everything else is made up here. The planes

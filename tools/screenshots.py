@@ -3,7 +3,7 @@
 made-up planes.
 
     tools/screenshots.py <address> [--board NAME] [--out FOLDER] [--only NAME,...] [--port 8095]
-    tools/screenshots.py --list | --page
+    tools/screenshots.py --list | --page | --round
 
 Each picture is a scene: a place (a public airport, never the screen's own), a map and its settings, and often a touch
 (a plane's card, the menu, the weather page, the day's tally). The screen is sent to this machine for every request it
@@ -25,7 +25,8 @@ The day's tally is set aside while it runs and put back after, so the made-up pl
 day and the real day (the screen's own place) is never in a picture. At the end the divert is lifted (another
 restart), the map card's picture is taken where the screen has one, every setting is put back, and screens.md is
 written beside the pictures' folder (docs/screens.md): each board's pictures in a grid of their own, each with what it
-shows; --page writes it alone.
+shows; --page writes it alone. A round board's pictures are round, the corners its glass does not have left
+clear; --round makes those taken before that so.
 
 It needs the test API (`test_api: true`: GET /api/screenshot, /api/touch, /api/ui, POST /api/test) and the screen to
 reach this machine (WSL: networkingMode=mirrored). Every setting it changes is put back at the end, as
@@ -70,6 +71,9 @@ BOARDS = {
     "waveshare-amoled-241": ("amoled", "Waveshare AMOLED 2.41", "the 450 × 600 AMOLED"),
     "waveshare-lcd-28b": ("lcd-28b", "Waveshare LCD 2.8B", "the 480 × 640 LCD"),
 }
+# The boards whose glass is round (board `round: true`): their pictures are round too, the corners the glass does not
+# have left clear, so a page of any color shows them as the screen looks.
+ROUND = {"p4"}
 
 # ---------------------------------------------------------------- places
 
@@ -677,17 +681,71 @@ ACTIONS = (None, "splash", "card", "follow", "tour", "weather", "phosphor", "ale
            "menu", "card-menu")
 
 
-def png(width: int, height: int, rgb: bytes) -> bytes:
+def png(width: int, height: int, rgb: bytes, alpha: bytes = None) -> bytes:
+    """A PNG of 8-bit RGB pixels, top row first; with `alpha` (a byte a pixel), RGBA."""
     def chunk(kind, data):
         return len(data).to_bytes(4, "big") + kind + data + zlib.crc32(kind + data).to_bytes(4, "big")
 
-    rows = b"".join(b"\0" + rgb[y * width * 3:(y + 1) * width * 3] for y in range(height))
-    header = width.to_bytes(4, "big") + height.to_bytes(4, "big") + bytes([8, 2, 0, 0, 0])
+    if alpha is not None:
+        rgba = bytearray(width * height * 4)
+        for c in range(3):
+            rgba[c::4] = rgb[c::3]
+        rgba[3::4] = alpha
+        pixels, size, kind = bytes(rgba), 4, 6
+    else:
+        pixels, size, kind = rgb, 3, 2
+    rows = b"".join(b"\0" + pixels[y * width * size:(y + 1) * width * size] for y in range(height))
+    header = width.to_bytes(4, "big") + height.to_bytes(4, "big") + bytes([8, kind, 0, 0, 0])
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
 
 
-def bmp_to_png(bmp: bytes) -> bytes:
-    """GET /api/screenshot's BMP (RGB565, the top row first) as a PNG."""
+def round_glass(width: int, height: int) -> bytes:
+    """The alpha of a round glass: opaque inside the circle that fills the picture, clear outside it, and the pixels
+    the edge crosses partly clear (by how far their middle is from it), so the edge is smooth."""
+    r = min(width, height) / 2
+    cx, cy = width / 2, height / 2
+    out = bytearray(width * height)
+    for y in range(height):
+        dy = y + 0.5 - cy
+        for x in range(width):
+            inside = r - math.hypot(x + 0.5 - cx, dy) + 0.5
+            out[y * width + x] = 255 if inside >= 1 else 0 if inside <= 0 else int(inside * 255 + 0.5)
+    return bytes(out)
+
+
+def png_rgb(data: bytes):
+    """width, height and RGB pixels of a PNG this script wrote (8-bit RGB, every row filter 0)."""
+    width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[24:26] != bytes([8, 2]):
+        raise ValueError("not a picture of RGB pixels")
+    at, idat = 8, b""
+    while at < len(data):
+        length = int.from_bytes(data[at:at + 4], "big")
+        if data[at + 4:at + 8] == b"IDAT":
+            idat += data[at + 8:at + 8 + length]
+        at += 12 + length
+    raw = zlib.decompress(idat)
+    row = width * 3 + 1
+    if any(raw[y * row] for y in range(height)):
+        raise ValueError("rows filtered")
+    return width, height, b"".join(raw[y * row + 1:(y + 1) * row] for y in range(height))
+
+
+def made_round(folder: Path) -> int:
+    """Every picture in `folder` still square made round; how many."""
+    done = 0
+    for f in sorted(folder.glob("*.png")):
+        data = f.read_bytes()
+        if data[25] != 2:
+            continue  # round already
+        width, height, rgb = png_rgb(data)
+        f.write_bytes(png(width, height, rgb, round_glass(width, height)))
+        done += 1
+    return done
+
+
+def bmp_to_png(bmp: bytes, round_: bool = False) -> bytes:
+    """GET /api/screenshot's BMP (RGB565, the top row first) as a PNG; round, the corners clear, for a round glass."""
     offset = int.from_bytes(bmp[10:14], "little")
     width = int.from_bytes(bmp[18:22], "little", signed=True)
     height = -int.from_bytes(bmp[22:26], "little", signed=True)
@@ -704,7 +762,7 @@ def bmp_to_png(bmp: bytes) -> bytes:
             out[i + 1] = lut6[(v >> 5) & 63]
             out[i + 2] = lut5[v & 31]
             i += 3
-    return png(width, height, bytes(out))
+    return png(width, height, bytes(out), round_glass(width, height) if round_ else None)
 
 
 def wait_drawn(screen: Screen, settings: dict, airspace_before):
@@ -730,11 +788,12 @@ def wait_drawn(screen: Screen, settings: dict, airspace_before):
 
 
 def take(screen: Screen, out: Path, name: str):
+    """The glass now, as out/<name>.png (round where the board's glass is)."""
     status, kind, body = screen.call("/api/screenshot", timeout=30)
     if status != 200 or not body.startswith(b"BM"):
         print(f"    no picture: {status} {body[:80]!r}")
         return False
-    (out / f"{name}.png").write_bytes(bmp_to_png(body))
+    (out / f"{name}.png").write_bytes(bmp_to_png(body, out.name in ROUND))
     print(f"    {out / name}.png")
     return True
 
@@ -925,8 +984,15 @@ def main():
     parser.add_argument("--port", type=int, default=8095, help="this machine's port for the screen's requests")
     parser.add_argument("--list", action="store_true", help="the scenes, and nothing taken")
     parser.add_argument("--page", action="store_true", help="screens.md from the pictures there now, nothing taken")
+    parser.add_argument("--round", action="store_true",
+                        help="the round boards' pictures there now made round, nothing taken")
     args = parser.parse_args()
     screens = Path(args.out)
+    if args.round:
+        for folder in sorted(ROUND):
+            if (screens / folder).is_dir():
+                print(f"{screens / folder}: {made_round(screens / folder)} made round")
+        return
     if args.page:
         print(write_page(screens))
         return
