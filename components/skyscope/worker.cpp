@@ -1120,6 +1120,9 @@ void Skyscope::worker_() {
         std::lock_guard<std::mutex> guard(lock_);
         shared_.book.see(flights, saved, unix_s, date, local.tm_hour, alerts, ended);
         shared_.book_rev++;
+#ifdef SKYSCOPE_TEST_API
+        if (shared_.book_aside) ended.clear();  // a test's day: never in the card's log
+#endif
         shared_.alerting = shared_.book.alerting();
         shared_.alerting_at = millis();
         for (auto &a : alerts) {
@@ -1177,6 +1180,9 @@ void Skyscope::worker_() {
           shared_.feed_every_ms = every;
           shared_.feed_source = RADIO;
           shared_.feed_simulated = false;
+#ifdef USE_SKYSCOPE_RADIO
+          shared_.feed_simulated = radio_ && radio_->simulated();  // a test's made-up messages
+#endif
         } else {
           // No stick, or one not yet listening: the next source at once, and the radio again in a few seconds.
           answer.retry_after_s = RADIO_RETRY_S;
@@ -1229,7 +1235,7 @@ void Skyscope::worker_() {
           shared_.feed_at = done;
           shared_.feed_every_ms = every;
           shared_.feed_source = source;
-          shared_.feed_simulated = simulated && source == RECEIVER;
+          shared_.feed_simulated = simulated;  // made up, said so: a test's mock or the screenshots' sky
         } else {
           const uint32_t left = providers.failed(source, done, answer);
           const std::string limits = r.rate_limit.empty() ? "" : " (its limits: " + r.rate_limit + ")";

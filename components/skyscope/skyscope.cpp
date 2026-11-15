@@ -1652,6 +1652,9 @@ void Skyscope::save_stats_() {
   {
     std::lock_guard<std::mutex> guard(lock_);
     if (shared_.book_rev == stats_saved_rev_) return;
+#ifdef SKYSCOPE_TEST_API
+    if (shared_.book_aside) return;  // a test's day, never kept
+#endif
     stats_saved_rev_ = shared_.book_rev;
     bytes = shared_.book.pack();
   }

@@ -231,7 +231,7 @@ class Skyscope : public Component,
     uint32_t feed_at = 0;  // millis() of the last good answer
     providers::Providers providers;  // each exchange's record: waiting, failures, pace (providers.h)
     Feed feed_source = ADSB_FI;      // the exchange the last good report came from
-    bool feed_simulated = false;     // and it was a receiver whose planes are made up (feed.h credit)
+    bool feed_simulated = false;     // and its planes were made up: a receiver's or a test's (feed.h credit)
     uint32_t frame_rev = 0, frame_plan_rev = 0;  // the base frame changed, for that plan
     int tiles_done = 0, tiles_total = 0;
     std::string tile_error;
@@ -298,6 +298,11 @@ class Skyscope : public Component,
     // worker -> loop and web: what the screen has seen in its range (sightings.h), and the alerts not shown yet.
     sightings::Book book;
     uint32_t book_rev = 0;
+#ifdef SKYSCOPE_TEST_API
+    // The real day's tally while a test counts in a fresh one (/api/test {"tally": "aside"}, tools/screenshots.py):
+    // meanwhile nothing is kept in flash or written to the card's log, so a restart brings the real one back too.
+    std::unique_ptr<sightings::Book> book_aside;
+#endif
     std::vector<sightings::Alert> alerts;
     // loop -> worker: a place to find, typed in the menu, or where the screen is (`search_here`, nothing typed);
     // worker -> loop: what was found for the search found_rev.

@@ -45,6 +45,34 @@ void Radio::start(const Config &config) {
   xTaskCreatePinnedToCore(demod_main, "demod", 6144, this, DEMOD_PRIORITY, nullptr, CORE);
 }
 
+bool Radio::simulated() const {
+  const uint32_t at = heard_at_;
+  return at != 0 && millis() - at < STALL_MS;
+}
+
+std::string Radio::state() {
+  if (simulated() && !streaming_) return "Hearing made-up messages from a test";
+  std::lock_guard<std::mutex> guard(lock_);
+  return state_;
+}
+
+#ifdef SKYSCOPE_TEST_API
+int Radio::hear(const std::vector<std::string> &messages) {
+  static const sky::modes::Crc crc;  // 1.5 KB of tables: not on the web server's small stack
+  int taken = 0;
+  const uint32_t now = millis();
+  std::lock_guard<std::mutex> guard(lock_);
+  for (const std::string &hex : messages) {
+    sky::modes::Message m;
+    if (!sky::modes::from_hex(hex.c_str(), crc, m)) continue;
+    if (tracker_.add(m, now)) ++taken;
+  }
+  heard_ += taken;
+  heard_at_ = now | 1;
+  return taken;
+}
+#endif
+
 void Radio::set_state(const std::string &words) {
   {
     std::lock_guard<std::mutex> guard(lock_);
@@ -259,6 +287,9 @@ void Radio::demod_main(void *arg) {
     if (now - expired_at >= 1000) {
       expired_at = now;
       self->tracker_.expire(now);
+      // A test's messages long stopped: let go, so the clock turning over in 49 days cannot bring them back.
+      const uint32_t heard = self->heard_at_;
+      if (heard && now - heard >= STALL_MS) self->heard_at_ = 0;
     }
   }
 }
@@ -282,11 +313,11 @@ sky::locate::Fix Radio::fix(size_t &heard) {
 Radio::Stats Radio::stats() {
   std::lock_guard<std::mutex> guard(lock_);
   Stats s;
-  s.state = state_;
-  s.streaming = streaming_;
+  s.state = simulated() && !streaming_ ? "Hearing made-up messages from a test" : state_;
+  s.streaming = streaming();
   s.tuner = tuner_;
   s.gain_tenths = gain_;
-  s.messages = demod_counts_.accepted;
+  s.messages = demod_counts_.accepted + heard_;
   s.mended = demod_counts_.mended;
   s.rejected = demod_counts_.rejected;
   s.unknown = tracker_.counts().unknown;
@@ -303,11 +334,11 @@ Radio::Stats Radio::stats() {
     const float seconds = (now - rate_at_) / 1000.0f;
     if (rate_at_) {
       samples_per_s_ = (demod_counts_.samples - rate_samples_) / seconds;
-      messages_per_s_ = (demod_counts_.accepted - rate_messages_) / seconds;
+      messages_per_s_ = (demod_counts_.accepted + heard_ - rate_messages_) / seconds;
     }
     rate_at_ = now;
     rate_samples_ = demod_counts_.samples;
-    rate_messages_ = demod_counts_.accepted;
+    rate_messages_ = demod_counts_.accepted + heard_;
   }
   s.samples_per_s = samples_per_s_;
   s.messages_per_s = messages_per_s_;

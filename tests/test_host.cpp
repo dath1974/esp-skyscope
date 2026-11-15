@@ -751,7 +751,9 @@ static void test_feed() {
   made_up.replace(made_up.find("true"), 4, "false");
   CHECK(feed::parse(made_up.c_str(), made_up.size(), doc, flights, error, SIZE_MAX, &simulated) && !simulated);
   CHECK(std::string(feed::credit(RECEIVER, true)) == "simulated" && std::string(feed::credit(RECEIVER)) == "receiver");
-  CHECK(std::string(feed::credit(ADSB_FI, true)) == "adsb.fi");
+  // An exchange's made-up planes come only from a test's mock standing in for it (a divert): never credited to it.
+  CHECK(std::string(feed::credit(ADSB_FI, true)) == "simulated" && std::string(feed::credit(ADSB_FI)) == "adsb.fi");
+  CHECK(std::string(feed::credit(RADIO, true)) == "simulated radio" && std::string(feed::credit(RADIO)) == "radio");
   CHECK(!feed::parse("<html>", 6, doc, flights, error));
   // Read plane by plane: what is no plane in the list is passed over, and brackets and quotes inside strings are words.
   const std::string odd = R"({"now":1,"note":"a } and a ] and \" in words","aircraft":[7,"plane",null,[],true,
@@ -2727,6 +2729,23 @@ static void test_modes() {
   df4[4] = (uint8_t) (p4 >> 16);
   df4[5] = (uint8_t) (p4 >> 8);
   df4[6] = (uint8_t) p4;
+  // Messages written in hex, as a test hands the radio made-up ones (radio.h hear): checked as heard ones are.
+  {
+    modes::Message m;
+    CHECK(modes::from_hex(examples[0], crc, m) && m.df == 17 && m.bits == 112 && m.address == 0x4840D6 &&
+          !m.overlaid && std::memcmp(m.data, msgs[0].data(), 14) == 0);
+    CHECK(modes::from_hex("8d4840d6202cc371c32ce0576098", crc, m) && m.address == 0x4840D6);  // either case
+    CHECK(!modes::from_hex("8D4840D6202CC371C32CE0576099", crc, m));  // its parity broken: no bit is put right
+    CHECK(!modes::from_hex("8D4840D6202CC371C32CE05760", crc, m));    // too short for its kind
+    CHECK(!modes::from_hex("8D4840D6202CC371C32CE057609Z", crc, m));  // not hex
+    CHECK(!modes::from_hex("", crc, m) && !modes::from_hex(nullptr, crc, m));
+    char hex[15];
+    for (int i = 0; i < 7; ++i) std::snprintf(hex + 2 * i, 3, "%02X", df11[i]);
+    CHECK(modes::from_hex(hex, crc, m) && m.df == 11 && m.address == 0x4840D6 && !m.overlaid);
+    for (int i = 0; i < 7; ++i) std::snprintf(hex + 2 * i, 3, "%02X", df4[i]);
+    CHECK(modes::from_hex(hex, crc, m) && m.df == 4 && m.address == 0x4840D6 && m.overlaid);
+    CHECK(!modes::from_hex("C0000000000000", crc, m));  // DF24: a kind not read
+  }
   const auto replies = demodulate({std::vector<uint8_t>(df11, df11 + 7), std::vector<uint8_t>(df4, df4 + 7)}, 4096);
   CHECK(replies.size() == 2);
   if (replies.size() == 2) {
@@ -3549,6 +3568,50 @@ static void test_numbers() {
   CHECK(tenths(2.04) == "2.0" && tenths(9.96) == "10.0" && tenths(-0.5) == "-0.5" && tenths(0) == "0.0");
 }
 
+// What tests/mock_radio.py makes of made-up planes (the messages tools/screenshots.py hands a screen's radio), read
+// with the screen's own decoder: each plane comes out where it was, as it was.
+static void test_mock_radio() {
+  const char *file = std::getenv("MOCK_RADIO");
+  if (!file) {
+    std::printf("  (no MOCK_RADIO: the mock radio's messages are not read)\n");
+    return;
+  }
+  std::ifstream in(file);
+  std::string line;
+  const modes::Crc crc;
+  int planes = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] != '{') continue;
+    JsonDocument doc;
+    CHECK(!deserializeJson(doc, line));
+    adsb::Tracker t;
+    uint32_t now = 1000;
+    while (std::getline(in, line) && !line.empty()) {
+      modes::Message m;
+      CHECK(modes::from_hex(line.c_str(), crc, m));
+      t.add(m, now += 100);
+    }
+    const auto flights = t.flights(now);
+    CHECK(flights.size() == 1);
+    if (flights.size() != 1) continue;
+    const feed::Flight &f = flights[0];
+    ++planes;
+    const std::string callsign = feed::trimmed(doc["flight"] | "");
+    CHECK(f.hex == (doc["hex"] | ""));
+    CHECK(f.callsign == callsign);
+    CHECK(std::fabs(f.lat - (doc["lat"] | 0.0)) < 0.0005 && std::fabs(f.lon - (doc["lon"] | 0.0)) < 0.0005);
+    CHECK(f.has_altitude && std::abs(f.altitude - (doc["alt_baro"] | 0)) <= 25);
+    CHECK(f.has_speed && std::fabs(f.speed - (doc["gs"] | 0.0)) < 1.5);
+    CHECK(f.has_heading && std::fabs(std::remainder(f.heading - (doc["track"] | 0.0), 360.0)) < 0.5);
+    CHECK(std::abs(f.climb - (doc["baro_rate"] | 0)) <= 32);
+    CHECK(f.squawk == (doc["squawk"] | ""));
+    CHECK(f.category == (callsign.empty() ? "" : (doc["category"] | "")));
+    const std::string squawk = doc["squawk"] | "";
+    CHECK(f.emergency == (squawk == "7500" || squawk == "7600" || squawk == "7700"));
+  }
+  CHECK(planes == 5);
+}
+
 static void test_mock_answers() {
   const char *folder = std::getenv("MOCK_ANSWERS");
   if (!folder) {
@@ -3681,6 +3744,7 @@ int main(int argc, char **argv) {
   test_sound();
   test_asleep();
   test_mock_answers();
+  test_mock_radio();
   for (int i = 1; i < argc; ++i) {
     std::ifstream file(argv[i]);
     std::stringstream text;

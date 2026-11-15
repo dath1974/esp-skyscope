@@ -56,11 +56,11 @@ class Radio {
   // with the stick's transfers still in flight hung until the chip's watchdog reset it, and the firmware just
   // installed was thrown away for it.
   void stop();
-  bool streaming() const { return streaming_; }
-  std::string state() {
-    std::lock_guard<std::mutex> guard(lock_);
-    return state_;
-  }
+  // Listening: a stick streaming, or a test's made-up messages coming in (hear).
+  bool streaming() const { return streaming_ || simulated(); }
+  // Made-up messages heard in the last few seconds (hear): the planes are credited as simulated meanwhile.
+  bool simulated() const;
+  std::string state();
   // The planes heard with a place in the last minute.
   std::vector<sky::feed::Flight> flights(uint32_t now);
   // The receiver's place (the screen's): surface positions are worked out from it, and far-off ones thrown away.
@@ -68,6 +68,12 @@ class Radio {
   // Where the planes heard put the screen (locate.h), and how many planes it has to go on.
   sky::locate::Fix fix(size_t &heard);
   Stats stats();
+#ifdef SKYSCOPE_TEST_API
+  // Messages a test made up, as if the stick had heard them (POST /api/test {"radio": [...]}, tools/screenshots.py
+  // for the pictures, which never show a real sky): each written in hex and checked as a heard one is (modes.h
+  // from_hex), then added to the planes. How many were taken.
+  int hear(const std::vector<std::string> &messages);
+#endif
 
  private:
   static void usb_main(void *arg);
@@ -93,6 +99,8 @@ class Radio {
   std::atomic<int> in_flight_{0};
   std::atomic<uint64_t> bytes_{0}, dropped_{0};
   std::atomic<uint32_t> transfer_errors_{0};
+  std::atomic<uint32_t> heard_at_{0};  // millis() of the last made-up message (hear), 0 for none
+  uint32_t heard_ = 0;                 // made-up messages taken, under lock_
   uint32_t last_bytes_at_ = 0;
 
   std::mutex lock_;  // the tracker, the counts and the state words

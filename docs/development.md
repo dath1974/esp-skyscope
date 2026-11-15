@@ -30,8 +30,8 @@ Node 18 or newer.
 
 - `make test-host`: the C++ host tests (`tests/test_host.cpp`), with the address and undefined-behavior sanitizers.
   `tests/run.sh reply.json` reads a saved feed reply too.
-- `make test-python`: the release manifest, the mock the device tests use, `tools/screenshots.py`, and that the web
-  server prints no floats (`tests/test_web_stack.py`: its task's small stack ran out over one).
+- `make test-python`: the release manifest, the mock the device tests use, the mock radio, `tools/screenshots.py`,
+  and that the web server prints no floats (`tests/test_web_stack.py`: its task's small stack ran out over one).
 - `make test-page`: the web page's script (`tests/test_page.mjs`).
 - `make test-markers` draws every aircraft shape on a sheet (`tests/build/markers.png`); CI keeps it with each run.
 - `make emblem` draws the emblem (`components/skyscope/emblem.h`) as the screen's own code does, on a sheet to look at
@@ -72,10 +72,18 @@ fails on any request the mock did not know. The screen must be able to reach thi
 ## Pictures
 
 `make screenshots DEVICE=<address>` (`ONLY=streets-dark,radar` for some) takes the pictures in
-[screens.md](screens.md) from the screen's own glass, at public airports, never the screen's own place. The maps,
-airspace and weather are real; the planes are made up and served from this machine as a receiver, credited as
-**simulated** on the glass. It writes `docs/screens.md` and puts every setting back. It needs the test API and, like
-the device tests, a screen that can reach this machine.
+[screens.md](screens.md) from the screen's own glass, at public airports, never the screen's own place, into a folder
+for its board (`docs/screens/p4`, `docs/screens/amoled`). Two screens can be taken at once, each with its own `PORT`.
+
+The screen is sent to this machine for every request (the test API's divert, a restart each way). The maps, airspace
+and weather are passed on to the real services and are the real ones; everything else is made up here. The planes
+come as a receiver's, or on the P4 as made-up ADS-B messages handed to its radio (`tests/mock_radio.py`, read back by
+the screen's own decoder in the host tests), and as the exchanges' for a plane followed; all are credited as
+**simulated** on the glass. One of them is NASA 905 with Enterprise, circling the Statue of Liberty, whose card has a
+route and a NASA photo (`tools/nasa905.jpg`, public domain) where a Planespotters.net photo goes; the others have
+neither. The network-based place Locate offers is the scene's town. The day's tally is set aside for the run, so the
+made-up planes never count in the real day. It writes `docs/screens.md` and puts every setting back. It needs the
+test API and, like the device tests, a screen that can reach this machine.
 
 ## A screen reaching a test server under WSL
 

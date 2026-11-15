@@ -34,7 +34,9 @@
 //   POST /api/test         with the test API: {"divert": "http://host:port"} sends every HTTPS request to a test's mock
 //                          from the restart it makes on, until power off or {"divert": ""} (and its restart);
 //                          {"lock_touch_s": N} keeps fingers off the glass; {"splash": true} shows the splash again;
-//                          {"screen_off": true} turns the screen off, false on again
+//                          {"screen_off": true} turns the screen off, false on again; {"tally": "aside"} counts the
+//                          day in a fresh tally, never kept, until {"tally": "back"} (or a restart); {"radio": ["8D..",
+//                          ...]} hands the radio made-up messages, as if heard (its planes credited as simulated)
 //
 // With a password set (settings.h), every one of them asks for it (HTTP Basic, the user "admin").
 //
@@ -273,7 +275,7 @@ void Skyscope::answer_(AsyncWebServerRequest *request, const std::string &url, b
     out["feed_age_s"] = shared_.feed_at ? (int32_t) ((millis() - shared_.feed_at) / 1000) : -1;
     // Each exchange in the order it is tried: waiting or not, for how long, and why.
     out["feed_source"] = FEEDS[shared_.feed_source];
-    out["feed_simulated"] = shared_.feed_simulated;  // a receiver's made-up planes (feed.h credit)
+    out["feed_simulated"] = shared_.feed_simulated;  // made-up planes: a receiver's or a test's (feed.h credit)
     JsonArray sources = out["feeds"].to<JsonArray>();
     const uint32_t now_ms = millis();
     for (const Feed f : shared_.providers.order()) {
@@ -597,6 +599,47 @@ void Skyscope::answer_(AsyncWebServerRequest *request, const std::string &url, b
         else this->set_screen_on(true);
       });
       request->send(200, "application/json", off ? "{\"screen_off\":true}" : "{\"screen_off\":false}");
+      return;
+    }
+    // The day's tally set aside for a fresh one, and back again: a test's planes never in the real day, and the real
+    // day's planes (around the screen's own place) never in a picture.
+    if (!unreadable && in["tally"].is<const char *>() && in["divert"].isNull()) {
+      const std::string way = in["tally"].as<std::string>();
+      if (way != "aside" && way != "back") {
+        request->send(400, "application/json", "{\"error\":\"tally\"}");
+        return;
+      }
+      bool aside;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        if (way == "aside" && !shared_.book_aside) {
+          shared_.book_aside = std::make_unique<sightings::Book>(std::move(shared_.book));
+          shared_.book = sightings::Book();
+          shared_.alerting = 0;
+        } else if (way == "back" && shared_.book_aside) {
+          shared_.book = std::move(*shared_.book_aside);
+          shared_.book_aside.reset();
+        }
+        shared_.book_rev++;
+        aside = shared_.book_aside != nullptr;
+      }
+      request->send(200, "application/json", aside ? "{\"tally\":\"aside\"}" : "{\"tally\":\"kept\"}");
+      return;
+    }
+    // Made-up messages for the radio, as if it heard them (radio.h hear): a picture's planes from the radio, never a
+    // real sky's.
+    if (!unreadable && in["radio"].is<JsonArrayConst>() && in["divert"].isNull()) {
+#ifdef USE_SKYSCOPE_RADIO
+      if (radio_) {
+        std::vector<std::string> messages;
+        for (JsonVariantConst m : in["radio"].as<JsonArrayConst>())
+          if (m.is<const char *>()) messages.emplace_back(m.as<const char *>());
+        const int taken = radio_->hear(messages);
+        request->send(200, "application/json", ("{\"heard\":" + std::to_string(taken) + "}").c_str());
+        return;
+      }
+#endif
+      request->send(400, "application/json", "{\"error\":\"no radio\"}");
       return;
     }
     // The splash again, as at the start: to look at it, and for its picture.

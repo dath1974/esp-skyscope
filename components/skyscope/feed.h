@@ -74,12 +74,14 @@ inline std::string url(Feed feed, double lat, double lon, int radius_nm, const s
   }
   return out;
 }
-// A receiver that says its planes are made up (`"simulated": true` in its reply, as the tests' mock and the
-// screenshots' sky do) is credited as such, so a picture of the glass never passes them off as real.
+// A reply that says its planes are made up (`"simulated": true`, as the tests' mock and the screenshots' sky answer
+// in place of a receiver or an exchange), or a radio handed made-up messages by a test (radio.h hear), is credited as
+// such, so a picture of the glass never passes them off as real.
 inline const char *credit(Feed feed, bool simulated = false) {
+  if (simulated) return feed == RADIO ? "simulated radio" : "simulated";
   switch (feed) {
     case ADSB_FI: return "adsb.fi";
-    case RECEIVER: return simulated ? "simulated" : "receiver";
+    case RECEIVER: return "receiver";
     case RADIO: return "radio";
     default: return "adsb.lol";
   }

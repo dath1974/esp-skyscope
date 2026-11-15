@@ -6,13 +6,13 @@ Live aircraft tracking on a small, self-contained ESP32 touch screen. The screen
 exchange and map tiles from public tile servers, and decodes and draws everything itself: no computer, no app.
 
 <p>
-<img src="docs/screens/streets-dark.png" alt="Streets, dark, with airspace" width="24%">
-<img src="docs/screens/sectional.png" alt="VFR sectional" width="24%">
-<img src="docs/screens/radar.png" alt="Radar scope" width="24%">
-<img src="docs/screens/weather-radar.png" alt="Weather radar" width="24%">
+<img src="docs/screens/p4/card.png" alt="A plane's card" width="24%">
+<img src="docs/screens/p4/sectional.png" alt="VFR sectional" width="24%">
+<img src="docs/screens/p4/radar.png" alt="Radar scope" width="24%">
+<img src="docs/screens/p4/weather-radar.png" alt="Weather radar" width="24%">
 </p>
 
-More pictures, each map and page with a word on it: [docs/screens.md](docs/screens.md).
+More pictures, each map and page with a word on it, on the P4 4C and the AMOLED 2.41: [docs/screens.md](docs/screens.md).
 
 ## What it does
 

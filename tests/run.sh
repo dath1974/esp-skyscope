@@ -14,4 +14,6 @@ ${CXX:-c++} -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-f
   "$here/test_host.cpp" -o "$build/test_host"
 # What tests/mock_services.py answers for each public service, read here with the screen's own parsers.
 python3 "$here/mock_services.py" "$build/mock"
-MOCK_ANSWERS="$build/mock" "$build/test_host" "$@"
+# What tests/mock_radio.py makes of made-up planes, read with the screen's own decoder.
+python3 "$here/mock_radio.py" "$build/radio.txt"
+MOCK_ANSWERS="$build/mock" MOCK_RADIO="$build/radio.txt" "$build/test_host" "$@"

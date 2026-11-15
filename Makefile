@@ -40,6 +40,7 @@
 #   make test-esp32-public  the public services themselves, at a test place
 #   make screenshots      docs/screens.md's pictures, taken from the screen
 #                         over the real maps with made-up planes [ONLY=a,b]
+#                         [PORT=8096 for a second screen at once]
 #
 # Release, in order (release.yml does the rest once the tag is pushed)
 #   make release-version VERSION=<x.y.z>

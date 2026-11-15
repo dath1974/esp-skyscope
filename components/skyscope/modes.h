@@ -92,6 +92,44 @@ struct Message {
   uint16_t signal = 0;    // the preamble's pulses, in the units of Powers
 };
 
+// A message written as its bytes in hex, as receivers log them ("8D4840D6202CC371C32CE0576098"), checked as the
+// demodulator checks one it hears, with no bit put right: for made-up messages handed to the radio in a test
+// (radio.h hear). False for one that is not hex, is the wrong length for its kind, is of a kind not read, or whose
+// checksum fails.
+inline bool from_hex(const char *hex, const Crc &crc, Message &m) {
+  m = Message{};
+  auto nibble = [](char c) {
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                                                                                        : -1;
+  };
+  const size_t length = hex ? std::strlen(hex) : 0;
+  if (length != 14 && length != 28) return false;
+  for (size_t i = 0; i < length; i += 2) {
+    const int hi = nibble(hex[i]), lo = nibble(hex[i + 1]);
+    if (hi < 0 || lo < 0) return false;
+    m.data[i / 2] = (uint8_t) (hi << 4 | lo);
+  }
+  m.df = df_of(m.data);
+  m.bits = bits_of(m.df);
+  if ((size_t) m.bits != length * 4) return false;
+  const int df = m.df;
+  if (!(df == 0 || df == 4 || df == 5 || df == 11 || df == 16 || df == 17 || df == 18 || df == 20 || df == 21))
+    return false;
+  const uint32_t r = crc.residue(m.data, m.bits);
+  if (df == 17 || df == 18) {
+    if (r != 0) return false;
+    m.address = address_field(m.data);
+  } else if (df == 11) {
+    if (r & ~0x7Fu) return false;
+    m.address = address_field(m.data);
+  } else {
+    m.address = r;
+    m.overlaid = true;
+  }
+  m.signal = 1000;  // a strong reply
+  return true;
+}
+
 // What the demodulator found, since it started.
 struct Counts {
   uint64_t samples = 0;

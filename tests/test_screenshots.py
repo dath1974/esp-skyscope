@@ -1,6 +1,7 @@
 """tools/screenshots.py without a screen: the picture the screen sends read right, the made-up sky where it should be,
-and the scenes all known."""
+what this machine answers in the world's place, and the scenes all known."""
 
+import json
 import math
 import struct
 import sys
@@ -53,7 +54,7 @@ class Picture(unittest.TestCase):
 
 class MadeUpSky(unittest.TestCase):
     def sky(self, code="KJFK", range_nm=20, runway=None):
-        lat, lon, elevation, _, country = screenshots.PLACES[code]
+        lat, lon, elevation, _, country, _ = screenshots.PLACES[code]
         return screenshots.Sky(code, lat, lon, elevation, runway, range_nm, country == "uk")
 
     def test_the_same_each_run(self):
@@ -95,17 +96,112 @@ class MadeUpSky(unittest.TestCase):
         self.assertTrue(any(first[f] != later[f] for f in first if f in later))
 
 
+    def test_places_their_own_addresses(self):
+        # A radio moved from one place to the next never takes a plane of one for another's.
+        jfk = {p["hex"] for p in self.sky("KJFK").aircraft()}
+        sea = {p["hex"] for p in self.sky("KSEA").aircraft()}
+        self.assertFalse(jfk & sea)
+
+    def test_nasa_905_round_the_statue(self):
+        sky = self.sky()
+        for later in (0, 200, 400, 3600):
+            nasa = next(p for p in sky.aircraft(sky.started + later) if p["flight"].strip() == "NASA905")
+            self.assertEqual(nasa["hex"], screenshots.NASA["hex"])
+            self.assertAlmostEqual(screenshots.dist_nm(*screenshots.LIBERTY, nasa["lat"], nasa["lon"]), 2.5, delta=0.05)
+            # Flying round it, at right angles to the line from the statue.
+            out = screenshots.bearing_of(*screenshots.LIBERTY, nasa["lat"], nasa["lon"])
+            self.assertAlmostEqual(abs((nasa["track"] - out + 180) % 360 - 180), 90, delta=2)
+        self.assertNotIn("NASA905 ", [p["flight"] for p in self.sky("KSEA").aircraft()])
+
+    def test_an_emergency_called(self):
+        sky = self.sky("KSEA")
+        light = next(f["flight"] for _, _, f in sky.planes if f["t"] == "C172")
+        sky.squawking.add(light)
+        called = [p for p in sky.aircraft() if p["squawk"] == "7700"]
+        self.assertEqual([p["flight"].strip() for p in called], [light])
+
+
+class TheWorld(unittest.TestCase):
+    """What this machine answers while the screen is sent here (Studio), without a network: nothing is passed on."""
+
+    def setUp(self):
+        self.studio = screenshots.Studio(0)
+        lat, lon, elevation, _, _, town = screenshots.PLACES["KJFK"]
+        self.studio.place(screenshots.Sky("KJFK", lat, lon, elevation, None, 20, False), lat, lon, town)
+
+    def tearDown(self):
+        self.studio.httpd.server_close()
+
+    def get(self, path):
+        status, kind, body, _ = self.studio.answer(path, {})
+        return status, kind, body
+
+    def test_planes_made_up_and_said_so(self):
+        for path in ("/data/aircraft.json", "/opendata.adsb.fi/api/v2/lat/40.6/lon/-73.7/dist/25",
+                     "/api.adsb.lol/v2/callsign/NASA905"):
+            status, _, body = self.get(path)
+            reply = json.loads(body)
+            self.assertEqual(status, 200, path)
+            self.assertTrue(reply["simulated"], path)
+            self.assertTrue(reply.get("aircraft") or reply.get("ac"), path)
+        found = json.loads(self.get("/api.adsb.lol/v2/callsign/NASA905")[2])["ac"]
+        self.assertEqual([p["r"] for p in found], ["N905NA"])
+
+    def test_nasa_alone_has_a_photo_and_a_route(self):
+        photo = json.loads(self.get(f"/api.planespotters.net/pub/photos/hex/{screenshots.NASA['hex'].upper()}")[2])
+        self.assertEqual(photo["photos"][0]["photographer"], "NASA")
+        self.assertTrue(photo["photos"][0]["link"].startswith("https://"))
+        self.assertEqual(json.loads(self.get("/api.planespotters.net/pub/photos/hex/A10010")[2]), {"photos": []})
+        status, kind, body = self.get("/cdn.planespotters.net/nasa/ad905a.jpg")
+        self.assertEqual((status, kind), (200, "image/jpeg"))
+        self.assertTrue(body.startswith(b"\xff\xd8"))
+        asked = json.dumps({"planes": [{"callsign": "NASA905", "lat": 40.69, "lng": -74.04},
+                                       {"callsign": "DAL123", "lat": 40.6, "lng": -73.7}]}).encode()
+        status, _, body = self.studio.post("/api.adsb.lol/api/0/routeset", asked)
+        routes = json.loads(body)
+        self.assertEqual(routes[0]["airport_codes"], "KIAD-KJFK")
+        self.assertEqual(routes[1]["airport_codes"], "unknown")
+        self.assertEqual(self.get("/hexdb.io/api/v2/routes/DAL123")[0], 404)
+
+    def test_never_the_screens_own_place(self):
+        found = json.loads(self.get("/free.freeipapi.com/api/v1/json")[2])
+        self.assertEqual(found["cityName"], "Queens")
+        self.assertLess(screenshots.dist_nm(40.6413, -73.7781, found["latitude"], found["longitude"]), 5)
+
+    def test_anything_else_not_known(self):
+        self.assertEqual(self.get("/dath1974.github.io/esp-skyscope/x/manifest.json")[0], 404)
+        self.assertEqual(self.studio.unknown, ["/dath1974.github.io/esp-skyscope/x/manifest.json"])
+
+
 class Scenes(unittest.TestCase):
     def test_known(self):
-        names = [s[0] for s in screenshots.SCENES]
+        names = [s.name for s in screenshots.SCENES]
         self.assertEqual(len(names), len(set(names)))
-        for name, place, title, caption, settings, action in screenshots.SCENES:
-            self.assertTrue(place == "rain" or place in screenshots.PLACES, name)
-            self.assertIn(settings["map"], ("radar", "osm", "streets", "satellite", "topo", "sectional", "ifr_low",
-                                            "ifr_high"), name)
-            self.assertIn(action, (None, "card", "menu", "weather", "watch"), name)
-            self.assertTrue(title and caption.endswith("."), name)
-            self.assertTrue(math.isfinite(settings["range_nm"]))
+        folders = {b[0] for b in screenshots.BOARDS.values()}
+        for s in screenshots.SCENES:
+            self.assertTrue(s.place == "rain" or s.place in screenshots.PLACES, s.name)
+            self.assertIn(s.settings["map"], ("radar", "osm", "streets", "satellite", "topo", "sectional", "ifr_low",
+                                              "ifr_high"), s.name)
+            self.assertIn(s.action, screenshots.ACTIONS, s.name)
+            self.assertTrue(set(s.boards) <= folders, s.name)
+            for board in folders:
+                self.assertTrue(s.title and s.caption_for(board).endswith("."), s.name)
+            self.assertTrue(math.isfinite(s.settings["range_nm"]))
+
+    def test_the_page(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            screens = Path(d) / "screens"
+            for folder, names in (("p4", ("splash", "card")), ("amoled", ("card",))):
+                (screens / folder).mkdir(parents=True)
+                for n in names:
+                    (screens / folder / f"{n}.png").write_bytes(b"")
+            page = screenshots.write_page(screens).read_text()
+            self.assertLess(page.index("## Waveshare ESP32-P4 4C"), page.index("## Waveshare AMOLED 2.41"))
+            self.assertIn('src="screens/p4/splash.png"', page)
+            self.assertIn('src="screens/amoled/card.png"', page)
+            self.assertNotIn("amoled/splash.png", page)
+            self.assertIn("simulated radio", page)
 
 
 if __name__ == "__main__":

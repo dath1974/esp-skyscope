@@ -24,7 +24,8 @@ are the user guide; read them for what the screen does and how it is set up.
   - `page.h`: the whole settings page (HTML and script) as one raw string. No external resources.
   - `__init__.py`: the component's YAML schema and codegen.
 - `tests/`: `test_host.cpp` (C++ on a PC), `test_page.mjs` (the page's script), `test_release_site.py`,
-  `test_web_stack.py` (no floats printed on the web server's task), `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen).
+  `test_web_stack.py` (no floats printed on the web server's task), `device_test.py`, `mock_feed.py` and `mock_services.py` (against a real screen),
+  `mock_radio.py` (made-up planes as a radio hears them, for the screenshots).
 - `tools/`: `release_site.py` (the release manifest), `markers.cpp` (the aircraft sheet), `emblem.cpp` (the emblem's
   sheet and `docs/emblem.svg`), `screenshots.py` (`docs/screens.md`'s pictures, from a real screen), `wake_table.py`
   (`wake.h`, each type's wake category from the FAA's list).
